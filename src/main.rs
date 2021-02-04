@@ -1,223 +1,271 @@
 #[macro_use]
 extern crate failure;
 
-use failure::Error;
-mod font;
-use sdl2::event::{Event, WindowEvent};
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::rect::Rect;
-use sdl2::render::{BlendMode, Texture, TextureCreator};
+#[macro_use]
+pub mod log;
 
-use font::*;
+use failure::Error;
+
 use std::mem;
 use std::slice;
 
-struct Glyph<'a> {
-    has_color: bool,
-    tex: Option<Texture<'a>>,
-    width: u32,
-    height: u32,
-    info: GlyphInfo,
-    bearing_x: i32,
-    bearing_y: i32,
+mod font;
+mod xgfx;
+use font::{ftwrap, Font, FontPattern};
+
+struct TerminalWindow<'a> {
+    window: xgfx::Window<'a>,
+    conn: &'a xcb::Connection,
+    width: u16,
+    height: u16,
+    font: Font,
+    cell_height: f64,
+    cell_width: f64,
+    descender: isize,
+    window_context: xgfx::Context<'a>,
+    buffer_image: xgfx::Image,
+    need_paint: bool,
 }
 
-impl<'a> Glyph<'a> {
-    fn new<T>(
-        texture_creator: &'a TextureCreator<T>,
-        glyph: &ftwrap::FT_GlyphSlotRec_,
-        info: &GlyphInfo,
-        target_cell_height: i64,
-        target_cell_width: i64,
-    ) -> Result<Glyph<'a>, Error> {
+impl<'a> TerminalWindow<'a> {
+    fn new(
+        conn: &xcb::Connection,
+        screen_num: i32,
+        width: u16,
+        height: u16,
+    ) -> Result<TerminalWindow, Error> {
+        let mut pattern = FontPattern::parse("Operator Mono SSm Lig:size=12")?;
+        pattern.add_double("dpi", 96.0)?;
+        let mut font = Font::new(pattern)?;
+        // we always load the cell_height for font 0,
+        // regardless of which font we are shaping here,
+        // so that we can scale glyphs appropriately
+        let (cell_height, cell_width, descender) = font.get_metrics()?;
 
-        let mut info = info.clone();
-        let mut tex = None;
-        let mut width = glyph.bitmap.width as u32;
-        let mut height = glyph.bitmap.rows as u32;
-        let mut has_color = false;
+        let window = xgfx::Window::new(&conn, screen_num, width, height)?;
+        window.set_title("miro");
+        let window_context = xgfx::Context::new(conn, &window);
 
-        if width == 0 || height == 0 {
-            // Special case for zero sized bitmaps; we can't
-            // build a texture with zero dimenions, so we return
-            // a Glyph with tex=None.
+        let buffer_image = xgfx::Image::new(width as usize, height as usize);
+
+        let descender = if descender.is_positive() {
+            ((descender as f64) / 64.0).ceil() as isize
         } else {
-
-            let mode: ftwrap::FT_Pixel_Mode =
-                unsafe { mem::transmute(glyph.bitmap.pixel_mode as u32) };
-
-            // pitch is the number of bytes per source row
-            let pitch = glyph.bitmap.pitch.abs() as usize;
-            let data =
-                unsafe { slice::from_raw_parts(glyph.bitmap.buffer, height as usize * pitch) };
-
-            let mut t = match mode {
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
-                    width = width / 3;
-                    texture_creator
-                        .create_texture_static(Some(PixelFormatEnum::BGR24), width, height)
-                        .map_err(failure::err_msg)?
-                }
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
-                    has_color = true;
-                    texture_creator
-                        .create_texture_static(
-                            // Note: the pixelformat is BGRA and we really
-                            // want to use BGRA32 as the PixelFormatEnum
-                            // value (which is endian corrected) but that
-                            // is missing.  Instead, we have to go to the
-                            // lower level pixel format value and handle
-                            // the endianness for ourselves
-                            Some(if cfg!(target_endian = "big") {
-                                PixelFormatEnum::BGRA8888
-                            } else {
-                                PixelFormatEnum::ARGB8888
-                            }),
-                            width,
-                            height,
-                        )
-                        .map_err(failure::err_msg)?
-                }
-                mode @ _ => bail!("unhandled pixel mode: {:?}", mode),
-            };
-
-            t.update(None, data, pitch)?;
-            tex = Some(t);
-        }
-
-        let mut bearing_x = glyph.bitmap_left;
-        let mut bearing_y = glyph.bitmap_top;
-
-        let scale = if (info.x_advance / info.num_cells as i32) as i64 > target_cell_width {
-            info.num_cells as f64 * (target_cell_width as f64 / info.x_advance as f64)
-        } else if height as i64 > target_cell_height {
-            target_cell_height as f64 / height as f64
-        } else {
-            1.0f64
+            ((descender as f64) / 64.0).floor() as isize
         };
 
-        if scale != 1.0f64 {
-            println!(
-                "scaling {:?} w={} {}, h={} {} by {}",
-                info,
-                width,
-                target_cell_width,
-                height,
-                target_cell_height,
-                scale
-            );
-            width = (width as f64 * scale) as u32;
-            height = (height as f64 * scale) as u32;
-            bearing_x = (bearing_x as f64 * scale) as i32;
-            bearing_y = (bearing_y as f64 * scale) as i32;
-            info.x_advance = (info.x_advance as f64 * scale) as i32;
-            info.y_advance = (info.y_advance as f64 * scale) as i32;
-            info.x_offset = (info.x_offset as f64 * scale) as i32;
-            info.y_offset = (info.y_offset as f64 * scale) as i32;
-        }
-
-        Ok(Glyph {
-            has_color,
-            tex,
+        Ok(TerminalWindow {
+            window,
+            window_context,
+            buffer_image,
+            conn,
             width,
             height,
-            info,
-            bearing_x,
-            bearing_y,
+            font,
+            cell_height,
+            cell_width,
+            descender,
+            need_paint: true,
         })
     }
-}
 
-fn glyphs_for_text<'a, T>(
-    texture_creator: &'a TextureCreator<T>,
-    s: &str,
-) -> Result<Vec<Glyph<'a>>, Error> {
+    fn show(&self) {
+        self.window.show();
+    }
 
-    let pattern = FontPattern::parse("Operator Mono SSm:size=12:weight=SemiLight")?;
-    let mut font = Font::new(pattern)?;
+    fn resize_surfaces(&mut self, width: u16, height: u16) -> Result<bool, Error> {
+        if width != self.width || height != self.height {
+            debug!("resize {},{}", width, height);
+            let mut buffer = xgfx::Image::new(width as usize, height as usize);
+            buffer.draw_image(0, 0, &self.buffer_image);
+            self.buffer_image = buffer;
+            self.width = width;
+            self.height = height;
+            self.need_paint = true;
+            Ok(true)
+        } else {
+            debug!("ignoring extra resize");
+            Ok(false)
+        }
+    }
 
-    // We always load the cell_height for font 0,
-    // regardless of which font we are shaping here,
-    // so that we can scale glyphs appropriately
-    let (cell_height, cell_width) = font.get_metrics()?;
+    fn expose(&mut self, x: u16, y: u16, width: u16, height: u16) -> Result<(), Error> {
+        debug!("expose {},{}, {},{}", x, y, width, height);
+        if x == 0 && y == 0 && width == self.width && height == self.height {
+            self.window_context.put_image(0, 0, &self.buffer_image);
+        } else {
+            let mut im = xgfx::Image::new(width as usize, height as usize);
+            im.draw_image_subset(
+                0,
+                0,
+                x as usize,
+                y as usize,
+                width as usize,
+                height as usize,
+                &self.buffer_image,
+            );
+            self.window_context.put_image(x as i16, y as i16, &im);
+        }
+        self.conn.flush();
 
-    let mut result = Vec::new();
-    for info in font.shape(0, s)? {
-        if info.glyph_pos == 0 {
-            println!("skip: no codepoint for this one {:?}", info);
-            continue;
+        Ok(())
+    }
+
+    fn paint(&mut self) -> Result<(), Error> {
+        debug!("paint");
+        self.need_paint = false;
+
+        let message = "x_advance != foo->bar(); ❤ 😍🤢";
+
+        self.buffer_image.clear(xgfx::Color::rgb(0, 0, 0));
+
+        let mut x = 0 as isize;
+        let mut y = self.cell_height.ceil() as isize;
+        let glyph_info = self.font.shape(0, message)?;
+        for info in glyph_info {
+            let has_color = self.font.has_color(info.font_idx)?;
+            let ft_glyph = self.font.load_glyph(info.font_idx, info.glyph_pos)?;
+
+            let scale = if (info.x_advance / info.num_cells as f64).floor() > self.cell_width {
+                info.num_cells as f64 * (self.cell_width / info.x_advance)
+            } else if ft_glyph.bitmap.rows as f64 > self.cell_height {
+                self.cell_height / ft_glyph.bitmap.rows as f64
+            } else {
+                1.0f64
+            };
+            let (x_offset, y_offset, x_advance, y_advance) = if scale != 1.0 {
+                (
+                    info.x_offset * scale,
+                    info.y_offset * scale,
+                    info.x_advance * scale,
+                    info.y_advance * scale,
+                )
+            } else {
+                (info.x_offset, info.y_offset, info.x_advance, info.y_advance)
+            };
+
+            if ft_glyph.bitmap.width == 0 || ft_glyph.bitmap.rows == 0 {
+                // a whitespace glyph
+            } else {
+                let mode: ftwrap::FT_Pixel_Mode =
+                    unsafe { mem::transmute(ft_glyph.bitmap.pixel_mode as u32) };
+
+                // pitch is the number of bytes per source row
+                let pitch = ft_glyph.bitmap.pitch.abs() as usize;
+                let data = unsafe {
+                    slice::from_raw_parts_mut(
+                        ft_glyph.bitmap.buffer,
+                        ft_glyph.bitmap.rows as usize * pitch,
+                    )
+                };
+
+                let image = match mode {
+                    ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_LCD => xgfx::Image::with_bgr24(
+                        ft_glyph.bitmap.width as usize / 3,
+                        ft_glyph.bitmap.rows as usize,
+                        pitch as usize,
+                        data,
+                    ),
+                    ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => xgfx::Image::with_bgra32(
+                        ft_glyph.bitmap.width as usize,
+                        ft_glyph.bitmap.rows as usize,
+                        pitch as usize,
+                        data,
+                    ),
+                    ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_GRAY => xgfx::Image::with_8bpp(
+                        ft_glyph.bitmap.width as usize,
+                        ft_glyph.bitmap.rows as usize,
+                        pitch as usize,
+                        data,
+                    ),
+                    mode @ _ => bail!("unhandled pixel mode: {:?}", mode),
+                };
+
+                let bearing_x = (ft_glyph.bitmap_left as f64 * scale) as isize;
+                let bearing_y = (ft_glyph.bitmap_top as f64 * scale) as isize;
+
+                debug!(
+                    "x,y: {},{} desc={} bearing:{},{} off={},{} adv={},{} scale={}",
+                    x,
+                    y,
+                    self.descender,
+                    bearing_x,
+                    bearing_y,
+                    x_offset,
+                    y_offset,
+                    x_advance,
+                    y_advance,
+                    scale,
+                );
+
+                let image = if scale != 1.0 { image.scale_by(scale) } else { image };
+
+                // TODO: colorize
+                self.buffer_image.draw_image(
+                    x + x_offset as isize + bearing_x,
+                    y + self.descender - (y_offset as isize + bearing_y),
+                    &image,
+                );
+            }
+
+            x += x_advance as isize;
+            y += y_advance as isize;
         }
 
-        let glyph = font.load_glyph(info.font_idx, info.glyph_pos)?;
-
-        let g = Glyph::new(texture_creator, glyph, &info, cell_height, cell_width)?;
-        result.push(g);
+        Ok(())
     }
-    Ok(result)
 }
 
 fn run() -> Result<(), Error> {
-    let sdl_context = sdl2::init().map_err(failure::err_msg)?;
-    let video_subsys = sdl_context.video().map_err(failure::err_msg)?;
-    let window = video_subsys
-        .window("miro", 1024, 768)
-        .resizable()
-        .opengl()
-        .build()?;
-    let mut canvas = window.into_canvas().build()?;
-    let texture_creator = canvas.texture_creator();
-    let mut glyphs = glyphs_for_text(&texture_creator, "x_advance != foo->bar(); ❤ 😍")?;
+    let (conn, screen_num) = xcb::Connection::connect(None)?;
+    println!("Connected screen {}", screen_num);
 
-    for event in sdl_context
-        .event_pump()
-        .map_err(failure::err_msg)?
-        .wait_iter()
-    {
-        match event {
-            Event::KeyDown { keycode: Some(Keycode::Escape), .. } |
-            Event::Quit { .. } => break,
-            Event::Window { win_event: WindowEvent::Resized(..), .. } => {
-                println!("resize");
-            }
-            Event::Window { win_event: WindowEvent::Exposed, .. } => {
-                println!("exposed");
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 255));
-                canvas.clear();
-                canvas.set_blend_mode(BlendMode::Blend);
+    let mut window = TerminalWindow::new(&conn, screen_num, 1024, 300)?;
+    window.show();
 
-                let mut x = 10i32;
-                let mut y = 100i32;
-                for g in glyphs.iter_mut() {
-                    if let &mut Some(ref mut tex) = &mut g.tex {
-                        if !g.has_color {
-                            tex.set_color_mod(0xb3, 0xb3, 0xb3);
-                        }
-                        canvas
-                            .copy(
-                                &tex,
-                                None,
-                                Some(Rect::new(
-                                    x + g.info.x_offset + g.bearing_x,
-                                    y - g.info.y_offset - g.bearing_y,
-                                    g.width,
-                                    g.height,
-                                )),
-                            )
-                            .map_err(failure::err_msg)?;
-                    }
-                    x += g.info.x_advance;
-                    y += g.info.y_advance;
+    conn.flush();
+
+    loop {
+        // If we need to re-render the display, try to defer that until after we've
+        // consumed the input queue
+        let event = if window.need_paint {
+            match conn.poll_for_queued_event() {
+                None => {
+                    window.paint()?;
+                    conn.flush();
+                    continue;
                 }
-
-                canvas.present();
+                Some(event) => Some(event),
             }
-            _ => {}
+        } else {
+            conn.wait_for_event()
+        };
+        match event {
+            None => break,
+            Some(event) => {
+                let r = event.response_type() & 0x7f;
+                match r {
+                    xcb::EXPOSE => {
+                        let expose: &xcb::ExposeEvent = unsafe { xcb::cast_event(&event) };
+                        window.expose(expose.x(), expose.y(), expose.width(), expose.height())?;
+                    }
+                    xcb::CONFIGURE_NOTIFY => {
+                        let cfg: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(&event) };
+                        window.resize_surfaces(cfg.width(), cfg.height())?;
+                    }
+                    xcb::KEY_PRESS => {
+                        let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
+                        debug!("Key '{}' pressed", key_press.detail());
+                        break;
+                    }
+                    _ => {}
+                }
+            }
         }
     }
+
     Ok(())
 }
-
 
 fn main() {
     run().unwrap();

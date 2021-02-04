@@ -33,11 +33,7 @@ impl<'a> Iterator for FontSetIter<'a> {
             if self.position == (*self.set.fonts).nfont as isize {
                 None
             } else {
-                let pat = *(*self.set.fonts)
-                    .fonts
-                    .offset(self.position)
-                    .as_mut()
-                    .unwrap();
+                let pat = *(*self.set.fonts).fonts.offset(self.position).as_mut().unwrap();
                 FcPatternReference(pat);
                 self.position += 1;
                 Some(Pattern { pat })
@@ -48,10 +44,7 @@ impl<'a> Iterator for FontSetIter<'a> {
 
 impl FontSet {
     pub fn iter(&self) -> FontSetIter {
-        FontSetIter {
-            set: &self,
-            position: 0,
-        }
+        FontSetIter { set: &self, position: 0 }
     }
 
     #[allow(dead_code)]
@@ -130,6 +123,20 @@ impl Pattern {
     }
 
     #[allow(dead_code)]
+    pub fn add_double(&mut self, key: &str, value: f64) -> Result<(), Error> {
+        let key = CString::new(key)?;
+        unsafe {
+            ensure!(
+                FcPatternAddDouble(self.pat, key.as_ptr(), value) != 0,
+                "failed to set double property {:?} -> {}",
+                key,
+                value
+            );
+            Ok(())
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn add_integer(&mut self, key: &str, value: i32) -> Result<(), Error> {
         let key = CString::new(key)?;
         unsafe {
@@ -167,9 +174,7 @@ impl Pattern {
             let s = FcPatternFormat(self.pat, fmt.as_ptr() as *const u8);
             ensure!(!s.is_null(), "failed to format pattern");
 
-            let res = CStr::from_ptr(s as *const i8)
-                .to_string_lossy()
-                .into_owned();
+            let res = CStr::from_ptr(s as *const i8).to_string_lossy().into_owned();
             FcStrFree(s);
             Ok(res)
         }
@@ -236,39 +241,13 @@ impl Pattern {
         self.get_string("file")
     }
 
-    pub fn get_string(&self, key: &str) -> Result<String, Error> {
-        unsafe {
-            let key = CString::new(key)?;
-            let mut ptr: *mut u8 = ptr::null_mut();
-            let res = FcResultWrap(FcPatternGetString(
-                self.pat,
-                key.as_ptr(),
-                0,
-                &mut ptr as *mut *mut u8,
-            ));
-            if !res.succeeded() {
-                Err(res.as_err())
-            } else {
-                Ok(
-                    CStr::from_ptr(ptr as *const i8)
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            }
-        }
-    }
-
     #[allow(dead_code)]
     pub fn get_double(&self, key: &str) -> Result<f64, Error> {
         unsafe {
             let key = CString::new(key)?;
             let mut fval: f64 = 0.0;
-            let res = FcResultWrap(FcPatternGetDouble(
-                self.pat,
-                key.as_ptr(),
-                0,
-                &mut fval as *mut _,
-            ));
+            let res =
+                FcResultWrap(FcPatternGetDouble(self.pat, key.as_ptr(), 0, &mut fval as *mut _));
             if !res.succeeded() {
                 Err(res.as_err())
             } else {
@@ -282,16 +261,30 @@ impl Pattern {
         unsafe {
             let key = CString::new(key)?;
             let mut ival: i32 = 0;
-            let res = FcResultWrap(FcPatternGetInteger(
-                self.pat,
-                key.as_ptr(),
-                0,
-                &mut ival as *mut _,
-            ));
+            let res =
+                FcResultWrap(FcPatternGetInteger(self.pat, key.as_ptr(), 0, &mut ival as *mut _));
             if !res.succeeded() {
                 Err(res.as_err())
             } else {
                 Ok(ival)
+            }
+        }
+    }
+
+    pub fn get_string(&self, key: &str) -> Result<String, Error> {
+        unsafe {
+            let key = CString::new(key)?;
+            let mut ptr: *mut u8 = ptr::null_mut();
+            let res = FcResultWrap(FcPatternGetString(
+                self.pat,
+                key.as_ptr(),
+                0,
+                &mut ptr as *mut *mut u8,
+            ));
+            if !res.succeeded() {
+                Err(res.as_err())
+            } else {
+                Ok(CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned())
             }
         }
     }

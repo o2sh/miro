@@ -1,11 +1,16 @@
 //! Higher level harfbuzz bindings
 
+use crate::font::ftwrap::Face;
 use failure::Error;
+use freetype::freetype;
 pub use harfbuzz_sys::*;
 use std::mem;
 use std::ptr;
 use std::slice;
-use crate::font::ftwrap::Face;
+
+extern "C" {
+    fn hb_ft_font_set_load_flags(font: *mut hb_font_t, load_flags: i32);
+}
 
 pub fn language_from_string(s: &str) -> Result<hb_language_t, Error> {
     unsafe {
@@ -19,11 +24,8 @@ pub fn feature_from_string(s: &str) -> Result<hb_feature_t, Error> {
     unsafe {
         let mut feature = mem::zeroed();
         ensure!(
-            hb_feature_from_string(
-                s.as_ptr() as *const i8,
-                s.len() as i32,
-                &mut feature as *mut _,
-            ) != 0,
+            hb_feature_from_string(s.as_ptr() as *const i8, s.len() as i32, &mut feature as *mut _,)
+                != 0,
             "failed to create feature from {}",
             s
         );
@@ -51,6 +53,12 @@ impl Font {
         // if everything fails, so there's nothing for us to
         // test here.
         Font { font: unsafe { hb_ft_font_create_referenced(face.face) } }
+    }
+
+    pub fn set_load_flags(&mut self, load_flags: freetype::FT_Int32) {
+        unsafe {
+            hb_ft_font_set_load_flags(self.font, load_flags);
+        }
     }
 
     /// Perform shaping.  On entry, Buffer holds the text to shape.
@@ -82,10 +90,7 @@ impl Buffer {
     /// Create a new buffer
     pub fn new() -> Result<Buffer, Error> {
         let buf = unsafe { hb_buffer_create() };
-        ensure!(
-            unsafe { hb_buffer_allocation_successful(buf) } != 0,
-            "hb_buffer_create failed"
-        );
+        ensure!(unsafe { hb_buffer_allocation_successful(buf) } != 0, "hb_buffer_create failed");
         Ok(Buffer { buf })
     }
 
