@@ -15,8 +15,11 @@ harfbuzz-sys = "0.5.0"
 resize = "0.6.2"
 servo-fontconfig = "0.5.1"
 unicode-width = "0.1.4"
-vte = "0.10.0"
+vte = "0.3.2"
 xcb = "0.9.0"
+unicode-segmentation = "1.7.1"
+libc = "0.2.85"
+mio = "0.6.12"
 
 [dependencies.xcb-util]
 features = [
