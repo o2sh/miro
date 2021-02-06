@@ -72,6 +72,18 @@ fn dup(fd: RawFd) -> Result<RawFd, Error> {
     }
 }
 
+fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL, 0) };
+    if flags == -1 {
+        bail!("fcntl to read flags failed: {:?}", io::Error::last_os_error());
+    }
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if result == -1 {
+        bail!("fcntl to set NONBLOCK failed: {:?}", io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Create a new Pty instance with the window size set to the specified
 /// dimensions.  Returns a (master, slave) Pty pair.  The master side
 /// is used to drive the slave side.
@@ -108,6 +120,8 @@ pub fn openpty(
     cloexec(master.fd)?;
     cloexec(slave.fd)?;
 
+    set_nonblocking(master.fd)?;
+
     Ok((master, slave))
 }
 
@@ -143,14 +157,18 @@ impl SlavePty {
                     }
 
                     // Establish ourselves as a session leader.
-                    // On Linux, this will implicitly result in the pty
-                    // being set as the controlling terminal when we exec
-                    // the program momentarily.
                     if libc::setsid() == -1 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(())
+                        return Err(io::Error::last_os_error());
                     }
+
+                    // Set the pty as the controlling terminal.
+                    // Failure to do this means that delivery of
+                    // SIGWINCH won't happen when we resize the
+                    // terminal, among other undesirable effects.
+                    if libc::ioctl(0, libc::TIOCSCTTY, 0) == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
                 }
             },
         );

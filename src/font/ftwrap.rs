@@ -61,7 +61,10 @@ impl Face {
         unsafe {
             let res = FT_Load_Glyph(self.face, glyph_index, load_flags);
             if res == FT_Err_Ok as FT_Error {
-                FT_Render_Glyph((*self.face).glyph, render_mode);
+                let render = FT_Render_Glyph((*self.face).glyph, render_mode);
+                if !render == FT_Err_Ok as FT_Error {
+                    bail!("FT_Render_Glyph failed: {:?}", render);
+                }
             }
             ft_result(res, &*(*self.face).glyph)
         }

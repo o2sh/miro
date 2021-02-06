@@ -1,5 +1,6 @@
 //! Colors for attributes
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 /// These correspond to the classic ANSI color indices and are
@@ -45,6 +46,7 @@ pub struct ColorPalette {
     colors: [RgbColor; 256],
     foreground: RgbColor,
     background: RgbColor,
+    cursor: RgbColor,
 }
 
 impl ColorPalette {
@@ -56,6 +58,10 @@ impl ColorPalette {
             &ColorAttribute::Rgb(color) => color,
         }
     }
+
+    pub fn cursor(&self) -> RgbColor {
+        self.cursor
+    }
 }
 
 impl Default for ColorPalette {
@@ -66,20 +72,20 @@ impl Default for ColorPalette {
         // The XTerm ansi color set
         static ANSI: [RgbColor; 16] = [
             RgbColor { red: 0x00, green: 0x00, blue: 0x00 }, // Black
-            RgbColor { red: 0x80, green: 0x00, blue: 0x00 }, // Maroon
-            RgbColor { red: 0x00, green: 0x80, blue: 0x00 }, // Green
-            RgbColor { red: 0x80, green: 0x80, blue: 0x00 }, // Olive
-            RgbColor { red: 0x00, green: 0x00, blue: 0x80 }, // Navy
-            RgbColor { red: 0x80, green: 0x00, blue: 0x80 }, // Purple
-            RgbColor { red: 0x00, green: 0x80, blue: 0x80 }, // Teal
-            RgbColor { red: 0xc0, green: 0xc0, blue: 0xc0 }, // Silver
-            RgbColor { red: 0x80, green: 0x80, blue: 0x80 }, // Grey
-            RgbColor { red: 0xff, green: 0x00, blue: 0x00 }, // Red
-            RgbColor { red: 0x00, green: 0xff, blue: 0x00 }, // Lime
-            RgbColor { red: 0xff, green: 0xff, blue: 0x00 }, // Yellow
-            RgbColor { red: 0x00, green: 0x00, blue: 0xff }, // Blue
-            RgbColor { red: 0xff, green: 0x00, blue: 0xff }, // Fuschia
-            RgbColor { red: 0x00, green: 0xff, blue: 0xff }, // Aqua
+            RgbColor { red: 0xcc, green: 0x55, blue: 0x55 }, // Maroon
+            RgbColor { red: 0x55, green: 0xcc, blue: 0x55 }, // Green
+            RgbColor { red: 0xcd, green: 0xcd, blue: 0x55 }, // Olive
+            RgbColor { red: 0x54, green: 0x55, blue: 0xcb }, // Navy
+            RgbColor { red: 0xcc, green: 0x55, blue: 0xcc }, // Purple
+            RgbColor { red: 0x7a, green: 0xca, blue: 0xca }, // Teal
+            RgbColor { red: 0xcc, green: 0xcc, blue: 0xcc }, // Silver
+            RgbColor { red: 0x55, green: 0x55, blue: 0x55 }, // Grey
+            RgbColor { red: 0xff, green: 0x55, blue: 0x55 }, // Red
+            RgbColor { red: 0x55, green: 0xff, blue: 0x55 }, // Lime
+            RgbColor { red: 0xff, green: 0xff, blue: 0x55 }, // Yellow
+            RgbColor { red: 0x55, green: 0x55, blue: 0xff }, // Blue
+            RgbColor { red: 0xff, green: 0x55, blue: 0xff }, // Fuschia
+            RgbColor { red: 0x55, green: 0xff, blue: 0xff }, // Aqua
             RgbColor { red: 0xff, green: 0xff, blue: 0xff }, // White
         ];
 
@@ -110,6 +116,8 @@ impl Default for ColorPalette {
         let foreground = colors[249]; // Grey70
         let background = colors[AnsiColor::Black as usize];
 
-        ColorPalette { colors, foreground, background }
+        let cursor = RgbColor { red: 0x52, green: 0xad, blue: 0x70 };
+
+        ColorPalette { colors, foreground, background, cursor }
     }
 }

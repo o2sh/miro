@@ -1,10 +1,35 @@
 //! Terminal model
 
+use failure::Error;
 use std;
+use std::ops::{Deref, DerefMut};
 use unicode_segmentation;
 use vte;
 
 pub mod color;
+
+bitflags! {
+    #[derive(Default)]
+    pub struct KeyModifiers :u8{
+        const CTRL = 1;
+        const ALT = 2;
+        const META = 4;
+        const SUPER = 8;
+        const SHIFT = 16;
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum KeyCode {
+    Char(char),
+    Unknown,
+    Control,
+    Alt,
+    Meta,
+    Super,
+    Hyper,
+    Shift,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellAttributes {
@@ -109,7 +134,7 @@ impl Default for CellAttributes {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Cell {
     chars: [u8; 8],
     pub attrs: CellAttributes,
@@ -232,10 +257,27 @@ impl Screen {
     /// origin.  0,0 is the top left.
     pub fn set_cell(&mut self, x: usize, y: usize, c: char, attr: &CellAttributes) {
         let line_idx = (self.lines.len() - self.physical_rows) + y;
-        // TODO: if the line isn't wide enough, we should pad it out with
-        // the default attributes
-        println!("set_cell x,y {},{}, line_idx = {} {} {:?}", x, y, line_idx, c, attr);
-        self.lines[line_idx].cells[x] = Cell::from_char(c, attr);
+        debug!("set_cell x,y {},{}, line_idx = {} {} {:?}", x, y, line_idx, c, attr);
+        let cells = &mut self.lines[line_idx].cells;
+        let width = cells.len();
+        // if the line isn't wide enough, pad it out with the default attributes
+        if x >= width {
+            cells.resize(x + 1, Cell::from_char(' ', &CellAttributes::default()));
+        }
+        cells[x] = Cell::from_char(c, attr);
+    }
+
+    pub fn clear_line(&mut self, y: usize, cols: std::ops::Range<usize>) {
+        let blank = Cell::from_char(' ', &CellAttributes::default());
+        let line_idx = (self.lines.len() - self.physical_rows) + y;
+        let line = &mut self.lines[line_idx];
+        let max_col = line.cells.len();
+        for x in cols {
+            if x >= max_col {
+                break;
+            }
+            line.cells[x] = blank;
+        }
     }
 }
 
@@ -278,6 +320,12 @@ impl TerminalState {
         }
     }
 
+    /// Returns the 0-based cursor position relative to the top left of
+    /// the visible screen
+    pub fn cursor_pos(&self) -> (usize, usize) {
+        (self.cursor_x, self.cursor_y)
+    }
+
     fn screen(&mut self) -> &Screen {
         if self.alt_screen_is_active {
             &self.alt_screen
@@ -293,6 +341,76 @@ impl TerminalState {
             &mut self.screen
         }
     }
+
+    pub fn key_down<W: std::io::Write>(
+        &mut self,
+        key: KeyCode,
+        mods: KeyModifiers,
+        write: &mut W,
+    ) -> Result<(), Error> {
+        match key {
+            KeyCode::Char(c) => {
+                let adjusted = if mods.contains(KeyModifiers::CTRL) && c <= 0xff as char {
+                    if mods.contains(KeyModifiers::SHIFT) {
+                        // If shift is held we have C == 0x43 and want to translate
+                        // that into 0x03
+                        (c as u8 - 0x40) as char
+                    } else {
+                        // If shift is not held we have c == 0x63 and want to translate
+                        // that into 0x03
+                        (c as u8 - 0x60) as char
+                    }
+                } else if mods.contains(KeyModifiers::ALT) && c <= 0xff as char {
+                    (c as u8 | 0x80) as char
+                } else {
+                    c
+                };
+
+                let mut buf = [0; 8];
+                let encoded = adjusted.encode_utf8(&mut buf);
+                write.write(encoded.as_bytes())?;
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub fn key_up<W: std::io::Write>(
+        &mut self,
+        _: KeyCode,
+        _: KeyModifiers,
+        _: &mut W,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    /// Return true if the state has changed; the implication is that the terminal
+    /// needs to be redrawn in some fashion.
+    /// TODO: should probably build up a damage list instead
+    pub fn get_state_changed(&self) -> bool {
+        self.state_changed
+    }
+
+    /// Clear the state changed flag; the intent is that the consumer of this
+    /// class will clear the state after each paint.
+    pub fn clear_state_changed(&mut self) {
+        self.state_changed = false;
+    }
+
+    pub fn resize(&mut self, physical_rows: usize, physical_cols: usize) {
+        self.screen.resize(physical_rows, physical_cols);
+        self.alt_screen.resize(physical_rows, physical_cols);
+    }
+
+    /// Returns the width of the screen and a slice over the visible rows
+    /// TODO: should allow an arbitrary view for scrollback
+    pub fn visible_cells(&self) -> (usize, &[Line]) {
+        let screen = if self.alt_screen_is_active { &self.alt_screen } else { &self.screen };
+        let width = screen.physical_cols;
+        let height = screen.physical_rows;
+        let len = screen.lines.len();
+        (width, &screen.lines[len - height..len])
+    }
 }
 
 pub struct Terminal {
@@ -300,6 +418,20 @@ pub struct Terminal {
     state: TerminalState,
     /// Baseline terminal escape sequence parser
     parser: vte::Parser,
+}
+
+impl Deref for Terminal {
+    type Target = TerminalState;
+
+    fn deref(&self) -> &TerminalState {
+        &self.state
+    }
+}
+
+impl DerefMut for Terminal {
+    fn deref_mut(&mut self) -> &mut TerminalState {
+        &mut self.state
+    }
 }
 
 impl Terminal {
@@ -322,35 +454,9 @@ impl Terminal {
             self.parser.advance(&mut self.state, *b);
         }
     }
-
-    /// Return true if the state has changed; the implication is that the terminal
-    /// needs to be redrawn in some fashion.
-    /// TODO: should probably build up a damage list instead
-    pub fn get_state_changed(&self) -> bool {
-        self.state.state_changed
-    }
-
-    /// Clear the state changed flag; the intent is that the consumer of this
-    /// class will clear the state after each paint.
-    pub fn clear_state_changed(&mut self) {
-        self.state.state_changed = false;
-    }
-
-    /// Returns the width of the screen and a slice over the visible rows
-    /// TODO: should allow an arbitrary view for scrollback
-    pub fn visible_cells(&self) -> (usize, &[Line]) {
-        let screen = if self.state.alt_screen_is_active {
-            &self.state.alt_screen
-        } else {
-            &self.state.screen
-        };
-        let width = screen.physical_cols;
-        let height = screen.physical_rows;
-        let len = screen.lines.len();
-        (width, &screen.lines[len - height..len])
-    }
 }
 
+#[derive(Debug)]
 enum CSIAction {
     SetPen(CellAttributes),
     SetForegroundColor(color::ColorAttribute),
@@ -484,8 +590,15 @@ impl vte::Perform for TerminalState {
     fn execute(&mut self, byte: u8) {
         match byte {
             b'\n' => {
-                self.cursor_x = 0;
                 self.cursor_y += 1;
+                self.state_changed = true;
+            }
+            b'\r' => {
+                self.cursor_x = 0;
+                self.state_changed = true;
+            }
+            0x08 => {
+                self.cursor_x -= 1;
                 self.state_changed = true;
             }
             _ => println!("unhandled vte execute {}", byte),
@@ -496,13 +609,15 @@ impl vte::Perform for TerminalState {
     fn unhook(&mut self) {}
     fn osc_dispatch(&mut self, _: &[&[u8]]) {}
     fn csi_dispatch(&mut self, params: &[i64], intermediates: &[u8], ignore: bool, byte: char) {
-        println!(
-            "CSI: params {:?} intermediates {:?} ignore={} byte={}",
-            params, intermediates, ignore, byte
-        );
         match byte {
             'm' => {
                 let mut params = params;
+
+                if params.len() == 0 {
+                    // Empty parameter list means to reset the attributes to default
+                    self.pen = CellAttributes::default();
+                }
+
                 while params.len() > 0 {
                     match CSIAction::parse_sgr(params) {
                         Some((CSIAction::SetPen(pen), remainder)) => {
@@ -552,7 +667,61 @@ impl vte::Perform for TerminalState {
                     }
                 }
             }
-            _ => {}
+            'H' => {
+                // Cursor Position (CUP)
+                if params.len() == 2 {
+                    // coordinates are 1-based; convert to 0-based
+                    self.cursor_y = (params[0] - 1) as usize;
+                    self.cursor_x = (params[1] - 1) as usize;
+                } else {
+                    // no parameters -> home the cursor
+                    self.cursor_x = 0;
+                    self.cursor_y = 0;
+                }
+            }
+            'K' => {
+                // Erase in line (EL)
+                #[derive(Debug)]
+                enum Erase {
+                    ToRight,
+                    ToLeft,
+                    All,
+                    Unknown,
+                }
+                let what = if params.len() == 0 {
+                    Erase::ToRight
+                } else {
+                    match params[0] {
+                        0 => Erase::ToRight,
+                        1 => Erase::ToLeft,
+                        2 => Erase::All,
+                        _ => Erase::Unknown,
+                    }
+                };
+
+                let cx = self.cursor_x;
+                let cy = self.cursor_y;
+                let mut screen = self.screen_mut();
+                let cols = screen.physical_cols;
+                match what {
+                    Erase::ToRight => {
+                        screen.clear_line(cy, cx..cols);
+                    }
+                    Erase::ToLeft => {
+                        screen.clear_line(cy, 0..cx);
+                    }
+                    Erase::All => {
+                        screen.clear_line(cy, 0..cols);
+                    }
+                    Erase::Unknown => {}
+                }
+            }
+            _ => {
+                println!(
+                    "CSI: unhandled params {:?} intermediates {:?} ignore={} byte={}",
+                    params, intermediates, ignore, byte
+                );
+            }
         }
     }
     fn esc_dispatch(&mut self, _: &[i64], _: &[u8], _: bool, _: u8) {}
