@@ -1,13 +1,22 @@
 #[macro_use]
 extern crate failure;
-
-#[macro_use]
-extern crate bitflags;
-
+#[cfg(not(target_os = "macos"))]
+extern crate fontconfig; // from servo-fontconfig
+#[cfg(not(target_os = "macos"))]
+extern crate freetype;
+extern crate harfbuzz_sys;
+extern crate libc;
+extern crate mio;
+extern crate resize;
+extern crate term;
+extern crate unicode_width;
 #[macro_use]
 pub mod log;
 
 use failure::Error;
+
+extern crate xcb;
+extern crate xcb_util;
 
 use mio::unix::EventedFd;
 use mio::{Events, Poll, PollOpt, Ready, Token};
@@ -22,7 +31,6 @@ use font::{ftwrap, Font, FontPattern};
 
 mod pty;
 mod sigchld;
-mod term;
 mod xwin;
 use xwin::TerminalWindow;
 

@@ -7,7 +7,7 @@ use std::ptr;
 
 /// Translate an error and value into a result
 fn ft_result<T>(err: FT_Error, t: T) -> Result<T, Error> {
-    if err == FT_Err_Ok as FT_Error {
+    if err.succeeded() {
         Ok(t)
     } else {
         Err(format_err!("FreeType error {:?}", err))
@@ -60,9 +60,9 @@ impl Face {
     ) -> Result<&FT_GlyphSlotRec_, Error> {
         unsafe {
             let res = FT_Load_Glyph(self.face, glyph_index, load_flags);
-            if res == FT_Err_Ok as FT_Error {
+            if res.succeeded() {
                 let render = FT_Render_Glyph((*self.face).glyph, render_mode);
-                if !render == FT_Err_Ok as FT_Error {
+                if !render.succeeded() {
                     bail!("FT_Render_Glyph failed: {:?}", render);
                 }
             }
@@ -80,7 +80,7 @@ impl Face {
             for i in 32..128 {
                 let glyph_pos = FT_Get_Char_Index(self.face, i);
                 let res = FT_Load_Glyph(self.face, glyph_pos, FT_LOAD_COLOR as i32);
-                if res == FT_Err_Ok as FT_Error {
+                if res.succeeded() {
                     let glyph = &(*(*self.face).glyph);
                     if glyph.metrics.horiAdvance as f64 > width {
                         width = glyph.metrics.horiAdvance as f64;

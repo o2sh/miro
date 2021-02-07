@@ -1,6 +1,9 @@
+use libc;
 use resize;
 use std::convert::From;
+use std::io;
 use std::ops::Deref;
+use std::ptr;
 use std::result;
 use xcb;
 use xcb_util;
@@ -12,7 +15,7 @@ use failure::{self, Error};
 pub type Result<T> = result::Result<T, Error>;
 pub use crate::xkeysyms::*;
 
-use super::term::color::RgbColor;
+use term::color::RgbColor;
 
 pub struct Connection {
     conn: xcb::Connection,
@@ -20,6 +23,7 @@ pub struct Connection {
     atom_protocols: xcb::Atom,
     atom_delete: xcb::Atom,
     keysyms: *mut xcb_key_symbols_t,
+    shm_available: bool,
 }
 
 impl Deref for Connection {
@@ -38,7 +42,10 @@ impl Connection {
 
         let keysyms = unsafe { xcb_key_symbols_alloc(conn.get_raw_conn()) };
 
-        Ok(Connection { conn, screen_num, atom_protocols, atom_delete, keysyms })
+        let reply = xcb::shm::query_version(&conn).get_reply()?;
+        let shm_available = reply.shared_pixmaps();
+
+        Ok(Connection { conn, screen_num, atom_protocols, atom_delete, keysyms, shm_available })
     }
 
     pub fn conn(&self) -> &xcb::Connection {
@@ -159,37 +166,6 @@ impl<'a> Drop for Window<'a> {
     }
 }
 
-pub struct Pixmap<'a> {
-    pixmap_id: xcb::xproto::Pixmap,
-    conn: &'a Connection,
-}
-
-impl<'a> Drawable for Pixmap<'a> {
-    fn as_drawable(&self) -> xcb::xproto::Drawable {
-        self.pixmap_id
-    }
-
-    fn get_conn(&self) -> &Connection {
-        self.conn
-    }
-}
-
-impl<'a> Pixmap<'a> {
-    pub fn new(drawable: &Drawable, depth: u8, width: u16, height: u16) -> Result<Pixmap> {
-        let conn = drawable.get_conn();
-        let pixmap_id = conn.conn().generate_id();
-        xcb::create_pixmap(conn.conn(), depth, pixmap_id, drawable.as_drawable(), width, height)
-            .request_check()?;
-        Ok(Pixmap { conn, pixmap_id })
-    }
-}
-
-impl<'a> Drop for Pixmap<'a> {
-    fn drop(&mut self) {
-        xcb::free_pixmap(self.conn.conn(), self.pixmap_id);
-    }
-}
-
 pub struct Context<'a> {
     gc_id: xcb::xproto::Gcontext,
     conn: &'a Connection,
@@ -299,8 +275,6 @@ impl Color {
                 )
             }
 
-            &Operator::Dest => dest,
-
             &Operator::Source => *self,
 
             &Operator::Multiply => {
@@ -335,8 +309,6 @@ pub enum Operator {
     /// Apply the alpha channel of src and combine src with dest,
     /// according to the classic OVER composite operator
     Over,
-    /// Ignore src; leave dest untouched
-    Dest,
     /// Ignore dest; take src as the result of the operation
     Source,
     /// Multiply src x dest.  The result is at least as dark as
@@ -350,11 +322,128 @@ pub enum Operator {
     MultiplyThenOver(Color),
 }
 
-/// A bitmap in big endian bgra32 color format
+/// A bitmap in big endian bgra32 color format, with storage
+/// in a Vec<u8>.
 pub struct Image {
     data: Vec<u8>,
     width: usize,
     height: usize,
+}
+
+/// A bitmap in big endian bgra32 color format with abstract
+/// storage filled in by the trait implementation.
+pub trait BitmapImage {
+    /// Obtain a read only pointer to the pixel data
+    unsafe fn pixel_data(&self) -> *const u8;
+
+    /// Obtain a mutable pointer to the pixel data
+    unsafe fn pixel_data_mut(&mut self) -> *mut u8;
+
+    /// Return the pair (width, height) of the image, measured in pixels
+    fn image_dimensions(&self) -> (usize, usize);
+
+    #[inline]
+    /// Obtain a mutable reference to the raw bgra pixel at the specified coordinates
+    fn pixel_mut(&mut self, x: usize, y: usize) -> &mut u32 {
+        let (width, height) = self.image_dimensions();
+        assert!(x < width && y < height);
+        unsafe {
+            let offset = (y * width * 4) + (x * 4);
+            &mut *(self.pixel_data_mut().offset(offset as isize) as *mut u32)
+        }
+    }
+
+    #[inline]
+    /// Read the raw bgra pixel at the specified coordinates
+    fn pixel(&self, x: usize, y: usize) -> u32 {
+        let (width, height) = self.image_dimensions();
+        assert!(x < width && y < height);
+        unsafe {
+            let offset = (y * width * 4) + (x * 4);
+            *(self.pixel_data().offset(offset as isize) as *const u32)
+        }
+    }
+
+    /// Clear the entire image to the specific color
+    fn clear(&mut self, color: Color) {
+        let (width, height) = self.image_dimensions();
+        self.clear_rect(0, 0, width, height, color);
+    }
+
+    fn clear_rect(
+        &mut self,
+        dest_x: isize,
+        dest_y: isize,
+        width: usize,
+        height: usize,
+        color: Color,
+    ) {
+        let (dim_width, dim_height) = self.image_dimensions();
+        for y in 0..height {
+            let dest_y = y as isize + dest_y;
+            if dest_y < 0 {
+                continue;
+            }
+            if dest_y as usize >= dim_height {
+                break;
+            }
+            for x in 0..width {
+                let dest_x = x as isize + dest_x;
+                if dest_x < 0 {
+                    continue;
+                }
+                if dest_x as usize >= dim_width {
+                    break;
+                }
+
+                *self.pixel_mut(dest_x as usize, dest_y as usize) = color.0;
+            }
+        }
+    }
+
+    fn draw_image(&mut self, dest_x: isize, dest_y: isize, im: &BitmapImage, operator: Operator) {
+        let (dest_width, dest_height) = im.image_dimensions();
+        self.draw_image_subset(dest_x, dest_y, 0, 0, dest_width, dest_height, im, operator)
+    }
+
+    fn draw_image_subset(
+        &mut self,
+        dest_x: isize,
+        dest_y: isize,
+        src_x: usize,
+        src_y: usize,
+        width: usize,
+        height: usize,
+        im: &BitmapImage,
+        operator: Operator,
+    ) {
+        let (dest_width, dest_height) = im.image_dimensions();
+        let (dim_width, dim_height) = self.image_dimensions();
+        assert!(width <= dest_width && height <= dest_height);
+        assert!(src_x < dest_width && src_y < dest_height);
+        for y in src_y..src_y + height {
+            let dest_y = y as isize + dest_y - src_y as isize;
+            if dest_y < 0 {
+                continue;
+            }
+            if dest_y as usize >= dim_height {
+                break;
+            }
+            for x in src_x..src_x + width {
+                let dest_x = x as isize + dest_x - src_x as isize;
+                if dest_x < 0 {
+                    continue;
+                }
+                if dest_x as usize >= dim_width {
+                    break;
+                }
+
+                let src = Color(im.pixel(x, y));
+                let dst = self.pixel_mut(dest_x as usize, dest_y as usize);
+                *dst = src.composite(Color(*dst), &operator).0;
+            }
+        }
+    }
 }
 
 impl Image {
@@ -442,7 +531,6 @@ impl Image {
             resize::Type::Mitchell
         };
         resize::new(self.width, self.height, width, height, resize::Pixel::RGBA, algo)
-            .unwrap()
             .resize(&self.data, &mut dest.data);
         dest
     }
@@ -452,102 +540,151 @@ impl Image {
         let height = (self.height as f64 * scale) as usize;
         self.resize(width, height)
     }
+}
 
-    #[inline]
-    /// Obtain a mutable reference to the raw bgra pixel at the specified coordinates
-    pub fn pixel_mut(&mut self, x: usize, y: usize) -> &mut u32 {
-        assert!(x < self.width && y < self.height);
+impl BitmapImage for Image {
+    unsafe fn pixel_data(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    unsafe fn pixel_data_mut(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr()
+    }
+
+    fn image_dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+}
+
+/// Holder for a shared memory segment id.
+/// We hold on to the id only until the server has attached
+/// (or failed to attach) to the segment.
+/// The id is removed on Drop.
+struct ShmId {
+    id: libc::c_int,
+}
+
+/// Holder for a shared memory mapping.
+/// The mapping is removed on Drop.
+struct ShmData {
+    /// the base address of the mapping
+    data: *mut u8,
+}
+
+impl ShmId {
+    /// Create a new private shared memory segment of the specified size
+    fn new(size: usize) -> Result<ShmId> {
+        let id = unsafe { libc::shmget(libc::IPC_PRIVATE, size, libc::IPC_CREAT | 0o600) };
+
+        if id == -1 {
+            bail!("shmget failed for {} bytes: {:?}", size, io::Error::last_os_error());
+        }
+
+        Ok(ShmId { id })
+    }
+
+    /// Attach the segment to our address space
+    fn attach(&self) -> Result<ShmData> {
+        let data = unsafe { libc::shmat(self.id, ptr::null(), 0) };
+        if data as usize == !0 {
+            bail!("shmat failed: {:?} {}", data, io::Error::last_os_error());
+        }
+        Ok(ShmData { data: data as *mut u8 })
+    }
+}
+
+impl Drop for ShmId {
+    fn drop(&mut self) {
         unsafe {
-            let offset = (y * self.width * 4) + (x * 4);
-            &mut *(self.data.as_mut_ptr().offset(offset as isize) as *mut u32)
+            libc::shmctl(self.id, libc::IPC_RMID, ptr::null_mut());
         }
     }
+}
 
-    #[inline]
-    /// Read the raw bgra pixel at the specified coordinates
-    pub fn pixel(&self, x: usize, y: usize) -> u32 {
-        assert!(x < self.width && y < self.height);
+impl Drop for ShmData {
+    fn drop(&mut self) {
         unsafe {
-            let offset = (y * self.width * 4) + (x * 4);
-            *(self.data.as_ptr().offset(offset as isize) as *const u32)
+            libc::shmdt(self.data as *const _);
         }
     }
+}
 
-    /// Clear the entire image to the specific color
-    pub fn clear(&mut self, color: Color) {
-        let width = self.width;
-        let height = self.height;
-        self.clear_rect(0, 0, width, height, color);
-    }
+/// An image implementation backed by shared memory.
+/// This also has an associated pixmap on the server side,
+/// so we implement both BitmapImage and Drawable.
+pub struct ShmImage<'a> {
+    data: ShmData,
+    seg_id: xcb::shm::Seg,
+    draw_id: u32,
+    conn: &'a Connection,
+    width: usize,
+    height: usize,
+}
 
-    pub fn clear_rect(
-        &mut self,
-        dest_x: isize,
-        dest_y: isize,
+impl<'a> ShmImage<'a> {
+    pub fn new(
+        conn: &Connection,
+        drawable: xcb::xproto::Drawable,
         width: usize,
         height: usize,
-        color: Color,
-    ) {
-        for y in 0..height {
-            let dest_y = y as isize + dest_y;
-            if dest_y < 0 {
-                continue;
-            }
-            if dest_y as usize >= self.height {
-                break;
-            }
-            for x in 0..width {
-                let dest_x = x as isize + dest_x;
-                if dest_x < 0 {
-                    continue;
-                }
-                if dest_x as usize >= self.width {
-                    break;
-                }
-
-                *self.pixel_mut(dest_x as usize, dest_y as usize) = color.0;
-            }
+    ) -> Result<ShmImage> {
+        if !conn.shm_available {
+            bail!("SHM not available");
         }
+
+        // Allocate and attach memory of the desired size
+        let id = ShmId::new(width * height * 4)?;
+        let data = id.attach()?;
+
+        // Tell the server to attach to it
+        let seg_id = conn.generate_id();
+        xcb::shm::attach_checked(conn, seg_id, id.id as u32, false).request_check()?;
+
+        // Now create a pixmap that references it
+        let draw_id = conn.generate_id();
+        xcb::shm::create_pixmap_checked(
+            conn,
+            draw_id,
+            drawable,
+            width as u16,
+            height as u16,
+            24, // TODO: we need to get this from the conn->screen
+            seg_id,
+            0,
+        )
+        .request_check()?;
+
+        Ok(ShmImage { data, seg_id, draw_id, conn, width, height })
+    }
+}
+
+impl<'a> BitmapImage for ShmImage<'a> {
+    unsafe fn pixel_data(&self) -> *const u8 {
+        self.data.data as *const u8
     }
 
-    pub fn draw_image(&mut self, dest_x: isize, dest_y: isize, im: &Image, operator: Operator) {
-        self.draw_image_subset(dest_x, dest_y, 0, 0, im.width, im.height, im, operator)
+    unsafe fn pixel_data_mut(&mut self) -> *mut u8 {
+        self.data.data
     }
 
-    pub fn draw_image_subset(
-        &mut self,
-        dest_x: isize,
-        dest_y: isize,
-        src_x: usize,
-        src_y: usize,
-        width: usize,
-        height: usize,
-        im: &Image,
-        operator: Operator,
-    ) {
-        assert!(width <= im.width && height <= im.height);
-        assert!(src_x < im.width && src_y < im.height);
-        for y in src_y..src_y + height {
-            let dest_y = y as isize + dest_y - src_y as isize;
-            if dest_y < 0 {
-                continue;
-            }
-            if dest_y as usize >= self.height {
-                break;
-            }
-            for x in src_x..src_x + width {
-                let dest_x = x as isize + dest_x - src_x as isize;
-                if dest_x < 0 {
-                    continue;
-                }
-                if dest_x as usize >= self.width {
-                    break;
-                }
+    fn image_dimensions(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+}
 
-                let src = Color(im.pixel(x, y));
-                let dst = self.pixel_mut(dest_x as usize, dest_y as usize);
-                *dst = src.composite(Color(*dst), &operator).0;
-            }
-        }
+impl<'a> Drop for ShmImage<'a> {
+    fn drop(&mut self) {
+        xcb::free_pixmap(self.conn, self.draw_id);
+        xcb::shm::detach(self.conn, self.seg_id);
+    }
+}
+
+impl<'a> Drawable for ShmImage<'a> {
+    fn as_drawable(&self) -> xcb::xproto::Drawable {
+        self.draw_id
+    }
+
+    fn get_conn(&self) -> &Connection {
+        self.conn
     }
 }
