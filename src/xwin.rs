@@ -340,7 +340,6 @@ impl<'a> TerminalWindow<'a> {
         let background_color = palette.resolve(&term::color::ColorAttribute::Background);
 
         let cell_height = self.cell_height.ceil() as usize;
-        let cell_width = self.cell_width.ceil() as usize;
 
         let cursor = self.terminal.cursor_pos();
         {
@@ -359,11 +358,10 @@ impl<'a> TerminalWindow<'a> {
                 );
 
                 let glyph_info = self.shape_text(&line.as_str())?;
-                for info in glyph_info.iter() {
+                for (cell_idx, info) in glyph_info.iter().enumerate() {
                     // Figure out which column we should be looking at.
                     // We infer this from the X position rather than enumerate the
                     // glyph_info iterator because glyphs may advance by multiple cells.
-                    let cell_idx = x as usize / cell_width;
                     if cell_idx >= line.cells.len() {
                         // Don't bother rendering outside the viewable area
                         break;
