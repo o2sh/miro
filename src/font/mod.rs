@@ -1,4 +1,7 @@
 use failure::{self, Error};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::slice;
 use unicode_width::UnicodeWidthStr;
 
@@ -8,6 +11,87 @@ pub mod hbwrap;
 
 pub use self::fcwrap::Pattern as FontPattern;
 
+use super::config::{Config, TextStyle};
+use term::CellAttributes;
+
+/// Matches and loads fonts for a given input style
+pub struct FontConfiguration {
+    config: Config,
+    fonts: RefCell<HashMap<TextStyle, Rc<RefCell<Font>>>>,
+}
+
+impl FontConfiguration {
+    /// Create a new empty configuration
+    pub fn new(config: Config) -> Self {
+        Self { config, fonts: RefCell::new(HashMap::new()) }
+    }
+
+    /// Given a text style, load (without caching) the font that
+    /// best matches according to the fontconfig pattern.
+    pub fn load_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Font>>, Error> {
+        let mut pattern = FontPattern::parse(&style.fontconfig_pattern)?;
+        pattern.add_double("size", self.config.font_size)?;
+        pattern.add_double("dpi", self.config.dpi)?;
+
+        Ok(Rc::new(RefCell::new(Font::new(pattern)?)))
+    }
+
+    /// Given a text style, load (with caching) the font that best
+    /// matches according to the fontconfig pattern.
+    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Font>>, Error> {
+        let mut fonts = self.fonts.borrow_mut();
+
+        if let Some(entry) = fonts.get(style) {
+            return Ok(Rc::clone(entry));
+        }
+
+        let font = self.load_font(style)?;
+        fonts.insert(style.clone(), Rc::clone(&font));
+        Ok(font)
+    }
+
+    /// Returns the baseline font specified in the configuration
+    pub fn default_font(&self) -> Result<Rc<RefCell<Font>>, Error> {
+        self.cached_font(&self.config.font)
+    }
+
+    /// Apply the defined font_rules from the user configuration to
+    /// produce the text style that best matches the supplied input
+    /// cell attributes.
+    pub fn match_style(&self, attrs: &CellAttributes) -> &TextStyle {
+        // a little macro to avoid boilerplate for matching the rules.
+        // If the rule doesn't specify a value for an attribute then
+        // it will implicitly match.  If it specifies an attribute
+        // then it has to have the same value as that in the input attrs.
+        macro_rules! attr_match {
+            ($ident:ident, $rule:expr) => {
+                if let Some($ident) = $rule.$ident {
+                    if $ident != attrs.$ident() {
+                        // Does not match
+                        continue;
+                    }
+                }
+                // matches so far...
+            };
+        };
+
+        for rule in self.config.font_rules.iter() {
+            attr_match!(intensity, &rule);
+            attr_match!(underline, &rule);
+            attr_match!(italic, &rule);
+            attr_match!(blink, &rule);
+            attr_match!(reverse, &rule);
+            attr_match!(strikethrough, &rule);
+            attr_match!(invisible, &rule);
+
+            // If we get here, then none of the rules didn't match,
+            // so we therefore assume that it did match overall.
+            return &rule.font;
+        }
+        &self.config.font
+    }
+}
+
 /// Holds information about a shaped glyph
 #[derive(Clone, Debug)]
 pub struct GlyphInfo {
@@ -15,7 +99,6 @@ pub struct GlyphInfo {
     #[cfg(debug_assertions)]
     pub text: String,
     /// Offset within text
-    #[cfg(debug_assertions)]
     pub cluster: u32,
     /// How many cells/columns this glyph occupies horizontally
     pub num_cells: u8,
@@ -47,7 +130,6 @@ impl GlyphInfo {
             num_cells,
             font_idx,
             glyph_pos: info.codepoint,
-            #[cfg(debug_assertions)]
             cluster: info.cluster,
             x_advance: pos.x_advance as f64 / 64.0,
             y_advance: pos.y_advance as f64 / 64.0,
@@ -175,7 +257,14 @@ impl Font {
     }
 
     pub fn shape(&mut self, font_idx: usize, s: &str) -> Result<Vec<GlyphInfo>, Error> {
-        debug!("shape text for font_idx {} with len {} {}", font_idx, s.len(), s);
+        /*
+                debug!(
+                    "shape text for font_idx {} with len {} {}",
+                    font_idx,
+                    s.len(),
+                    s
+                );
+        */
         let features = vec![
             // kerning
             hbwrap::feature_from_string("kern")?,
@@ -234,7 +323,7 @@ impl Font {
                 sizes[last] = diff;
             }
         }
-        debug!("sizes: {:?}", sizes);
+        //debug!("sizes: {:?}", sizes);
 
         // Now make a second pass to determine if we need
         // to perform fallback to a later font.
@@ -248,10 +337,15 @@ impl Font {
                 }
             } else if let Some(start) = first_fallback_pos {
                 // End of a fallback run
-                debug!("range: {:?}-{:?} needs fallback", start, pos);
+                //debug!("range: {:?}-{:?} needs fallback", start, pos);
 
                 let substr = &s[start..pos];
                 let mut shape = self.shape(font_idx + 1, substr)?;
+
+                // Fixup the cluster member to match our current offset
+                for info in shape.iter_mut() {
+                    info.cluster += start as u32;
+                }
                 cluster.append(&mut shape);
 
                 first_fallback_pos = None;
@@ -267,8 +361,14 @@ impl Font {
         // fallback run.
         if let Some(start) = first_fallback_pos {
             let substr = &s[start..];
-            debug!("at end {:?}-{:?} needs fallback {}", start, s.len() - 1, substr,);
+            if false {
+                debug!("at end {:?}-{:?} needs fallback {}", start, s.len() - 1, substr,);
+            }
             let mut shape = self.shape(font_idx + 1, substr)?;
+            // Fixup the cluster member to match our current offset
+            for info in shape.iter_mut() {
+                info.cluster += start as u32;
+            }
             cluster.append(&mut shape);
         }
 
@@ -295,9 +395,9 @@ impl Font {
     ) -> Result<&ftwrap::FT_GlyphSlotRec_, Error> {
         let info = &mut self.fonts[font_idx];
 
-        let render_mode =
-            //ftwrap::FT_Render_Mode::FT_RENDER_MODE_NORMAL;
-            ftwrap::FT_Render_Mode::FT_RENDER_MODE_LCD;
+        let render_mode = //ftwrap::FT_Render_Mode::FT_RENDER_MODE_NORMAL;
+ //       ftwrap::FT_Render_Mode::FT_RENDER_MODE_LCD;
+        ftwrap::FT_Render_Mode::FT_RENDER_MODE_LIGHT;
 
         // when changing the load flags, we also need
         // to change them for harfbuzz otherwise it won't

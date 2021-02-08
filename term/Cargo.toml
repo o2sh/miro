@@ -1,15 +1,18 @@
 [package]
-authors = ["o2sh <ossama-hjaji@live.fr>"]
+authors = ["Wez Furlong <wez@wezfurlong.org>"]
 name = "term"
 version = "0.1.0"
 
 [dependencies]
 bitflags = "1.0.1"
 failure = "0.1.1"
+maplit = "1.0.1"
+palette = "0.2.1"
+serde = "1.0.27"
+serde_derive = "1.0.27"
 unicode-segmentation = "1.2.0"
 unicode-width = "0.1.4"
 vte = "0.3.2"
 
 [features]
-# When enabled, print the results of parsing the input stream to stdout
 debug-escape-sequences = []

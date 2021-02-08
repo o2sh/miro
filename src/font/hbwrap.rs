@@ -1,6 +1,6 @@
 //! Higher level harfbuzz bindings
 
-use crate::font::ftwrap::Face;
+use crate::ftwrap::Face;
 use failure::Error;
 use freetype::freetype;
 pub use harfbuzz_sys::*;

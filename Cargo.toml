@@ -12,18 +12,28 @@ repository = "https://github.com/o2sh/miro"
 bitflags = "1.0.1"
 failure = "0.1.1"
 freetype = "0.3.0"
+gl = "0.10.0"
+palette = "0.2.1"
+serde = "1.0.27"
+serde_derive = "1.0.27"
+toml = "0.4.5"
 harfbuzz-sys = "0.1.15"
 libc = "0.2.36"
 mio = "0.6.12"
 resize = "0.3.0"
 servo-fontconfig = "0.4.0"
 unicode-width = "0.1.4"
+egli = "0.4.0"
+euclid = "0.17.0"
 term = {path = "./term" }
 
-[workspace]
-members = [
-    "term"
-]
+[dependencies.glium]
+default-features = false
+version = "0.20.0"
+
+[dependencies.x11]
+features = ["xlib"]
+version = "2.17.2"
 
 [dependencies.xcb]
 features = ["shm"]
@@ -39,6 +49,11 @@ features = [
     "keysyms",
 ]
 version = "0.2.0"
+
+[workspace]
+members = [
+    "term"
+]
 
 [features]
 debug-escape-sequences = ["term/debug-escape-sequences"]

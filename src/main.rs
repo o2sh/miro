@@ -1,5 +1,10 @@
 #[macro_use]
 extern crate failure;
+extern crate egli;
+extern crate euclid;
+extern crate gl;
+#[macro_use]
+extern crate glium;
 #[cfg(not(target_os = "macos"))]
 extern crate fontconfig; // from servo-fontconfig
 #[cfg(not(target_os = "macos"))]
@@ -8,8 +13,14 @@ extern crate harfbuzz_sys;
 extern crate libc;
 extern crate mio;
 extern crate resize;
-extern crate term;
+extern crate serde;
 extern crate unicode_width;
+#[macro_use]
+extern crate serde_derive;
+extern crate palette;
+extern crate term;
+extern crate toml;
+extern crate x11;
 #[macro_use]
 pub mod log;
 
@@ -20,54 +31,42 @@ extern crate xcb_util;
 
 use mio::unix::EventedFd;
 use mio::{Events, Poll, PollOpt, Ready, Token};
+use std::env;
+use std::ffi::CStr;
 use std::os::unix::io::AsRawFd;
 use std::process::Command;
+use std::str;
 use std::time::Duration;
 
+mod config;
 mod font;
 mod xgfx;
 mod xkeysyms;
-use font::{ftwrap, Font, FontPattern};
+use font::{ftwrap, FontConfiguration};
 
 mod pty;
 mod sigchld;
+mod texture_atlas;
 mod xwin;
 use xwin::TerminalWindow;
 
-fn dispatch_gui(
-    conn: &xgfx::Connection,
-    event: xcb::GenericEvent,
-    window: &mut TerminalWindow,
-) -> Result<(), Error> {
-    let r = event.response_type() & 0x7f;
-    match r {
-        xcb::EXPOSE => {
-            let expose: &xcb::ExposeEvent = unsafe { xcb::cast_event(&event) };
-            window.expose(expose.x(), expose.y(), expose.width(), expose.height())?;
+/// Determine which shell to run.
+/// We take the contents of the $SHELL env var first, then
+/// fall back to looking it up from the password database.
+fn get_shell() -> Result<String, Error> {
+    env::var("SHELL").or_else(|_| {
+        let ent = unsafe { libc::getpwuid(libc::getuid()) };
+
+        if ent.is_null() {
+            Ok("/bin/sh".into())
+        } else {
+            let shell = unsafe { CStr::from_ptr((*ent).pw_shell) };
+            shell
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|e| format_err!("failed to resolve shell: {:?}", e))
         }
-        xcb::CONFIGURE_NOTIFY => {
-            let cfg: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(&event) };
-            window.resize_surfaces(cfg.width(), cfg.height())?;
-        }
-        xcb::KEY_PRESS => {
-            let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
-            window.key_down(key_press)?;
-        }
-        xcb::KEY_RELEASE => {
-            let key_press: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
-            window.key_up(key_press)?;
-        }
-        xcb::CLIENT_MESSAGE => {
-            let msg: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
-            println!("CLIENT_MESSAGE {:?}", msg.data().data32());
-            if msg.data().data32()[0] == conn.atom_delete() {
-                // TODO: cleaner exit handling
-                bail!("window close requested!");
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+    })
 }
 
 fn run() -> Result<(), Error> {
@@ -76,16 +75,19 @@ fn run() -> Result<(), Error> {
 
     let waiter = sigchld::ChildWaiter::new()?;
 
+    let config = config::Config::default();
+    println!("Using configuration: {:#?}", config);
+
     // First step is to figure out the font metrics so that we know how
     // big things are going to be.
 
-    let mut pattern = FontPattern::parse("Operator Mono SSm Lig:size=10")?;
-    pattern.add_double("dpi", 96.0)?;
-    let mut font = Font::new(pattern)?;
+    let fontconfig = FontConfiguration::new(config.clone());
+    let font = fontconfig.default_font()?;
+
     // we always load the cell_height for font 0,
     // regardless of which font we are shaping here,
     // so that we can scale glyphs appropriately
-    let (cell_height, cell_width, _) = font.get_metrics()?;
+    let (cell_height, cell_width, _) = font.borrow_mut().get_metrics()?;
 
     let initial_cols = 80u16;
     let initial_rows = 24u16;
@@ -95,7 +97,7 @@ fn run() -> Result<(), Error> {
     let (master, slave) =
         pty::openpty(initial_rows, initial_cols, initial_pixel_width, initial_pixel_height)?;
 
-    let cmd = Command::new("bash");
+    let cmd = Command::new(get_shell()?);
     let child = slave.spawn_command(cmd)?;
     eprintln!("spawned: {:?}", child);
 
@@ -106,9 +108,14 @@ fn run() -> Result<(), Error> {
 
     poll.register(&waiter, Token(2), Ready::readable(), PollOpt::edge())?;
 
-    let terminal = term::Terminal::new(initial_rows as usize, initial_cols as usize, 3000);
-    //    let message = "x_advance != \x1b[38;2;1;0;125;145;mfoo->bar(); ❤ 😍🤢\n\x1b[91;mw00t\n\x1b[37;104;m bleet\x1b[0;m.";
+    let terminal = term::Terminal::new(
+        initial_rows as usize,
+        initial_cols as usize,
+        config.scrollback_lines.unwrap_or(3500),
+    );
+    //    let message = "; ❤ 😍🤢\n\x1b[91;mw00t\n\x1b[37;104;m bleet\x1b[0;m.";
     //    terminal.advance_bytes(message);
+    // !=
 
     let mut window = TerminalWindow::new(
         &conn,
@@ -117,7 +124,8 @@ fn run() -> Result<(), Error> {
         terminal,
         master,
         child,
-        font,
+        fontconfig,
+        config.colors.map(|p| p.into()).unwrap_or_else(term::color::ColorPalette::default),
     )?;
 
     window.show();
@@ -152,12 +160,12 @@ fn run() -> Result<(), Error> {
                 // will effectively hang without updating all the state.
                 match conn.poll_for_event() {
                     Some(event) => {
-                        dispatch_gui(&conn, event, &mut window)?;
+                        window.dispatch_event(event)?;
                         // Since we read one event from the connection, we must
                         // now eagerly consume the rest of the queued events.
                         loop {
                             match conn.poll_for_queued_event() {
-                                Some(event) => dispatch_gui(&conn, event, &mut window)?,
+                                Some(event) => window.dispatch_event(event)?,
                                 None => break,
                             }
                         }

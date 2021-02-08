@@ -25,6 +25,7 @@ pub const XK_Next: xcb_keysym_t = 0xff56;
 pub const XK_Page_Down: xcb_keysym_t = 0xff56;
 pub const XK_End: xcb_keysym_t = 0xff57;
 pub const XK_Begin: xcb_keysym_t = 0xff58;
+pub const XK_Insert: xcb_keysym_t = 0xff63;
 
 pub const XK_KP_Space: xcb_keysym_t = 0xff80;
 pub const XK_KP_Tab: xcb_keysym_t = 0xff89;
@@ -197,7 +198,7 @@ use term::KeyModifiers;
 
 pub fn xcb_keysym_to_keycode(k: xcb_keysym_t) -> KeyCode {
     match k {
-        XK_space..=XK_asciitilde => {
+        XK_space...XK_asciitilde => {
             // This range overlaps with ascii
             KeyCode::Char(k as u8 as char)
         }
@@ -210,15 +211,24 @@ pub fn xcb_keysym_to_keycode(k: xcb_keysym_t) -> KeyCode {
         XK_Super_L | XK_Super_R => KeyCode::Super,
         XK_Hyper_L | XK_Hyper_R => KeyCode::Hyper,
         XK_Shift_L | XK_Shift_R => KeyCode::Shift,
+        XK_Home => KeyCode::Home,
+        XK_Left => KeyCode::Left,
+        XK_Up => KeyCode::Up,
+        XK_Right => KeyCode::Right,
+        XK_Down => KeyCode::Down,
+        XK_Page_Up => KeyCode::PageUp,
+        XK_Page_Down => KeyCode::PageDown,
+        XK_End => KeyCode::End,
+        XK_KP_Insert | XK_Insert => KeyCode::Insert,
         _ => KeyCode::Unknown,
     }
 }
 
-pub fn modifiers(event: &KeyPressEvent) -> KeyModifiers {
+pub fn modifiers_from_state(state: u16) -> KeyModifiers {
     use xcb::xproto::*;
 
     let mut mods = KeyModifiers::default();
-    let state = event.state() as u32;
+    let state = state as u32;
 
     if state & MOD_MASK_SHIFT != 0 {
         mods |= KeyModifiers::SHIFT;
@@ -234,4 +244,8 @@ pub fn modifiers(event: &KeyPressEvent) -> KeyModifiers {
     }
 
     mods
+}
+
+pub fn modifiers(event: &KeyPressEvent) -> KeyModifiers {
+    modifiers_from_state(event.state())
 }
