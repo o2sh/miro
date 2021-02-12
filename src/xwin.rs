@@ -1068,7 +1068,7 @@ impl<'a> TerminalWindow<'a> {
 
         let delta = Point::new(10.0, 0.0);
 
-        let size = 32.0;
+        let size = crate::spritesheet::SPRITE_SIZE;
 
         if vert[V_TOP_LEFT].position.0.x > width {
             vert[V_TOP_LEFT].position.0.x = -width;

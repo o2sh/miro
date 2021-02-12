@@ -3,12 +3,8 @@ use crate::glium::backend::Backend;
 use crate::xgfx::Window;
 use crate::xwin::Point;
 use glium::{self, IndexBuffer, VertexBuffer};
-use std::cell::RefCell;
 
-const V_TOP_LEFT: usize = 0;
-const V_TOP_RIGHT: usize = 1;
-const V_BOT_LEFT: usize = 2;
-const V_BOT_RIGHT: usize = 3;
+pub const SPRITE_SIZE: f32 = 32.0;
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SpriteVertex {
@@ -55,18 +51,16 @@ pub fn compute_player_vertices(
 
     let (w, h) = { (width / 2.0, height / 2.0) };
 
-    let size = 32.0;
-
     verts.push(SpriteVertex {
         // Top left
         tex_coords: Point::new(0.0, 0.0),
-        position: Point::new(-w, -h + size),
+        position: Point::new(-w, -h + SPRITE_SIZE),
         ..Default::default()
     });
     verts.push(SpriteVertex {
         // Top Right
         tex_coords: Point::new(1.0, 0.0),
-        position: Point::new(-w + size, -h + size),
+        position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
         ..Default::default()
     });
     verts.push(SpriteVertex {
@@ -78,7 +72,7 @@ pub fn compute_player_vertices(
     verts.push(SpriteVertex {
         // Bottom Right
         tex_coords: Point::new(1.0, 1.0),
-        position: Point::new(-w + size, -h),
+        position: Point::new(-w + SPRITE_SIZE, -h),
         ..Default::default()
     });
 
