@@ -4,8 +4,8 @@ use serde_json::Value;
 use std;
 use std::collections::HashMap;
 
-use term;
-use term::color::RgbColor;
+use crate::term;
+use crate::term::color::RgbColor;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {

@@ -12,7 +12,7 @@ pub mod hbwrap;
 pub use self::fcwrap::Pattern as FontPattern;
 
 use super::config::{Config, TextStyle};
-use term::CellAttributes;
+use crate::term::CellAttributes;
 
 /// Matches and loads fonts for a given input style
 pub struct FontConfiguration {

@@ -1,19 +1,3 @@
-#[allow(unused_imports)]
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate bitflags;
-extern crate palette;
-extern crate serde;
-extern crate unicode_segmentation;
-extern crate unicode_width;
-#[macro_use]
-extern crate serde_derive;
-extern crate vte;
-#[cfg(test)]
-#[macro_use]
-extern crate maplit;
-
 use failure::Error;
 use std::ops::{Deref, DerefMut, Range};
 use std::rc::Rc;
@@ -98,9 +82,6 @@ pub struct CursorPosition {
 pub mod color;
 mod csi;
 use self::csi::*;
-
-#[cfg(test)]
-mod test;
 
 /// The response we given when queries for device attributes.
 /// This particular string says "we are a VT102".

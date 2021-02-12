@@ -193,12 +193,12 @@ pub const XK_bar: xcb_keysym_t = 0x007c;
 pub const XK_braceright: xcb_keysym_t = 0x007d;
 pub const XK_asciitilde: xcb_keysym_t = 0x007e;
 
-use term::KeyCode;
-use term::KeyModifiers;
+use crate::term::KeyCode;
+use crate::term::KeyModifiers;
 
 pub fn xcb_keysym_to_keycode(k: xcb_keysym_t) -> KeyCode {
     match k {
-        XK_space...XK_asciitilde => {
+        XK_space..=XK_asciitilde => {
             // This range overlaps with ascii
             KeyCode::Char(k as u8 as char)
         }

@@ -1,4 +1,6 @@
 #[macro_use]
+extern crate bitflags;
+#[macro_use]
 extern crate failure;
 extern crate egli;
 extern crate euclid;
@@ -18,7 +20,6 @@ extern crate unicode_width;
 #[macro_use]
 extern crate serde_derive;
 extern crate palette;
-extern crate term;
 extern crate toml;
 extern crate x11;
 #[macro_use]
@@ -39,6 +40,7 @@ use std::os::unix::io::AsRawFd;
 use std::process::Command;
 use std::str;
 
+mod term;
 mod config;
 mod deadline;
 mod font;

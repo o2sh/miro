@@ -50,31 +50,3 @@ pub fn parse_link_params(params: &str) -> HashMap<&str, &str> {
 
     map
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn parse_link() {
-        assert_eq!(parse_link_params(""), hashmap! {});
-        assert_eq!(parse_link_params("foo"), hashmap! {});
-        assert_eq!(parse_link_params("foo=bar=baz"), hashmap! {"foo" => "bar=baz"});
-        assert_eq!(parse_link_params("foo=bar"), hashmap! {"foo" => "bar"});
-
-        assert_eq!(
-            parse_link_params("id=1234:foo=bar"),
-            hashmap! {
-                "id" => "1234",
-                "foo" => "bar"
-            }
-        );
-        assert_eq!(
-            parse_link_params("id=1234:foo=bar:"),
-            hashmap! {
-                "id" => "1234",
-                "foo" => "bar"
-            }
-        );
-    }
-}

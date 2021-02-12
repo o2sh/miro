@@ -20,8 +20,8 @@ use std::process::Child;
 use std::process::Command;
 use std::rc::Rc;
 use std::slice;
-use term::hyperlink::Hyperlink;
-use term::{
+use crate::term::hyperlink::Hyperlink;
+use crate::term::{
     self, CursorPosition, KeyCode, KeyModifiers, Line, MouseButton, MouseEvent, MouseEventKind,
     TerminalHost, Underline,
 };
