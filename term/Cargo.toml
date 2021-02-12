@@ -1,5 +1,6 @@
 [package]
-authors = ["Wez Furlong <wez@wezfurlong.org>"]
+authors = ["o2sh <ossama-hjaji@live.fr>"]
+description = "Terminal emulator"
 name = "term"
 version = "0.1.0"
 

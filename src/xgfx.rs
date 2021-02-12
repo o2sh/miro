@@ -147,7 +147,7 @@ pub trait Drawable {
     fn get_conn(&self) -> &Connection;
 }
 
-struct GlState {
+pub struct GlState {
     display: Rc<egli::Display>,
     surface: egli::Surface,
     egl_context: egli::Context,
@@ -157,7 +157,7 @@ struct GlState {
 pub struct Window<'a> {
     window_id: xcb::xproto::Window,
     conn: &'a Connection,
-    gl: Rc<GlState>,
+    pub gl: Rc<GlState>,
     glium_context: Rc<glium::backend::Context>,
 }
 

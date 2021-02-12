@@ -1,10 +1,8 @@
 //! Configuration for the gui portion of the terminal
-
-use failure::Error;
+use regex::Regex;
+use serde_json::Value;
 use std;
-use std::fs;
-use std::io::prelude::*;
-use toml;
+use std::collections::HashMap;
 
 use term;
 use term::color::RgbColor;
@@ -167,4 +165,69 @@ impl From<Palette> for term::color::ColorPalette {
         }
         p
     }
+}
+
+#[derive(Clone)]
+pub struct SpriteSheetConfig {
+    pub image_path: String,
+    pub sheets: HashMap<String, SpriteConfig>,
+}
+
+#[derive(Clone)]
+pub struct SpriteConfig {
+    pub frame: Rect,
+}
+
+#[derive(Clone)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+#[derive(Clone)]
+pub struct Size {
+    pub w: u32,
+    pub h: u32,
+}
+
+impl SpriteSheetConfig {
+    pub fn load(path: &str) -> Option<Self> {
+        let text = std::fs::read_to_string(path).expect("load sprite sheet failed");
+        let deserialized_opt = serde_json::from_str(&text);
+        if let Err(_err) = deserialized_opt {
+            return None;
+        }
+        let deserialized: Value = deserialized_opt.unwrap();
+
+        let image_path = get_mainname(deserialized["meta"]["image"].as_str()?);
+
+        let mut sheets = HashMap::new();
+        for (key, frame) in deserialized["frames"].as_object()? {
+            let sheet = convert_sheet(frame)?;
+            sheets.insert(get_mainname(key), sheet);
+        }
+        Some(Self { image_path, sheets })
+    }
+}
+
+fn convert_sheet(sheet: &Value) -> Option<SpriteConfig> {
+    let frame = convert_rect(&sheet["frame"])?;
+    Some(SpriteConfig { frame })
+}
+
+fn convert_rect(value: &Value) -> Option<Rect> {
+    Some(Rect {
+        x: value["x"].as_i64()? as i32,
+        y: value["y"].as_i64()? as i32,
+        w: value["w"].as_i64()? as u32,
+        h: value["h"].as_i64()? as u32,
+    })
+}
+
+fn get_mainname(filename: &str) -> String {
+    let re = Regex::new(r"^(.*)").unwrap();
+    re.captures(filename)
+        .map_or_else(|| filename.to_string(), |caps| caps.get(1).unwrap().as_str().to_string())
 }

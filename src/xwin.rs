@@ -1,6 +1,10 @@
+use crate::config::SpriteSheetConfig;
 use crate::config::TextStyle;
 use crate::font::{ftwrap, FontConfiguration, GlyphInfo};
+use crate::glium::backend::Backend;
 use crate::pty::MasterPty;
+use crate::spritesheet::SpriteSheet;
+use crate::xgfx::Window;
 use crate::xgfx::{self, Connection, Drawable};
 use crate::xkeysyms;
 use euclid;
@@ -29,7 +33,7 @@ use crate::texture_atlas::{Atlas, Sprite, SpriteSlice};
 type Transform3D = euclid::Transform3D<f32>;
 
 #[derive(Copy, Clone, Debug)]
-struct Point(euclid::Point2D<f32>);
+pub struct Point(euclid::Point2D<f32>);
 
 impl Default for Point {
     fn default() -> Point {
@@ -52,8 +56,15 @@ unsafe impl glium::vertex::Attribute for Point {
 }
 
 impl Point {
-    fn new(x: f32, y: f32) -> Self {
+    pub fn new(x: f32, y: f32) -> Self {
         Self { 0: euclid::point2(x, y) }
+    }
+}
+
+impl std::ops::AddAssign for Point {
+    fn add_assign(&mut self, other: Self) {
+        self.0.x += other.0.x;
+        self.0.y += other.0.y;
     }
 }
 
@@ -97,66 +108,16 @@ implement_vertex!(
     v_idx,
 );
 
-const VERTEX_SHADER: &str = r#"
-#version 300 es
-in vec2 position;
-in vec2 adjust;
-in vec2 tex;
-in vec4 fg_color;
-in vec4 bg_color;
-in float has_color;
-in float underline;
-in float v_idx;
+const HEADER_HEIGHT: f32 = 30.0;
 
-uniform mat4 projection;
-uniform mat4 translation;
-uniform bool bg_fill;
-uniform bool underlining;
+const GLYPH_VERTEX_SHADER: &str = include_str!("../assets/shader/g_vertex.glsl");
+const GLYPH_FRAGMENT_SHADER: &str = include_str!("../assets/shader/g_fragment.glsl");
 
-out vec2 tex_coords;
-out vec4 o_fg_color;
-out vec4 o_bg_color;
-out float o_has_color;
-out float o_underline;
+const PLAYER_VERTEX_SHADER: &str = include_str!("../assets/shader/p_vertex.glsl");
+const PLAYER_FRAGMENT_SHADER: &str = include_str!("../assets/shader/p_fragment.glsl");
 
-// Offset from the RHS texture coordinate to the LHS.
-// This is an underestimation to avoid the shader interpolating
-// the underline gylph into its neighbor.
-const float underline_offset = (1.0 / 5.0);
-
-void main() {
-    o_fg_color = fg_color;
-    o_bg_color = bg_color;
-    o_has_color = has_color;
-    o_underline = underline;
-
-    if (bg_fill || underlining) {
-        gl_Position = projection * vec4(position, 0.0, 1.0);
-
-        if (underlining) {
-            // Populate the underline texture coordinates based on the
-            // v_idx (which tells us which corner of the cell we're
-            // looking at) and o_underline which corresponds to one
-            // of the U_XXX constants defined in the rust code below
-            // and which holds the RHS position in the texture coordinate
-            // space for the underline texture layer.
-            if (v_idx == 0.0) { // top left
-                tex_coords = vec2(o_underline - underline_offset, -1.0);
-            } else if (v_idx == 1.0) { // top right
-                tex_coords = vec2(o_underline, -1.0);
-            } else if (v_idx == 2.0) { // bot left
-                tex_coords = vec2(o_underline- underline_offset, 0.0);
-            } else { // bot right
-                tex_coords = vec2(o_underline, 0.0);
-            }
-        }
-
-    } else {
-        gl_Position = projection * vec4(position + adjust, 0.0, 1.0);
-        tex_coords = tex;
-    }
-}
-"#;
+const RECT_VERTEX_SHADER: &str = include_str!("../assets/shader/r_vertex.glsl");
+const RECT_FRAGMENT_SHADER: &str = include_str!("../assets/shader/r_fragment.glsl");
 
 /// How many columns the underline texture has
 const U_COLS: f32 = 5.0;
@@ -173,58 +134,6 @@ const U_STRIKE: f32 = 3.0 / U_COLS;
 const U_STRIKE_ONE: f32 = 4.0 / U_COLS;
 /// Texture coord for the RHS of the strikethrough + double underline glyph
 const U_STRIKE_TWO: f32 = 5.0 / U_COLS;
-
-const FRAGMENT_SHADER: &str = r#"
-#version 300 es
-precision mediump float;
-in vec2 tex_coords;
-in vec4 o_fg_color;
-in vec4 o_bg_color;
-in float o_has_color;
-in float o_underline;
-
-out vec4 color;
-uniform sampler2D glyph_tex;
-uniform sampler2D underline_tex;
-uniform bool bg_fill;
-uniform bool underlining;
-
-float multiply_one(float src, float dst, float inv_dst_alpha, float inv_src_alpha) {
-    return (src * dst) + (src * (inv_dst_alpha)) + (dst * (inv_src_alpha));
-}
-
-// Alpha-regulated multiply to colorize the glyph bitmap.
-// The texture data is pre-multiplied by the alpha, so we need to divide
-// by the alpha after multiplying to avoid having the colors be too dark.
-vec4 multiply(vec4 src, vec4 dst) {
-    float inv_src_alpha = 1.0 - src.a;
-    float inv_dst_alpha = 1.0 - dst.a;
-
-    return vec4(
-        multiply_one(src.r, dst.r, inv_dst_alpha, inv_src_alpha) / dst.a,
-        multiply_one(src.g, dst.g, inv_dst_alpha, inv_src_alpha) / dst.a,
-        multiply_one(src.b, dst.b, inv_dst_alpha, inv_src_alpha) / dst.a,
-        dst.a);
-}
-
-void main() {
-    if (bg_fill) {
-        color = o_bg_color;
-    } else if (underlining) {
-        if (o_underline != 0.0) {
-            color = texture2D(underline_tex, tex_coords) * o_fg_color;
-        } else {
-            discard;
-        }
-    } else {
-        color = texture2D(glyph_tex, tex_coords);
-        if (o_has_color == 0.0) {
-            // if it's not a color emoji, tint with the fg_color
-            color = multiply(o_fg_color, color);
-        }
-    }
-}
-"#;
 
 /// Holds the information we need to implement TerminalHost
 struct Host<'a> {
@@ -247,12 +156,19 @@ pub struct TerminalWindow<'a> {
     process: Child,
     glyph_cache: RefCell<HashMap<GlyphKey, Rc<CachedGlyph>>>,
     palette: term::color::ColorPalette,
-    program: glium::Program,
+    g_program: glium::Program,
+    r_program: glium::Program,
+    p_program: glium::Program,
     glyph_vertex_buffer: RefCell<VertexBuffer<Vertex>>,
     glyph_index_buffer: IndexBuffer<u32>,
+    sprite_vertex_buffer: RefCell<VertexBuffer<crate::spritesheet::SpriteVertex>>,
+    sprite_index_buffer: IndexBuffer<u32>,
     projection: Transform3D,
     atlas: RefCell<Atlas>,
     underline_tex: SrgbTexture2d,
+    pub frame_count: u32,
+    pub count: u32,
+    spritesheet: SpriteSheet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -383,17 +299,14 @@ impl<'a> TerminalWindow<'a> {
             let tuple = font.borrow_mut().get_metrics()?;
             tuple
         };
-
         let window = xgfx::Window::new(&conn, width, height)?;
         window.set_title("miro");
-
         let descender = if descender.is_positive() {
             ((descender as f64) / 64.0).ceil() as isize
         } else {
             ((descender as f64) / 64.0).floor() as isize
         };
         debug!("METRICS: h={} w={} d={}", cell_height, cell_width, descender);
-
         // The descender isn't always reliable.  If it looks implausible then we
         // cook up something more reasonable.  For example, if the descender pulls
         // the basline up into the top half of the cell then it is probably bad
@@ -408,7 +321,7 @@ impl<'a> TerminalWindow<'a> {
         } else {
             descender
         };
-
+        let spritesheet = get_spritesheet(&window);
         let host = Host { window, pty, timestamp: 0, clipboard: None };
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
@@ -488,21 +401,45 @@ impl<'a> TerminalWindow<'a> {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
             &host,
+            HEADER_HEIGHT + 1.0,
             cell_width as f32,
             cell_height as f32,
             width as f32,
             height as f32,
         )?;
 
-        let program =
-            glium::Program::from_source(&host.window, VERTEX_SHADER, FRAGMENT_SHADER, None)?;
+        let g_program = glium::Program::from_source(
+            &host.window,
+            GLYPH_VERTEX_SHADER,
+            GLYPH_FRAGMENT_SHADER,
+            None,
+        )?;
+
+        let r_program = glium::Program::from_source(
+            &host.window,
+            RECT_VERTEX_SHADER,
+            RECT_FRAGMENT_SHADER,
+            None,
+        )?;
+
+        let p_program = glium::Program::from_source(
+            &host.window,
+            PLAYER_VERTEX_SHADER,
+            PLAYER_FRAGMENT_SHADER,
+            None,
+        )?;
 
         let atlas = RefCell::new(Atlas::new(&host.window)?);
+
+        let (sprite_vertex_buffer, sprite_index_buffer) =
+            crate::spritesheet::compute_player_vertices(&host.window);
 
         Ok(TerminalWindow {
             host,
             atlas,
-            program,
+            g_program,
+            r_program,
+            p_program,
             glyph_vertex_buffer: RefCell::new(glyph_vertex_buffer),
             glyph_index_buffer,
             conn,
@@ -518,6 +455,11 @@ impl<'a> TerminalWindow<'a> {
             palette,
             projection: Self::compute_projection(width as f32, height as f32),
             underline_tex,
+            frame_count: 0,
+            count: 0,
+            spritesheet,
+            sprite_vertex_buffer,
+            sprite_index_buffer,
         })
     }
 
@@ -533,6 +475,7 @@ impl<'a> TerminalWindow<'a> {
     /// let the GPU figure out the rest.
     fn compute_vertices(
         host: &Host,
+        top_padding: f32,
         cell_width: f32,
         cell_height: f32,
         width: f32,
@@ -552,25 +495,25 @@ impl<'a> TerminalWindow<'a> {
                 let idx = verts.len() as u32;
                 verts.push(Vertex {
                     // Top left
-                    position: Point::new(x_pos, y_pos),
+                    position: Point::new(x_pos, top_padding + y_pos),
                     v_idx: V_TOP_LEFT as f32,
                     ..Default::default()
                 });
                 verts.push(Vertex {
                     // Top Right
-                    position: Point::new(x_pos + cell_width, y_pos),
+                    position: Point::new(x_pos + cell_width, top_padding + y_pos),
                     v_idx: V_TOP_RIGHT as f32,
                     ..Default::default()
                 });
                 verts.push(Vertex {
                     // Bottom Left
-                    position: Point::new(x_pos, y_pos + cell_height),
+                    position: Point::new(x_pos, top_padding + y_pos + cell_height),
                     v_idx: V_BOT_LEFT as f32,
                     ..Default::default()
                 });
                 verts.push(Vertex {
                     // Bottom Right
-                    position: Point::new(x_pos + cell_width, y_pos + cell_height),
+                    position: Point::new(x_pos + cell_width, top_padding + y_pos + cell_height),
                     v_idx: V_BOT_RIGHT as f32,
                     ..Default::default()
                 });
@@ -606,6 +549,7 @@ impl<'a> TerminalWindow<'a> {
 
             let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
                 &self.host,
+                HEADER_HEIGHT + 1.0,
                 self.cell_width as f32,
                 self.cell_height as f32,
                 width as f32,
@@ -1069,9 +1013,70 @@ impl<'a> TerminalWindow<'a> {
         Ok(())
     }
 
+    pub fn paint_sprite(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
+        let image = image::open(&self.spritesheet.image_path).unwrap().to_rgba8();
+        let image_dimensions = image.dimensions();
+        let image =
+            glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
+
+        let player_texture =
+            glium::texture::CompressedSrgbTexture2d::new(&self.host.window, image).unwrap();
+
+        let sprite = &mut self.spritesheet.sprites[(self.count % 3) as usize];
+
+        let (w, _) = {
+            let (width, height) = self.host.window.gl.get_framebuffer_dimensions();
+            ((width / 2) as f32, (height / 2) as f32)
+        };
+
+        // Draw mario
+        target.draw(
+            &*self.sprite_vertex_buffer.borrow(),
+            &self.sprite_index_buffer,
+            &self.p_program,
+            &uniform! {
+                projection: self.projection.to_column_arrays(),
+                tex: &player_texture,
+                source_dimensions: sprite.size.to_array(),
+                source_position: sprite.position.to_array(),
+                source_texture_dimensions: [image_dimensions.0  as f32, image_dimensions.1 as f32]
+            },
+            &glium::DrawParameters {
+                blend: glium::Blend::alpha_blending(),
+                dithering: false,
+                ..Default::default()
+            },
+        )?;
+
+        self.slide(w);
+        Ok(())
+    }
+
+    pub fn slide(&mut self, width: f32) {
+        let mut vb = self.sprite_vertex_buffer.borrow_mut();
+        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
+
+        let delta = Point::new(10.0, 0.0);
+
+        let size = 32.0;
+
+        if vert[V_TOP_LEFT].position.0.x > width {
+            vert[V_TOP_LEFT].position.0.x = -width;
+            vert[V_TOP_RIGHT].position.0.x = -width + size;
+            vert[V_BOT_LEFT].position.0.x = -width;
+            vert[V_BOT_RIGHT].position.0.x = -width + size;
+        } else {
+            vert[V_TOP_LEFT].position += delta;
+            vert[V_TOP_RIGHT].position += delta;
+            vert[V_BOT_LEFT].position += delta;
+            vert[V_BOT_RIGHT].position += delta;
+        }
+    }
+
     pub fn paint(&mut self) -> Result<(), Error> {
         let mut target = self.host.window.draw();
         let res = self.do_paint(&mut target);
+        self.paint_sprite(&mut target)?;
         // Ensure that we finish() the target before we let the
         // error bubble up, otherwise we lose the context.
         target.finish().unwrap();
@@ -1099,7 +1104,7 @@ impl<'a> TerminalWindow<'a> {
         target.draw(
             &*self.glyph_vertex_buffer.borrow(),
             &self.glyph_index_buffer,
-            &self.program,
+            &self.g_program,
             &uniform! {
                 projection: self.projection.to_column_arrays(),
                 glyph_tex: &*tex,
@@ -1114,11 +1119,11 @@ impl<'a> TerminalWindow<'a> {
             },
         )?;
 
-        // Pass 2: Draw glyphs
+        // Pass 3: Draw glyphs
         target.draw(
             &*self.glyph_vertex_buffer.borrow(),
             &self.glyph_index_buffer,
-            &self.program,
+            &self.g_program,
             &uniform! {
                 projection: self.projection.to_column_arrays(),
                 glyph_tex: &*tex,
@@ -1136,7 +1141,7 @@ impl<'a> TerminalWindow<'a> {
         target.draw(
             &*self.glyph_vertex_buffer.borrow(),
             &self.glyph_index_buffer,
-            &self.program,
+            &self.g_program,
             &uniform! {
                 projection: self.projection.to_column_arrays(),
                 glyph_tex: &*tex,
@@ -1151,6 +1156,62 @@ impl<'a> TerminalWindow<'a> {
         )?;
 
         self.terminal.clean_dirty_lines();
+
+        let (vertex_buffer, index_buffer) = {
+            #[derive(Copy, Clone)]
+            struct Vertex {
+                position: [f32; 2],
+                color: [f32; 3],
+            }
+            implement_vertex!(Vertex, position, color);
+
+            let r = 99.0 / 255.0;
+            let g = 134.0 / 255.0;
+            let b = 251.0 / 255.0;
+
+            let (w, h) = {
+                let (width, height) = self.host.window.gl.get_framebuffer_dimensions();
+                ((width / 2) as f32, (height / 2) as f32)
+            };
+
+            let vb = glium::VertexBuffer::new(
+                &self.host.window,
+                &[
+                    Vertex { position: [-w, -h], color: [r, g, b] },
+                    Vertex { position: [w, -h], color: [r, g, b] },
+                    Vertex { position: [-w, -h + HEADER_HEIGHT], color: [r, g, b] },
+                    Vertex { position: [w, -h + HEADER_HEIGHT], color: [r, g, b] },
+                ],
+            )
+            .unwrap();
+
+            let ib_data: Vec<u16> = vec![0, 1, 2, 1, 3, 2];
+
+            let ib = glium::IndexBuffer::new(
+                &self.host.window,
+                glium::index::PrimitiveType::TrianglesList,
+                &ib_data,
+            )
+            .unwrap();
+
+            (vb, ib)
+        };
+
+        // Draw header background
+        target.draw(
+            &vertex_buffer,
+            &index_buffer,
+            &self.r_program,
+            &uniform! {
+                projection: self.projection.to_column_arrays(),
+            },
+            &glium::DrawParameters {
+                blend: glium::Blend::alpha_blending(),
+                dithering: false,
+                ..Default::default()
+            },
+        )?;
+
         Ok(())
     }
 
@@ -1359,4 +1420,9 @@ impl<'a> TerminalWindow<'a> {
         }
         Ok(())
     }
+}
+
+pub fn get_spritesheet(window: &Window) -> SpriteSheet {
+    let spritesheet_config = SpriteSheetConfig::load("assets/gfx/mario.json").unwrap();
+    SpriteSheet::from_config(window, &spritesheet_config)
 }

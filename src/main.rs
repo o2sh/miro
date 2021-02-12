@@ -25,21 +25,24 @@ extern crate x11;
 pub mod log;
 
 use failure::Error;
+use mio::{Poll, PollOpt, Ready, Token};
+use std::time::Duration;
 
 extern crate xcb;
 extern crate xcb_util;
 
 use mio::unix::EventedFd;
-use mio::{Events, Poll, PollOpt, Ready, Token};
+use mio::Events;
 use std::env;
 use std::ffi::CStr;
 use std::os::unix::io::AsRawFd;
 use std::process::Command;
 use std::str;
-use std::time::Duration;
 
 mod config;
+mod deadline;
 mod font;
+mod spritesheet;
 mod xgfx;
 mod xkeysyms;
 use font::{ftwrap, FontConfiguration};
@@ -49,6 +52,8 @@ mod sigchld;
 mod texture_atlas;
 mod xwin;
 use xwin::TerminalWindow;
+
+pub const ANIMATION_SPAN: u32 = 5;
 
 /// Determine which shell to run.
 /// We take the contents of the $SHELL env var first, then
@@ -108,14 +113,15 @@ fn run() -> Result<(), Error> {
 
     poll.register(&waiter, Token(2), Ready::readable(), PollOpt::edge())?;
 
+    let deadline = deadline::Deadline::new();
+
+    poll.register(&deadline, Token(3), Ready::readable(), PollOpt::edge())?;
+
     let terminal = term::Terminal::new(
         initial_rows as usize,
         initial_cols as usize,
         config.scrollback_lines.unwrap_or(3500),
     );
-    //    let message = "; ❤ 😍🤢\n\x1b[91;mw00t\n\x1b[37;104;m bleet\x1b[0;m.";
-    //    terminal.advance_bytes(message);
-    // !=
 
     let mut window = TerminalWindow::new(
         &conn,
@@ -134,12 +140,14 @@ fn run() -> Result<(), Error> {
     conn.flush();
 
     loop {
+        if window.frame_count % ANIMATION_SPAN == 0 {
+            window.paint()?;
+            window.count += 1;
+        }
+        window.frame_count += 1;
         if poll.poll(&mut events, Some(Duration::new(0, 0)))? == 0 {
             // No immediately ready events.  Before we go to sleep,
             // make sure we've flushed out any pending X work.
-            if window.need_paint() {
-                window.paint()?;
-            }
             conn.flush();
 
             poll.poll(&mut events, None)?;

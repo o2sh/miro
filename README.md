@@ -1,3 +1,5 @@
 # Miro
 
-![miro](resources/miro.jpg)
+A GPU-accelerated terminal emulator implemented in Rust.
+
+![miro](resources/miro.gif)
