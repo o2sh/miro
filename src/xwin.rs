@@ -432,7 +432,7 @@ impl<'a> TerminalWindow<'a> {
         let atlas = RefCell::new(Atlas::new(&host.window)?);
 
         let (sprite_vertex_buffer, sprite_index_buffer) =
-            crate::spritesheet::compute_player_vertices(&host.window);
+            crate::spritesheet::compute_player_vertices(&host.window, width as f32, height as f32);
 
         Ok(TerminalWindow {
             host,
@@ -458,7 +458,7 @@ impl<'a> TerminalWindow<'a> {
             frame_count: 0,
             count: 0,
             spritesheet,
-            sprite_vertex_buffer,
+            sprite_vertex_buffer: RefCell::new(sprite_vertex_buffer),
             sprite_index_buffer,
         })
     }
@@ -557,6 +557,16 @@ impl<'a> TerminalWindow<'a> {
             )?;
             self.glyph_vertex_buffer = RefCell::new(glyph_vertex_buffer);
             self.glyph_index_buffer = glyph_index_buffer;
+
+            let (sprite_vertex_buffer, sprite_index_buffer) =
+                crate::spritesheet::compute_player_vertices(
+                    &self.host.window,
+                    width as f32,
+                    height as f32,
+                );
+
+            self.sprite_vertex_buffer = RefCell::new(sprite_vertex_buffer);
+            self.sprite_index_buffer = sprite_index_buffer;
 
             // The +1 in here is to handle an irritating case.
             // When we get N rows with a gap of cell_height - 1 left at

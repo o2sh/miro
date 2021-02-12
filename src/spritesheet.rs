@@ -48,13 +48,12 @@ impl SpriteSheet {
 
 pub fn compute_player_vertices(
     window: &Window,
-) -> (RefCell<VertexBuffer<SpriteVertex>>, IndexBuffer<u32>) {
+    width: f32,
+    height: f32,
+) -> (VertexBuffer<SpriteVertex>, IndexBuffer<u32>) {
     let mut verts = Vec::new();
 
-    let (w, h) = {
-        let (width, height) = window.gl.get_framebuffer_dimensions();
-        ((width / 2) as f32, (height / 2) as f32)
-    };
+    let (w, h) = { (width / 2.0, height / 2.0) };
 
     let size = 32.0;
 
@@ -84,7 +83,7 @@ pub fn compute_player_vertices(
     });
 
     (
-        RefCell::new(VertexBuffer::dynamic(window, &verts).unwrap()),
+        VertexBuffer::dynamic(window, &verts).unwrap(),
         IndexBuffer::new(window, glium::index::PrimitiveType::TrianglesList, &[0, 1, 2, 1, 3, 2])
             .unwrap(),
     )
