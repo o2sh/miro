@@ -41,8 +41,8 @@ use std::process::Command;
 use std::str;
 
 mod config;
-mod deadline;
 mod font;
+mod game_loop;
 mod spritesheet;
 mod term;
 mod xgfx;
@@ -115,9 +115,9 @@ fn run() -> Result<(), Error> {
 
     poll.register(&waiter, Token(2), Ready::readable(), PollOpt::edge())?;
 
-    let deadline = deadline::Deadline::new();
+    let game_loop = game_loop::GameLoop::new();
 
-    poll.register(&deadline, Token(3), Ready::readable(), PollOpt::edge())?;
+    poll.register(&game_loop, Token(3), Ready::readable(), PollOpt::edge())?;
 
     let terminal = term::Terminal::new(
         initial_rows as usize,

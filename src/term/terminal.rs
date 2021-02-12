@@ -4,7 +4,6 @@ use super::*;
 /// Provides a means for sending data to the connected pty,
 /// and for operating on the clipboard
 pub trait TerminalHost {
-    /// Returns an object that can be used to send data to the
     /// slave end of the associated pty.
     fn writer(&mut self) -> &mut std::io::Write;
 

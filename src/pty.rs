@@ -139,10 +139,10 @@ impl SlavePty {
     /// Pty for its stdio streams, as well as to establish itself as the session
     /// leader.
     pub fn spawn_command(self, mut cmd: Command) -> Result<Child, Error> {
-        cmd.stdin(self.as_stdio()?).stdout(self.as_stdio()?).stderr(self.as_stdio()?).before_exec(
-            move || {
-                // Clean up a few things before we exec the program
-                unsafe {
+        unsafe {
+            cmd.stdin(self.as_stdio()?).stdout(self.as_stdio()?).stderr(self.as_stdio()?).pre_exec(
+                move || {
+                    // Clean up a few things before we exec the program
                     // Clear out any potentially problematic signal
                     // dispositions that we might have inherited
                     for signo in &[
@@ -169,9 +169,9 @@ impl SlavePty {
                         return Err(io::Error::last_os_error());
                     }
                     Ok(())
-                }
-            },
-        );
+                },
+            );
+        }
 
         let mut child = cmd.spawn()?;
 

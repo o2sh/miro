@@ -75,26 +75,6 @@ impl Screen {
         }
     }
 
-    /// Returns a copy of the visible lines in the screen (no scrollback)
-    #[cfg(test)]
-    pub fn visible_lines(&self) -> Vec<Line> {
-        let line_idx = self.lines.len() - self.physical_rows;
-        let mut lines = Vec::new();
-        for line in self.lines.iter().skip(line_idx) {
-            if lines.len() >= self.physical_rows {
-                break;
-            }
-            lines.push(line.clone());
-        }
-        lines
-    }
-
-    /// Returns a copy of the lines in the screen (including scrollback)
-    #[cfg(test)]
-    pub fn all_lines(&self) -> Vec<Line> {
-        self.lines.iter().map(|l| l.clone()).collect()
-    }
-
     /// Set a cell.  the x and y coordinates are relative to the visible screeen
     /// origin.  0,0 is the top left.
     pub fn set_cell(

@@ -8,12 +8,12 @@ use std::time::{Duration, SystemTime};
 pub const FPS: u32 = 60;
 pub const MIN_FPS: u32 = 15;
 
-pub struct Deadline {
+pub struct GameLoop {
     registration: Registration,
 }
 
-impl Deadline {
-    pub fn new() -> Deadline {
+impl GameLoop {
+    pub fn new() -> GameLoop {
         let (registration, set_readiness) = Registration::new2();
         let mut last_update_time = SystemTime::now();
         thread::spawn(move || loop {
@@ -38,11 +38,11 @@ impl Deadline {
             }
         });
 
-        Deadline { registration: registration }
+        GameLoop { registration: registration }
     }
 }
 
-impl Evented for Deadline {
+impl Evented for GameLoop {
     fn register(
         &self,
         poll: &Poll,
@@ -64,6 +64,6 @@ impl Evented for Deadline {
     }
 
     fn deregister(&self, poll: &Poll) -> io::Result<()> {
-        self.registration.deregister(poll)
+        poll.deregister(&self.registration)
     }
 }

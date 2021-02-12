@@ -1,5 +1,4 @@
 use crate::config::SpriteSheetConfig;
-use crate::glium::backend::Backend;
 use crate::xgfx::Window;
 use crate::xwin::Point;
 use glium::{self, IndexBuffer, VertexBuffer};
@@ -25,12 +24,9 @@ pub struct SpriteSheet {
 }
 
 impl SpriteSheet {
-    pub fn from_config(window: &Window, config: &SpriteSheetConfig) -> Self {
+    pub fn from_config(config: &SpriteSheetConfig) -> Self {
         let mut sprites = Vec::new();
-        let (w, h) = {
-            let (width, height) = window.gl.get_framebuffer_dimensions();
-            ((width / 2) as f32, (height / 2) as f32)
-        };
+
         for (_, sprite) in &config.sheets {
             sprites.push(Sprite {
                 size: Point::new(sprite.frame.w as f32, sprite.frame.h as f32),

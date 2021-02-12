@@ -23,10 +23,6 @@ impl Hyperlink {
         let id = params.get("id").unwrap_or(&"");
         Self { url: url.into(), id: (**id).into() }
     }
-
-    pub fn with_id(url: &str, id: &str) -> Self {
-        Self { url: url.into(), id: id.into() }
-    }
 }
 
 /// The spec says that the escape sequence is of the form:

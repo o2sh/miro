@@ -301,7 +301,7 @@ impl<'a> CSIParser<'a> {
                 self.advance_by(1, params);
                 Some(CSIAction::SetStrikethrough(false))
             }
-            &[idx @ 30...37, ..] => {
+            &[idx @ 30..=37, ..] => {
                 self.advance_by(1, params);
                 Some(CSIAction::SetForegroundColor(color::ColorAttribute::PaletteIndex(
                     idx as u8 - 30,
@@ -311,7 +311,7 @@ impl<'a> CSIParser<'a> {
                 self.advance_by(1, params);
                 Some(CSIAction::SetForegroundColor(color::ColorAttribute::Foreground))
             }
-            &[idx @ 40...47, ..] => {
+            &[idx @ 40..=47, ..] => {
                 self.advance_by(1, params);
                 Some(CSIAction::SetBackgroundColor(color::ColorAttribute::PaletteIndex(
                     idx as u8 - 40,
@@ -321,14 +321,14 @@ impl<'a> CSIParser<'a> {
                 self.advance_by(1, params);
                 Some(CSIAction::SetBackgroundColor(color::ColorAttribute::Background))
             }
-            &[idx @ 90...97, ..] => {
+            &[idx @ 90..=97, ..] => {
                 // Bright foreground colors
                 self.advance_by(1, params);
                 Some(CSIAction::SetForegroundColor(color::ColorAttribute::PaletteIndex(
                     idx as u8 - 90 + 8,
                 )))
             }
-            &[idx @ 100...107, ..] => {
+            &[idx @ 100..=107, ..] => {
                 // Bright background colors
                 self.advance_by(1, params);
                 Some(CSIAction::SetBackgroundColor(color::ColorAttribute::PaletteIndex(

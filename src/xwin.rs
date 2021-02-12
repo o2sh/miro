@@ -9,7 +9,6 @@ use crate::term::{
     self, CursorPosition, KeyCode, KeyModifiers, Line, MouseButton, MouseEvent, MouseEventKind,
     TerminalHost, Underline,
 };
-use crate::xgfx::Window;
 use crate::xgfx::{self, Connection, Drawable};
 use crate::xkeysyms;
 use euclid;
@@ -30,10 +29,10 @@ use xcb_util;
 
 use crate::texture_atlas::{Atlas, Sprite, SpriteSlice};
 
-type Transform3D = euclid::Transform3D<f32>;
+type Transform3D = euclid::Transform3D<f32, f32, f32>;
 
 #[derive(Copy, Clone, Debug)]
-pub struct Point(euclid::Point2D<f32>);
+pub struct Point(euclid::Point2D<f32, f32>);
 
 impl Default for Point {
     fn default() -> Point {
@@ -42,7 +41,7 @@ impl Default for Point {
 }
 
 impl Deref for Point {
-    type Target = euclid::Point2D<f32>;
+    type Target = euclid::Point2D<f32, f32>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -321,7 +320,7 @@ impl<'a> TerminalWindow<'a> {
         } else {
             descender
         };
-        let spritesheet = get_spritesheet(&window);
+        let spritesheet = get_spritesheet();
         let host = Host { window, pty, timestamp: 0, clipboard: None };
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
@@ -1045,7 +1044,7 @@ impl<'a> TerminalWindow<'a> {
             &self.sprite_index_buffer,
             &self.p_program,
             &uniform! {
-                projection: self.projection.to_column_arrays(),
+                projection: self.projection.to_arrays(),
                 tex: &player_texture,
                 source_dimensions: sprite.size.to_array(),
                 source_position: sprite.position.to_array(),
@@ -1116,7 +1115,7 @@ impl<'a> TerminalWindow<'a> {
             &self.glyph_index_buffer,
             &self.g_program,
             &uniform! {
-                projection: self.projection.to_column_arrays(),
+                projection: self.projection.to_arrays(),
                 glyph_tex: &*tex,
                 bg_fill: true,
                 underlining: false,
@@ -1135,7 +1134,7 @@ impl<'a> TerminalWindow<'a> {
             &self.glyph_index_buffer,
             &self.g_program,
             &uniform! {
-                projection: self.projection.to_column_arrays(),
+                projection: self.projection.to_arrays(),
                 glyph_tex: &*tex,
                 bg_fill: false,
                 underlining: false,
@@ -1153,7 +1152,7 @@ impl<'a> TerminalWindow<'a> {
             &self.glyph_index_buffer,
             &self.g_program,
             &uniform! {
-                projection: self.projection.to_column_arrays(),
+                projection: self.projection.to_arrays(),
                 glyph_tex: &*tex,
                 bg_fill: false,
                 underlining: true,
@@ -1213,7 +1212,7 @@ impl<'a> TerminalWindow<'a> {
             &index_buffer,
             &self.r_program,
             &uniform! {
-                projection: self.projection.to_column_arrays(),
+                projection: self.projection.to_arrays(),
             },
             &glium::DrawParameters {
                 blend: glium::Blend::alpha_blending(),
@@ -1250,6 +1249,7 @@ impl<'a> TerminalWindow<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn need_paint(&self) -> bool {
         self.terminal.has_dirty_lines()
     }
@@ -1432,7 +1432,7 @@ impl<'a> TerminalWindow<'a> {
     }
 }
 
-pub fn get_spritesheet(window: &Window) -> SpriteSheet {
+pub fn get_spritesheet() -> SpriteSheet {
     let spritesheet_config = SpriteSheetConfig::load("assets/gfx/mario.json").unwrap();
-    SpriteSheet::from_config(window, &spritesheet_config)
+    SpriteSheet::from_config(&spritesheet_config)
 }

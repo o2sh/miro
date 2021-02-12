@@ -164,7 +164,7 @@ impl TerminalState {
                 if s.len() > 0 {
                     s.push('\n');
                 }
-                s.push_str(&screen.lines[idx].columns_as_str(cols).trim_right());
+                s.push_str(&screen.lines[idx].columns_as_str(cols).trim_end());
             }
         }
 
@@ -611,7 +611,7 @@ impl TerminalState {
 
         let selection = self.selection_range.map(|r| r.normalize());
 
-        for (i, mut line) in screen.lines.iter().skip(len - height).enumerate() {
+        for (i, line) in screen.lines.iter().skip(len - height).enumerate() {
             if i >= height {
                 // When scrolling back, make sure we don't emit lines that
                 // are below the bottom of the viewport
@@ -635,23 +635,11 @@ impl TerminalState {
         res
     }
 
-    pub fn get_viewport_offset(&self) -> VisibleRowIndex {
-        self.viewport_offset
-    }
-
     /// Clear the dirty flag for all dirty lines
     pub fn clean_dirty_lines(&mut self) {
         let screen = self.screen_mut();
         for line in screen.lines.iter_mut() {
             line.set_clean();
-        }
-    }
-
-    /// When dealing with selection, mark a range of lines as dirty
-    pub fn make_all_lines_dirty(&mut self) {
-        let screen = self.screen_mut();
-        for line in screen.lines.iter_mut() {
-            line.set_dirty();
         }
     }
 
@@ -866,7 +854,7 @@ impl TerminalState {
             CSIAction::EraseInLine(erase) => {
                 let cx = self.cursor.x;
                 let cy = self.cursor.y;
-                let mut screen = self.screen_mut();
+                let screen = self.screen_mut();
                 let cols = screen.physical_cols;
                 match erase {
                     LineErase::ToRight => {
@@ -882,7 +870,7 @@ impl TerminalState {
             }
             CSIAction::EraseInDisplay(erase) => {
                 let cy = self.cursor.y;
-                let mut screen = self.screen_mut();
+                let screen = self.screen_mut();
                 let cols = screen.physical_cols;
                 let rows = screen.physical_rows as VisibleRowIndex;
                 match erase {
