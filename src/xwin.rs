@@ -4,6 +4,11 @@ use crate::font::{ftwrap, FontConfiguration, GlyphInfo};
 use crate::glium::backend::Backend;
 use crate::pty::MasterPty;
 use crate::spritesheet::SpriteSheet;
+use crate::term::hyperlink::Hyperlink;
+use crate::term::{
+    self, CursorPosition, KeyCode, KeyModifiers, Line, MouseButton, MouseEvent, MouseEventKind,
+    TerminalHost, Underline,
+};
 use crate::xgfx::Window;
 use crate::xgfx::{self, Connection, Drawable};
 use crate::xkeysyms;
@@ -20,11 +25,6 @@ use std::process::Child;
 use std::process::Command;
 use std::rc::Rc;
 use std::slice;
-use crate::term::hyperlink::Hyperlink;
-use crate::term::{
-    self, CursorPosition, KeyCode, KeyModifiers, Line, MouseButton, MouseEvent, MouseEventKind,
-    TerminalHost, Underline,
-};
 use xcb;
 use xcb_util;
 

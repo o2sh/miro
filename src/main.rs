@@ -40,11 +40,11 @@ use std::os::unix::io::AsRawFd;
 use std::process::Command;
 use std::str;
 
-mod term;
 mod config;
 mod deadline;
 mod font;
 mod spritesheet;
+mod term;
 mod xgfx;
 mod xkeysyms;
 use font::{ftwrap, FontConfiguration};
@@ -142,11 +142,6 @@ fn run() -> Result<(), Error> {
     conn.flush();
 
     loop {
-        if window.frame_count % ANIMATION_SPAN == 0 {
-            window.paint()?;
-            window.count += 1;
-        }
-        window.frame_count += 1;
         if poll.poll(&mut events, Some(Duration::new(0, 0)))? == 0 {
             // No immediately ready events.  Before we go to sleep,
             // make sure we've flushed out any pending X work.
@@ -156,6 +151,13 @@ fn run() -> Result<(), Error> {
         }
 
         for event in &events {
+            if event.token() == Token(3) {
+                if window.frame_count % ANIMATION_SPAN == 0 {
+                    window.paint()?;
+                    window.count += 1;
+                }
+                window.frame_count += 1;
+            }
             if event.token() == Token(0) && event.readiness().is_readable() {
                 window.handle_pty_readable_event();
             }
