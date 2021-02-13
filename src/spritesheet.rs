@@ -38,7 +38,7 @@ impl SpriteSheet {
     }
 }
 
-pub fn compute_player_vertices(
+pub fn compute_sprite_vertices(
     window: &Window,
     width: f32,
     height: f32,

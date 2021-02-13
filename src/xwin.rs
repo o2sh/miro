@@ -431,7 +431,7 @@ impl<'a> TerminalWindow<'a> {
         let atlas = RefCell::new(Atlas::new(&host.window)?);
 
         let (sprite_vertex_buffer, sprite_index_buffer) =
-            crate::spritesheet::compute_player_vertices(&host.window, width as f32, height as f32);
+            crate::spritesheet::compute_sprite_vertices(&host.window, width as f32, height as f32);
 
         Ok(TerminalWindow {
             host,
@@ -557,15 +557,7 @@ impl<'a> TerminalWindow<'a> {
             self.glyph_vertex_buffer = RefCell::new(glyph_vertex_buffer);
             self.glyph_index_buffer = glyph_index_buffer;
 
-            let (sprite_vertex_buffer, sprite_index_buffer) =
-                crate::spritesheet::compute_player_vertices(
-                    &self.host.window,
-                    width as f32,
-                    height as f32,
-                );
-
-            self.sprite_vertex_buffer = RefCell::new(sprite_vertex_buffer);
-            self.sprite_index_buffer = sprite_index_buffer;
+            self.reset_sprite_pos((height / 2) as f32);
 
             // The +1 in here is to handle an irritating case.
             // When we get N rows with a gap of cell_height - 1 left at
@@ -1057,11 +1049,22 @@ impl<'a> TerminalWindow<'a> {
             },
         )?;
 
-        self.slide(w);
+        self.slide_sprite(w);
         Ok(())
     }
 
-    pub fn slide(&mut self, width: f32) {
+    pub fn reset_sprite_pos(&mut self, height: f32) {
+        let mut vb = self.sprite_vertex_buffer.borrow_mut();
+        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
+        let size = crate::spritesheet::SPRITE_SIZE;
+
+        vert[V_BOT_LEFT].position.0.y = -height;
+        vert[V_BOT_RIGHT].position.0.y = -height;
+        vert[V_TOP_LEFT].position.0.y = -height + size;
+        vert[V_TOP_RIGHT].position.0.y = -height + size;
+    }
+
+    pub fn slide_sprite(&mut self, width: f32) {
         let mut vb = self.sprite_vertex_buffer.borrow_mut();
         let mut vert = { vb.slice_mut(0..4).unwrap().map() };
 
