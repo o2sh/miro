@@ -1058,10 +1058,10 @@ impl<'a> TerminalWindow<'a> {
         let mut vert = { vb.slice_mut(0..4).unwrap().map() };
         let size = crate::spritesheet::SPRITE_SIZE;
 
-        vert[V_BOT_LEFT].position.0.y = -height;
-        vert[V_BOT_RIGHT].position.0.y = -height;
-        vert[V_TOP_LEFT].position.0.y = -height + size;
-        vert[V_TOP_RIGHT].position.0.y = -height + size;
+        vert[V_TOP_LEFT].position.0.y = -height;
+        vert[V_TOP_RIGHT].position.0.y = -height;
+        vert[V_BOT_LEFT].position.0.y = -height + size;
+        vert[V_BOT_RIGHT].position.0.y = -height + size;
     }
 
     pub fn slide_sprite(&mut self, width: f32) {

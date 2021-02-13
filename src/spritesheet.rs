@@ -49,26 +49,26 @@ pub fn compute_sprite_vertices(
 
     verts.push(SpriteVertex {
         // Top left
-        tex_coords: Point::new(0.0, 0.0),
-        position: Point::new(-w, -h + SPRITE_SIZE),
-        ..Default::default()
-    });
-    verts.push(SpriteVertex {
-        // Top Right
-        tex_coords: Point::new(1.0, 0.0),
-        position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
-        ..Default::default()
-    });
-    verts.push(SpriteVertex {
-        // Bottom Left
         tex_coords: Point::new(0.0, 1.0),
         position: Point::new(-w, -h),
         ..Default::default()
     });
     verts.push(SpriteVertex {
-        // Bottom Right
+        // Top Right
         tex_coords: Point::new(1.0, 1.0),
         position: Point::new(-w + SPRITE_SIZE, -h),
+        ..Default::default()
+    });
+    verts.push(SpriteVertex {
+        // Bottom Left
+        tex_coords: Point::new(0.0, 0.0),
+        position: Point::new(-w, -h + SPRITE_SIZE),
+        ..Default::default()
+    });
+    verts.push(SpriteVertex {
+        // Bottom Right
+        tex_coords: Point::new(1.0, 0.0),
+        position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
         ..Default::default()
     });
 
