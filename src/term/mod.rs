@@ -27,8 +27,8 @@ use hyperlink::Hyperlink;
 pub mod terminal;
 pub use terminal::*;
 
-pub mod terminalstate;
-pub use terminalstate::*;
+pub mod terminal_state;
+pub use terminal_state::*;
 
 /// Represents the index into screen.lines.  Index 0 is the top of
 /// the scrollback (if any).  The index of the top of the visible screen

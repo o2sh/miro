@@ -153,7 +153,7 @@ fn run() -> Result<(), Error> {
         for event in &events {
             if event.token() == Token(3) {
                 if window.frame_count % ANIMATION_SPAN == 0 {
-                    window.paint()?;
+                    window.paint(true)?;
                     window.count += 1;
                 }
                 window.frame_count += 1;

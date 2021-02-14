@@ -576,7 +576,7 @@ impl<'a> TerminalWindow<'a> {
     }
 
     pub fn expose(&mut self, _x: u16, _y: u16, _width: u16, _height: u16) -> Result<(), Error> {
-        self.paint()
+        self.paint(false)
     }
 
     /// Resolve a glyph from the cache, rendering the glyph on-demand if
@@ -1085,10 +1085,12 @@ impl<'a> TerminalWindow<'a> {
         }
     }
 
-    pub fn paint(&mut self) -> Result<(), Error> {
+    pub fn paint(&mut self, with_sprite: bool) -> Result<(), Error> {
         let mut target = self.host.window.draw();
         let res = self.do_paint(&mut target);
-        self.paint_sprite(&mut target)?;
+        if with_sprite {
+            self.paint_sprite(&mut target)?;
+        }
         // Ensure that we finish() the target before we let the
         // error bubble up, otherwise we lose the context.
         target.finish().unwrap();
