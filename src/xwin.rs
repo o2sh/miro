@@ -16,6 +16,7 @@ use euclid;
 use failure::{self, Error};
 use glium::texture::SrgbTexture2d;
 use glium::{self, IndexBuffer, Surface, VertexBuffer};
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -25,6 +26,7 @@ use std::process::Child;
 use std::process::Command;
 use std::rc::Rc;
 use std::slice;
+use systemstat::Platform;
 use xcb;
 use xcb_util;
 
@@ -110,6 +112,13 @@ implement_vertex!(
 
 const HEADER_HEIGHT: f32 = 30.0;
 
+lazy_static! {
+    static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
+    static ref CPU_LOAD_LENGTH: usize = "Cpu 00°C".chars().count();
+}
+const HEADER_TOP_PADDING: f32 = 13.0;
+const HEADER_WIDTH_PADDING: f32 = 13.0;
+
 const GLYPH_VERTEX_SHADER: &str = include_str!("../assets/shader/g_vertex.glsl");
 const GLYPH_FRAGMENT_SHADER: &str = include_str!("../assets/shader/g_fragment.glsl");
 
@@ -175,6 +184,7 @@ pub struct TerminalWindow<'a> {
     pub frame_count: u32,
     pub count: u32,
     spritesheet: SpriteSheet,
+    sys: systemstat::System,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -298,6 +308,7 @@ impl<'a> TerminalWindow<'a> {
         process: Child,
         fonts: FontConfiguration,
         palette: term::color::ColorPalette,
+        sys: systemstat::System,
     ) -> Result<TerminalWindow, Error> {
         let (cell_height, cell_width, descender) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
@@ -414,18 +425,16 @@ impl<'a> TerminalWindow<'a> {
             height as f32,
         )?;
 
+        //Header Text
         let header_text_style = TextStyle {
             fontconfig_pattern: String::from("Operator Mono SSm Lig:style=Bold Lig:size=12"),
             foreground: None,
         };
-
         let font = fonts.cached_font(&header_text_style)?;
-
         let (header_cell_height, header_cell_width, header_cell_descender) = {
             let tuple = font.borrow_mut().get_metrics()?;
             (tuple.0.ceil() as usize, tuple.1.ceil() as usize, tuple.2)
         };
-
         let header_cell_descender = if header_cell_descender.is_positive() {
             ((header_cell_descender as f64) / 64.0).ceil() as isize
         } else {
@@ -435,9 +444,10 @@ impl<'a> TerminalWindow<'a> {
         let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
             Self::compute_header_text_vertices(
                 &host,
-                13.0,
-                40.0,
-                8,
+                HEADER_TOP_PADDING,
+                HEADER_WIDTH_PADDING,
+                *CPU_LOAD_LENGTH,
+                *CURRENT_TIME_LENGTH,
                 width as f32,
                 height as f32,
                 header_cell_width as f32,
@@ -502,6 +512,7 @@ impl<'a> TerminalWindow<'a> {
             spritesheet,
             sprite_vertex_buffer: RefCell::new(sprite_vertex_buffer),
             sprite_index_buffer,
+            sys,
         })
     }
 
@@ -605,9 +616,10 @@ impl<'a> TerminalWindow<'a> {
             let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
                 Self::compute_header_text_vertices(
                     &self.host,
-                    13.0,
-                    40.0,
-                    8,
+                    HEADER_TOP_PADDING,
+                    HEADER_WIDTH_PADDING,
+                    *CPU_LOAD_LENGTH,
+                    *CURRENT_TIME_LENGTH,
                     width as f32,
                     height as f32,
                     self.header_cell_width as f32,
@@ -1072,13 +1084,22 @@ impl<'a> TerminalWindow<'a> {
     }
     pub fn render_header_text(&mut self) -> Result<(), Error> {
         let now: DateTime<Utc> = Utc::now();
+        let current_time = now.format("%H:%M:%S").to_string();
+
+        let cpu_load = match self.sys.cpu_temp() {
+            Ok(cpu_temp) => {
+                format!("Cpu {:02}°C", cpu_temp)
+            }
+            Err(_) => format!("Cpu XX°C"),
+        };
+
         let mut vb = self.glyph_header_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
             .ok_or_else(|| format_err!("we're confused about the screen size"))?
             .map();
         let glyph_info =
-            self.shape_text(&now.format("%H:%M:%S").to_string(), &self.header_text_style)?;
+            self.shape_text(&format!("{}{}", cpu_load, current_time), &self.header_text_style)?;
         let glyph_color = self
             .palette
             .resolve(&term::color::ColorAttribute::PaletteIndex(15))
@@ -1125,7 +1146,6 @@ impl<'a> TerminalWindow<'a> {
 
                     // How much of the width of this glyph we can use here
                     let slice_width = texture.slice_width(&slice);
-
                     let right = (slice_width as f32 + left) - cell_width;
 
                     let bottom = ((texture.coords.height as f32) * glyph.scale + top) - cell_height;
@@ -1175,8 +1195,9 @@ impl<'a> TerminalWindow<'a> {
     fn compute_header_text_vertices(
         host: &Host,
         top_padding: f32,
-        right_padding: f32,
-        num_cols: usize,
+        width_padding: f32,
+        left_num_cols: usize,
+        right_num_cols: usize,
         width: f32,
         height: f32,
         cell_width: f32,
@@ -1185,32 +1206,39 @@ impl<'a> TerminalWindow<'a> {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
-        for x in (0..num_cols).rev() {
-            let y_pos = height / -2.0;
-            let x_pos = ((width - right_padding) / 2.0) - (x as f32 * cell_width);
+        for x in 0..(left_num_cols + right_num_cols) {
+            let y_pos = height / -2.0 + top_padding;
+            let x_pos = if x < left_num_cols {
+                (width / -2.0) + width_padding + (x as f32 * cell_width)
+            } else {
+                (width / 2.0)
+                    - width_padding
+                    - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
+                    + 5.0
+            };
             // Remember starting index for this position
             let idx = verts.len() as u32;
             verts.push(Vertex {
                 // Top left
-                position: Point::new(x_pos, top_padding + y_pos),
+                position: Point::new(x_pos, y_pos),
                 v_idx: V_TOP_LEFT as f32,
                 ..Default::default()
             });
             verts.push(Vertex {
                 // Top Right
-                position: Point::new(x_pos + cell_width, top_padding + y_pos),
+                position: Point::new(x_pos + cell_width, y_pos),
                 v_idx: V_TOP_RIGHT as f32,
                 ..Default::default()
             });
             verts.push(Vertex {
                 // Bottom Left
-                position: Point::new(x_pos, top_padding + y_pos + cell_height),
+                position: Point::new(x_pos, y_pos + cell_height),
                 v_idx: V_BOT_LEFT as f32,
                 ..Default::default()
             });
             verts.push(Vertex {
                 // Bottom Right
-                position: Point::new(x_pos + cell_width, top_padding + y_pos + cell_height),
+                position: Point::new(x_pos + cell_width, y_pos + cell_height),
                 v_idx: V_BOT_RIGHT as f32,
                 ..Default::default()
             });

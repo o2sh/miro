@@ -25,6 +25,8 @@ extern crate x11;
 #[macro_use]
 pub mod log;
 
+use systemstat::{Platform, System};
+
 use failure::Error;
 use mio::{Poll, PollOpt, Ready, Token};
 use std::time::Duration;
@@ -79,7 +81,7 @@ fn get_shell() -> Result<String, Error> {
 fn run() -> Result<(), Error> {
     let poll = Poll::new()?;
     let conn = xgfx::Connection::new()?;
-
+    let sys = System::new();
     let waiter = sigchld::ChildWaiter::new()?;
 
     let config = config::Config::default();
@@ -134,6 +136,7 @@ fn run() -> Result<(), Error> {
         child,
         fontconfig,
         config.colors.map(|p| p.into()).unwrap_or_else(term::color::ColorPalette::default),
+        sys,
     )?;
 
     window.show();
