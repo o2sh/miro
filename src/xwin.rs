@@ -602,6 +602,21 @@ impl<'a> TerminalWindow<'a> {
 
             self.reset_sprite_pos((height / 2) as f32);
 
+            let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
+                Self::compute_header_text_vertices(
+                    &self.host,
+                    13.0,
+                    40.0,
+                    8,
+                    width as f32,
+                    height as f32,
+                    self.header_cell_width as f32,
+                    self.header_cell_height as f32,
+                )?;
+
+            self.glyph_header_vertex_buffer = RefCell::new(glyph_header_vertex_buffer);
+            self.glyph_header_index_buffer = glyph_header_index_buffer;
+
             // The +1 in here is to handle an irritating case.
             // When we get N rows with a gap of cell_height - 1 left at
             // the bottom, we can usually squeeze that extra row in there,
