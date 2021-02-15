@@ -228,7 +228,7 @@ impl TerminalState {
     pub fn mouse_event(
         &mut self,
         mut event: MouseEvent,
-        host: &mut TerminalHost,
+        host: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
         // Clamp the mouse coordinates to the size of the model.
         // This situation can trigger for example when the
@@ -467,7 +467,7 @@ impl TerminalState {
         &mut self,
         key: KeyCode,
         mods: KeyModifiers,
-        host: &mut TerminalHost,
+        host: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
         const CTRL: KeyModifiers = KeyModifiers::CTRL;
         const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
@@ -570,7 +570,7 @@ impl TerminalState {
         &mut self,
         _: KeyCode,
         _: KeyModifiers,
-        _: &mut TerminalHost,
+        _: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
         Ok(())
     }

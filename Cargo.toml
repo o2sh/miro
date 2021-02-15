@@ -31,6 +31,7 @@ image = "0.23.13"
 maplit = "1.0.1"
 unicode-segmentation = "1.2.0"
 vte = "0.3.2"
+chrono = "0.4"
 
 [dependencies.glium]
 default-features = false

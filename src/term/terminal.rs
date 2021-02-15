@@ -5,7 +5,7 @@ use super::*;
 /// and for operating on the clipboard
 pub trait TerminalHost {
     /// slave end of the associated pty.
-    fn writer(&mut self) -> &mut std::io::Write;
+    fn writer(&mut self) -> &mut dyn std::io::Write;
 
     /// Returns the current clipboard contents
     fn get_clipboard(&mut self) -> Result<String, Error>;
@@ -62,7 +62,7 @@ impl Terminal {
     }
 
     /// Feed the terminal parser a slice of bytes of input.
-    pub fn advance_bytes<B: AsRef<[u8]>>(&mut self, bytes: B, host: &mut TerminalHost) {
+    pub fn advance_bytes<B: AsRef<[u8]>>(&mut self, bytes: B, host: &mut dyn TerminalHost) {
         let bytes = bytes.as_ref();
         for b in bytes.iter() {
             self.parser.advance(&mut self.state, *b);
