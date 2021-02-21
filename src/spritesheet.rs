@@ -1,17 +1,12 @@
 use crate::config::SpriteSheetConfig;
-use crate::xgfx::Window;
-use crate::xwin::Point;
-use glium::{self, IndexBuffer, VertexBuffer};
+use crate::x_window::Point;
+use glium::texture::CompressedSrgbTexture2d;
 
-pub const SPRITE_SIZE: f32 = 32.0;
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SpriteVertex {
-    pub position: Point,
-    tex_coords: Point,
+pub struct SpriteSheetTexture {
+    pub tex: CompressedSrgbTexture2d,
+    pub width: f32,
+    pub height: f32,
 }
-
-implement_vertex!(SpriteVertex, position, tex_coords);
 
 pub struct Sprite {
     pub size: Point,
@@ -36,45 +31,4 @@ impl SpriteSheet {
 
         SpriteSheet { image_path: String::from(&config.image_path), sprites }
     }
-}
-
-pub fn compute_sprite_vertices(
-    window: &Window,
-    width: f32,
-    height: f32,
-) -> (VertexBuffer<SpriteVertex>, IndexBuffer<u32>) {
-    let mut verts = Vec::new();
-
-    let (w, h) = { (width / 2.0, height / 2.0) };
-
-    verts.push(SpriteVertex {
-        // Top left
-        tex_coords: Point::new(0.0, 1.0),
-        position: Point::new(-w, -h),
-        ..Default::default()
-    });
-    verts.push(SpriteVertex {
-        // Top Right
-        tex_coords: Point::new(1.0, 1.0),
-        position: Point::new(-w + SPRITE_SIZE, -h),
-        ..Default::default()
-    });
-    verts.push(SpriteVertex {
-        // Bottom Left
-        tex_coords: Point::new(0.0, 0.0),
-        position: Point::new(-w, -h + SPRITE_SIZE),
-        ..Default::default()
-    });
-    verts.push(SpriteVertex {
-        // Bottom Right
-        tex_coords: Point::new(1.0, 0.0),
-        position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
-        ..Default::default()
-    });
-
-    (
-        VertexBuffer::dynamic(window, &verts).unwrap(),
-        IndexBuffer::new(window, glium::index::PrimitiveType::TrianglesList, &[0, 1, 2, 1, 3, 2])
-            .unwrap(),
-    )
 }

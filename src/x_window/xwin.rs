@@ -1,19 +1,18 @@
+use super::xkeysyms;
+use super::{Connection, Drawable, Window};
 use crate::config::SpriteSheetConfig;
 use crate::config::TextStyle;
 use crate::font::{ftwrap, FontConfiguration, GlyphInfo};
-use crate::glium::backend::Backend;
 use crate::pty::MasterPty;
-use crate::spritesheet::SpriteSheet;
-use crate::term::hyperlink::Hyperlink;
+use crate::spritesheet::{SpriteSheet, SpriteSheetTexture};
 use crate::term::{
     self, CursorPosition, KeyCode, KeyModifiers, Line, MouseButton, MouseEvent, MouseEventKind,
     TerminalHost, Underline,
 };
-use crate::xgfx::{self, Connection, Drawable};
-use crate::xkeysyms;
 use chrono::{DateTime, Utc};
 use euclid;
 use failure::{self, Error};
+use glium::backend::Facade;
 use glium::texture::SrgbTexture2d;
 use glium::{self, IndexBuffer, Surface, VertexBuffer};
 use lazy_static::lazy_static;
@@ -21,54 +20,21 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::mem;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::process::Child;
 use std::process::Command;
 use std::rc::Rc;
 use std::slice;
 use systemstat::Platform;
+use term::color::RgbaTuple;
+use term::hyperlink::Hyperlink;
 use xcb;
 use xcb_util;
 
-use crate::texture_atlas::{Atlas, Sprite, SpriteSlice};
-
 type Transform3D = euclid::Transform3D<f32, f32, f32>;
 
-#[derive(Copy, Clone, Debug)]
-pub struct Point(euclid::Point2D<f32, f32>);
-
-impl Default for Point {
-    fn default() -> Point {
-        Point::new(0.0, 0.0)
-    }
-}
-
-impl Deref for Point {
-    type Target = euclid::Point2D<f32, f32>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-unsafe impl glium::vertex::Attribute for Point {
-    #[inline]
-    fn get_type() -> glium::vertex::AttributeType {
-        glium::vertex::AttributeType::F32F32
-    }
-}
-
-impl Point {
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { 0: euclid::point2(x, y) }
-    }
-}
-
-impl std::ops::AddAssign for Point {
-    fn add_assign(&mut self, other: Self) {
-        self.0.x += other.0.x;
-        self.0.y += other.0.y;
-    }
-}
+use crate::texture_atlas::{Atlas, Sprite, SpriteSlice, TEX_SIZE};
+use crate::x_window::Point;
 
 /// Each cell is composed of two triangles built from 4 vertices.
 /// The buffer is organized row by row.
@@ -79,7 +45,7 @@ const V_BOT_LEFT: usize = 2;
 const V_BOT_RIGHT: usize = 3;
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct Vertex {
+struct Vertex {
     // pre-computed by compute_vertices and changed only on resize
     position: Point,
     // adjustment for glyph size, recomputed each time the cell changes
@@ -110,23 +76,23 @@ implement_vertex!(
     v_idx,
 );
 
-const HEADER_HEIGHT: f32 = 30.0;
+pub const SPRITE_SIZE: f32 = 32.0;
 
-lazy_static! {
-    static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
-    static ref CPU_LOAD_LENGTH: usize = "Cpu 00°C".chars().count();
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SpriteVertex {
+    pub position: Point,
+    tex_coords: Point,
 }
-const HEADER_TOP_PADDING: f32 = 13.0;
-const HEADER_WIDTH_PADDING: f32 = 13.0;
 
-const GLYPH_VERTEX_SHADER: &str = include_str!("../assets/shader/g_vertex.glsl");
-const GLYPH_FRAGMENT_SHADER: &str = include_str!("../assets/shader/g_fragment.glsl");
+implement_vertex!(SpriteVertex, position, tex_coords);
 
-const PLAYER_VERTEX_SHADER: &str = include_str!("../assets/shader/p_vertex.glsl");
-const PLAYER_FRAGMENT_SHADER: &str = include_str!("../assets/shader/p_fragment.glsl");
+#[derive(Copy, Clone)]
+struct RectVertex {
+    position: [f32; 2],
+    color: [f32; 3],
+}
 
-const RECT_VERTEX_SHADER: &str = include_str!("../assets/shader/r_vertex.glsl");
-const RECT_FRAGMENT_SHADER: &str = include_str!("../assets/shader/r_fragment.glsl");
+implement_vertex!(RectVertex, position, color);
 
 /// How many columns the underline texture has
 const U_COLS: f32 = 5.0;
@@ -144,31 +110,36 @@ const U_STRIKE_ONE: f32 = 4.0 / U_COLS;
 /// Texture coord for the RHS of the strikethrough + double underline glyph
 const U_STRIKE_TWO: f32 = 5.0 / U_COLS;
 
-/// Holds the information we need to implement TerminalHost
-struct Host<'a> {
-    window: xgfx::Window<'a>,
-    pty: MasterPty,
-    timestamp: xcb::xproto::Timestamp,
-    clipboard: Option<String>,
-}
+const HEADER_HEIGHT: f32 = 30.0;
 
-pub struct TerminalWindow<'a> {
-    host: Host<'a>,
-    conn: &'a Connection,
+lazy_static! {
+    static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
+    static ref CPU_LOAD_LENGTH: usize = "Cpu 00°C".chars().count();
+}
+const HEADER_TOP_PADDING: f32 = 13.0;
+const HEADER_WIDTH_PADDING: f32 = 13.0;
+
+const GLYPH_VERTEX_SHADER: &str = include_str!("../../assets/shader/g_vertex.glsl");
+const GLYPH_FRAGMENT_SHADER: &str = include_str!("../../assets/shader/g_fragment.glsl");
+
+const PLAYER_VERTEX_SHADER: &str = include_str!("../../assets/shader/p_vertex.glsl");
+const PLAYER_FRAGMENT_SHADER: &str = include_str!("../../assets/shader/p_fragment.glsl");
+
+const RECT_VERTEX_SHADER: &str = include_str!("../../assets/shader/r_vertex.glsl");
+const RECT_FRAGMENT_SHADER: &str = include_str!("../../assets/shader/r_fragment.glsl");
+
+struct Renderer {
     width: u16,
     height: u16,
     fonts: FontConfiguration,
-    cell_height: usize,
-    cell_width: usize,
-    descender: isize,
     header_text_style: TextStyle,
     header_cell_height: usize,
     header_cell_width: usize,
     header_cell_descender: isize,
-    terminal: term::Terminal,
-    process: Child,
+    cell_height: usize,
+    cell_width: usize,
+    descender: isize,
     glyph_cache: RefCell<HashMap<GlyphKey, Rc<CachedGlyph>>>,
-    palette: term::color::ColorPalette,
     g_program: glium::Program,
     r_program: glium::Program,
     p_program: glium::Program,
@@ -176,154 +147,43 @@ pub struct TerminalWindow<'a> {
     glyph_index_buffer: IndexBuffer<u32>,
     glyph_header_vertex_buffer: RefCell<VertexBuffer<Vertex>>,
     glyph_header_index_buffer: IndexBuffer<u32>,
-    sprite_vertex_buffer: RefCell<VertexBuffer<crate::spritesheet::SpriteVertex>>,
+    sprite_vertex_buffer: RefCell<VertexBuffer<SpriteVertex>>,
     sprite_index_buffer: IndexBuffer<u32>,
+    rect_vertex_buffer: RefCell<VertexBuffer<RectVertex>>,
+    rect_index_buffer: IndexBuffer<u32>,
     projection: Transform3D,
-    atlas: RefCell<Atlas>,
+    glyph_atlas: RefCell<Atlas>,
     underline_tex: SrgbTexture2d,
-    pub frame_count: u32,
-    pub count: u32,
+    palette: term::color::ColorPalette,
     spritesheet: SpriteSheet,
+    frame_count: u32,
+    player_texture: SpriteSheetTexture,
     sys: systemstat::System,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct GlyphKey {
-    font_idx: usize,
-    glyph_pos: u32,
-    style: TextStyle,
-}
-
-/// Caches a rendered glyph.
-/// The image data may be None for whitespace glyphs.
-#[derive(Debug)]
-struct CachedGlyph {
-    has_color: bool,
-    x_offset: isize,
-    y_offset: isize,
-    bearing_x: isize,
-    bearing_y: isize,
-    texture: Option<Sprite>,
-    scale: f32,
-}
-
-impl<'a> term::TerminalHost for Host<'a> {
-    fn writer(&mut self) -> &mut dyn Write {
-        &mut self.pty
-    }
-
-    fn click_link(&mut self, link: &Rc<Hyperlink>) {
-        // TODO: make this configurable
-        let mut cmd = Command::new("xdg-open");
-        cmd.arg(&link.url);
-        match cmd.spawn() {
-            Ok(_) => {}
-            Err(err) => eprintln!("failed to spawn xdg-open {}: {:?}", link.url, err),
-        }
-    }
-
-    // Check out https://tronche.com/gui/x/icccm/sec-2.html for some deep and complex
-    // background on what's happening in here.
-    fn get_clipboard(&mut self) -> Result<String, Error> {
-        // If we own the clipboard, just return the text now
-        if let Some(ref text) = self.clipboard {
-            return Ok(text.clone());
-        }
-
-        let conn = self.window.get_conn();
-
-        xcb::convert_selection(
-            conn.conn(),
-            self.window.as_drawable(),
-            xcb::ATOM_PRIMARY,
-            conn.atom_utf8_string,
-            conn.atom_xsel_data,
-            self.timestamp,
-        );
-        conn.flush();
-
-        loop {
-            let event =
-                conn.wait_for_event().ok_or_else(|| failure::err_msg("X connection EOF"))?;
-            match event.response_type() & 0x7f {
-                xcb::SELECTION_NOTIFY => {
-                    let selection: &xcb::SelectionNotifyEvent = unsafe { xcb::cast_event(&event) };
-
-                    if selection.selection() == xcb::ATOM_PRIMARY
-                        && selection.property() != xcb::NONE
-                    {
-                        let prop = xcb_util::icccm::get_text_property(
-                            conn,
-                            selection.requestor(),
-                            selection.property(),
-                        )
-                        .get_reply()?;
-                        return Ok(prop.name().into());
-                    }
-                }
-                _ => {
-                    eprintln!(
-                        "whoops: got XCB event type {} while waiting for selection",
-                        event.response_type() & 0x7f
-                    );
-                    // Rather than block forever, give up and yield an empty string
-                    // for pasting purposes.  We lost an event.  This sucks.
-                    // Will likely need to rethink how we handle passing the clipboard
-                    // data down to the terminal.
-                    return Ok("".into());
-                }
-            }
-        }
-    }
-
-    fn set_clipboard(&mut self, clip: Option<String>) -> Result<(), Error> {
-        self.clipboard = clip;
-        let conn = self.window.get_conn();
-
-        xcb::set_selection_owner(
-            conn.conn(),
-            if self.clipboard.is_some() { self.window.as_drawable() } else { xcb::NONE },
-            xcb::ATOM_PRIMARY,
-            self.timestamp,
-        );
-
-        // TODO: icccm says that we should check that we got ownership and
-        // amend our UI accordingly
-
-        Ok(())
-    }
-
-    fn set_title(&mut self, title: &str) {
-        self.window.set_title(title);
-    }
-}
-
-impl<'a> TerminalWindow<'a> {
-    pub fn new(
-        conn: &Connection,
+impl Renderer {
+    pub fn new<F: Facade>(
+        facade: &F,
         width: u16,
         height: u16,
-        terminal: term::Terminal,
-        pty: MasterPty,
-        process: Child,
         fonts: FontConfiguration,
         palette: term::color::ColorPalette,
         sys: systemstat::System,
-    ) -> Result<TerminalWindow, Error> {
+    ) -> Result<Self, Error> {
+        let spritesheet = get_spritesheet();
         let (cell_height, cell_width, descender) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
             let tuple = font.borrow_mut().get_metrics()?;
             tuple
         };
-        let window = xgfx::Window::new(&conn, width, height)?;
-        window.set_title("miro");
         let descender = if descender.is_positive() {
             ((descender as f64) / 64.0).ceil() as isize
         } else {
             ((descender as f64) / 64.0).floor() as isize
         };
         debug!("METRICS: h={} w={} d={}", cell_height, cell_width, descender);
+
         // The descender isn't always reliable.  If it looks implausible then we
         // cook up something more reasonable.  For example, if the descender pulls
         // the basline up into the top half of the cell then it is probably bad
@@ -338,8 +198,7 @@ impl<'a> TerminalWindow<'a> {
         } else {
             descender
         };
-        let spritesheet = get_spritesheet();
-        let host = Host { window, pty, timestamp: 0, clipboard: None };
+
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
 
@@ -408,22 +267,13 @@ impl<'a> TerminalWindow<'a> {
             }
 
             glium::texture::SrgbTexture2d::new(
-                &host.window,
+                facade,
                 glium::texture::RawImage2d::from_raw_rgba(
                     underline_data,
                     (width as u32, cell_height as u32),
                 ),
             )?
         };
-
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
-            &host,
-            HEADER_HEIGHT + 1.0,
-            cell_width as f32,
-            cell_height as f32,
-            width as f32,
-            height as f32,
-        )?;
 
         //Header Text
         let header_text_style = TextStyle {
@@ -443,7 +293,7 @@ impl<'a> TerminalWindow<'a> {
 
         let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
             Self::compute_header_text_vertices(
-                &host,
+                facade,
                 HEADER_TOP_PADDING,
                 HEADER_WIDTH_PADDING,
                 *CPU_LOAD_LENGTH,
@@ -454,35 +304,50 @@ impl<'a> TerminalWindow<'a> {
                 header_cell_height as f32,
             )?;
 
-        let g_program = glium::Program::from_source(
-            &host.window,
-            GLYPH_VERTEX_SHADER,
-            GLYPH_FRAGMENT_SHADER,
-            None,
+        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
+            facade,
+            HEADER_HEIGHT + 1.0,
+            cell_width as f32,
+            cell_height as f32,
+            width as f32,
+            height as f32,
         )?;
 
-        let r_program = glium::Program::from_source(
-            &host.window,
-            RECT_VERTEX_SHADER,
-            RECT_FRAGMENT_SHADER,
-            None,
-        )?;
+        let (sprite_vertex_buffer, sprite_index_buffer) =
+            Self::compute_sprite_vertices(facade, width as f32, height as f32);
+
+        let (rect_vertex_buffer, rect_index_buffer) =
+            Self::compute_rect_vertices(facade, width as f32, height as f32);
+
+        let g_program =
+            glium::Program::from_source(facade, GLYPH_VERTEX_SHADER, GLYPH_FRAGMENT_SHADER, None)?;
+
+        let r_program =
+            glium::Program::from_source(facade, RECT_VERTEX_SHADER, RECT_FRAGMENT_SHADER, None)?;
 
         let p_program = glium::Program::from_source(
-            &host.window,
+            facade,
             PLAYER_VERTEX_SHADER,
             PLAYER_FRAGMENT_SHADER,
             None,
         )?;
 
-        let atlas = RefCell::new(Atlas::new(&host.window)?);
+        let glyph_atlas = RefCell::new(Atlas::new(facade, TEX_SIZE)?);
 
-        let (sprite_vertex_buffer, sprite_index_buffer) =
-            crate::spritesheet::compute_sprite_vertices(&host.window, width as f32, height as f32);
+        let image = image::open(&spritesheet.image_path).unwrap().to_rgba8();
+        let image_dimensions = image.dimensions();
+        let image =
+            glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
 
-        Ok(TerminalWindow {
-            host,
-            atlas,
+        let player_texture = SpriteSheetTexture {
+            tex: glium::texture::CompressedSrgbTexture2d::new(facade, image).unwrap(),
+            width: image_dimensions.0 as f32,
+            height: image_dimensions.1 as f32,
+        };
+
+        Ok(Self {
+            glyph_atlas,
+            player_texture,
             g_program,
             r_program,
             p_program,
@@ -490,163 +355,84 @@ impl<'a> TerminalWindow<'a> {
             glyph_index_buffer,
             glyph_header_vertex_buffer: RefCell::new(glyph_header_vertex_buffer),
             glyph_header_index_buffer,
-            conn,
+            sprite_vertex_buffer: RefCell::new(sprite_vertex_buffer),
+            sprite_index_buffer,
+            rect_vertex_buffer: RefCell::new(rect_vertex_buffer),
+            rect_index_buffer,
+            palette,
             width,
             height,
             fonts,
             cell_height,
             cell_width,
+            descender,
             header_cell_height,
             header_cell_width,
             header_cell_descender,
             header_text_style,
-            descender,
-            terminal,
-            process,
             glyph_cache: RefCell::new(HashMap::new()),
-            palette,
             projection: Self::compute_projection(width as f32, height as f32),
             underline_tex,
-            frame_count: 0,
-            count: 0,
             spritesheet,
-            sprite_vertex_buffer: RefCell::new(sprite_vertex_buffer),
-            sprite_index_buffer,
+            frame_count: 0,
             sys,
         })
     }
 
-    pub fn show(&self) {
-        self.host.window.show();
-    }
+    pub fn resize<F: Facade>(&mut self, facade: &F, width: u16, height: u16) -> Result<(), Error> {
+        debug!("Renderer resize {},{}", width, height);
 
-    /// Compute a vertex buffer to hold the quads that comprise the visible
-    /// portion of the screen.   We recreate this when the screen is resized.
-    /// The idea is that we want to minimize and heavy lifting and computation
-    /// and instead just poke some attributes into the offset that corresponds
-    /// to a changed cell when we need to repaint the screen, and then just
-    /// let the GPU figure out the rest.
-    fn compute_vertices(
-        host: &Host,
-        top_padding: f32,
-        cell_width: f32,
-        cell_height: f32,
-        width: f32,
-        height: f32,
-    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>), Error> {
-        let mut verts = Vec::new();
-        let mut indices = Vec::new();
+        self.width = width;
+        self.height = height;
+        self.projection = Self::compute_projection(width as f32, height as f32);
 
-        let num_cols = (width as usize + 1) / cell_width as usize;
-        let num_rows = (height as usize + 1) / cell_height as usize;
+        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
+            facade,
+            HEADER_HEIGHT + 1.0,
+            self.cell_width as f32,
+            self.cell_height as f32,
+            width as f32,
+            height as f32,
+        )?;
+        self.glyph_vertex_buffer = RefCell::new(glyph_vertex_buffer);
+        self.glyph_index_buffer = glyph_index_buffer;
 
-        for y in 0..num_rows {
-            for x in 0..num_cols {
-                let y_pos = (height / -2.0) + (y as f32 * cell_height);
-                let x_pos = (width / -2.0) + (x as f32 * cell_width);
-                // Remember starting index for this position
-                let idx = verts.len() as u32;
-                verts.push(Vertex {
-                    // Top left
-                    position: Point::new(x_pos, top_padding + y_pos),
-                    v_idx: V_TOP_LEFT as f32,
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Top Right
-                    position: Point::new(x_pos + cell_width, top_padding + y_pos),
-                    v_idx: V_TOP_RIGHT as f32,
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Bottom Left
-                    position: Point::new(x_pos, top_padding + y_pos + cell_height),
-                    v_idx: V_BOT_LEFT as f32,
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Bottom Right
-                    position: Point::new(x_pos + cell_width, top_padding + y_pos + cell_height),
-                    v_idx: V_BOT_RIGHT as f32,
-                    ..Default::default()
-                });
+        self.reset_sprite_pos((height / 2) as f32);
 
-                // Emit two triangles to form the glyph quad
-                indices.push(idx);
-                indices.push(idx + 1);
-                indices.push(idx + 2);
-                indices.push(idx + 1);
-                indices.push(idx + 2);
-                indices.push(idx + 3);
-            }
-        }
-
-        Ok((
-            VertexBuffer::dynamic(&host.window, &verts)?,
-            IndexBuffer::new(&host.window, glium::index::PrimitiveType::TrianglesList, &indices)?,
-        ))
-    }
-
-    /// The projection corrects for the aspect ratio and flips the y-axis
-    fn compute_projection(width: f32, height: f32) -> Transform3D {
-        Transform3D::ortho(-width / 2.0, width / 2.0, height / 2.0, -height / 2.0, -1.0, 1.0)
-    }
-
-    pub fn resize_surfaces(&mut self, width: u16, height: u16) -> Result<bool, Error> {
-        if width != self.width || height != self.height {
-            debug!("resize {},{}", width, height);
-
-            self.width = width;
-            self.height = height;
-            self.projection = Self::compute_projection(width as f32, height as f32);
-
-            let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
-                &self.host,
-                HEADER_HEIGHT + 1.0,
-                self.cell_width as f32,
-                self.cell_height as f32,
+        let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
+            Self::compute_header_text_vertices(
+                facade,
+                HEADER_TOP_PADDING,
+                HEADER_WIDTH_PADDING,
+                *CPU_LOAD_LENGTH,
+                *CURRENT_TIME_LENGTH,
                 width as f32,
                 height as f32,
+                self.header_cell_width as f32,
+                self.header_cell_height as f32,
             )?;
-            self.glyph_vertex_buffer = RefCell::new(glyph_vertex_buffer);
-            self.glyph_index_buffer = glyph_index_buffer;
 
-            self.reset_sprite_pos((height / 2) as f32);
+        self.glyph_header_vertex_buffer = RefCell::new(glyph_header_vertex_buffer);
+        self.glyph_header_index_buffer = glyph_header_index_buffer;
 
-            let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
-                Self::compute_header_text_vertices(
-                    &self.host,
-                    HEADER_TOP_PADDING,
-                    HEADER_WIDTH_PADDING,
-                    *CPU_LOAD_LENGTH,
-                    *CURRENT_TIME_LENGTH,
-                    width as f32,
-                    height as f32,
-                    self.header_cell_width as f32,
-                    self.header_cell_height as f32,
-                )?;
+        let (rect_vertex_buffer, rect_index_buffer) =
+            Self::compute_rect_vertices(facade, width as f32, height as f32);
 
-            self.glyph_header_vertex_buffer = RefCell::new(glyph_header_vertex_buffer);
-            self.glyph_header_index_buffer = glyph_header_index_buffer;
+        self.rect_vertex_buffer = RefCell::new(rect_vertex_buffer);
+        self.rect_index_buffer = rect_index_buffer;
 
-            // The +1 in here is to handle an irritating case.
-            // When we get N rows with a gap of cell_height - 1 left at
-            // the bottom, we can usually squeeze that extra row in there,
-            // so optimistically pretend that we have that extra pixel!
-            let rows = ((height as usize + 1) / self.cell_height) as u16;
-            let cols = ((width as usize + 1) / self.cell_width) as u16;
-            self.host.pty.resize(rows, cols, width, height)?;
-            self.terminal.resize(rows as usize, cols as usize);
-
-            Ok(true)
-        } else {
-            debug!("ignoring extra resize");
-            Ok(false)
-        }
+        Ok(())
     }
 
-    pub fn expose(&mut self, _x: u16, _y: u16, _width: u16, _height: u16) -> Result<(), Error> {
-        self.paint(false)
+    pub fn reset_sprite_pos(&mut self, height: f32) {
+        let mut vb = self.sprite_vertex_buffer.borrow_mut();
+        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
+        let size = 32.0;
+
+        vert[V_TOP_LEFT].position.0.y = -height;
+        vert[V_TOP_RIGHT].position.0.y = -height;
+        vert[V_BOT_LEFT].position.0.y = -height + size;
+        vert[V_BOT_RIGHT].position.0.y = -height + size;
     }
 
     /// Resolve a glyph from the cache, rendering the glyph on-demand if
@@ -819,12 +605,19 @@ impl<'a> TerminalWindow<'a> {
                 mode @ _ => bail!("unhandled pixel mode: {:?}", mode),
             };
 
-            let tex = self.atlas.borrow_mut().allocate(
-                &self.host.window,
-                raw_im.width,
-                raw_im.height,
-                raw_im,
-            )?;
+            let tex =
+                match self.glyph_atlas.borrow_mut().allocate(raw_im.width, raw_im.height, raw_im) {
+                    Ok(tex) => tex,
+                    Err(size) => {
+                        // TODO: this is a little tricky.  We need to replace the texture
+                        // atlas with a larger one, blow the font cache (that's the more
+                        // tricky part) and arrange to re-render everything.
+                        bail!(
+                            "Ran out of space in the Atlas! Need to make another one of size {}",
+                            size
+                        );
+                    }
+                };
 
             let bearing_x = (ft_glyph.bitmap_left as f64 * scale) as isize;
             let bearing_y = (ft_glyph.bitmap_top as f64 * scale) as isize;
@@ -841,6 +634,264 @@ impl<'a> TerminalWindow<'a> {
         };
 
         Ok(Rc::new(glyph))
+    }
+
+    /// Compute a vertex buffer to hold the quads that comprise the visible
+    /// portion of the screen.   We recreate this when the screen is resized.
+    /// The idea is that we want to minimize and heavy lifting and computation
+    /// and instead just poke some attributes into the offset that corresponds
+    /// to a changed cell when we need to repaint the screen, and then just
+    /// let the GPU figure out the rest.
+    fn compute_vertices<F: Facade>(
+        facade: &F,
+        top_padding: f32,
+        cell_width: f32,
+        cell_height: f32,
+        width: f32,
+        height: f32,
+    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>), Error> {
+        let mut verts = Vec::new();
+        let mut indices = Vec::new();
+
+        let num_cols = (width as usize + 1) / cell_width as usize;
+        let num_rows = (height as usize + 1) / cell_height as usize;
+
+        for y in 0..num_rows {
+            for x in 0..num_cols {
+                let y_pos = (height / -2.0) + (y as f32 * cell_height);
+                let x_pos = (width / -2.0) + (x as f32 * cell_width);
+                // Remember starting index for this position
+                let idx = verts.len() as u32;
+                verts.push(Vertex {
+                    // Top left
+                    position: Point::new(x_pos, top_padding + y_pos),
+                    v_idx: V_TOP_LEFT as f32,
+                    ..Default::default()
+                });
+                verts.push(Vertex {
+                    // Top Right
+                    position: Point::new(x_pos + cell_width, top_padding + y_pos),
+                    v_idx: V_TOP_RIGHT as f32,
+                    ..Default::default()
+                });
+                verts.push(Vertex {
+                    // Bottom Left
+                    position: Point::new(x_pos, top_padding + y_pos + cell_height),
+                    v_idx: V_BOT_LEFT as f32,
+                    ..Default::default()
+                });
+                verts.push(Vertex {
+                    // Bottom Right
+                    position: Point::new(x_pos + cell_width, top_padding + y_pos + cell_height),
+                    v_idx: V_BOT_RIGHT as f32,
+                    ..Default::default()
+                });
+
+                // Emit two triangles to form the glyph quad
+                indices.push(idx);
+                indices.push(idx + 1);
+                indices.push(idx + 2);
+                indices.push(idx + 1);
+                indices.push(idx + 2);
+                indices.push(idx + 3);
+            }
+        }
+
+        Ok((
+            VertexBuffer::dynamic(facade, &verts)?,
+            IndexBuffer::new(facade, glium::index::PrimitiveType::TrianglesList, &indices)?,
+        ))
+    }
+
+    fn compute_header_text_vertices<F: Facade>(
+        facade: &F,
+        top_padding: f32,
+        width_padding: f32,
+        left_num_cols: usize,
+        right_num_cols: usize,
+        width: f32,
+        height: f32,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>), Error> {
+        let mut verts = Vec::new();
+        let mut indices = Vec::new();
+
+        for x in 0..(left_num_cols + right_num_cols) {
+            let y_pos = height / -2.0 + top_padding;
+            let x_pos = if x < left_num_cols {
+                (width / -2.0) + width_padding + (x as f32 * cell_width)
+            } else {
+                (width / 2.0)
+                    - width_padding
+                    - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
+                    + 5.0
+            };
+            // Remember starting index for this position
+            let idx = verts.len() as u32;
+            verts.push(Vertex {
+                // Top left
+                position: Point::new(x_pos, y_pos),
+                v_idx: V_TOP_LEFT as f32,
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Top Right
+                position: Point::new(x_pos + cell_width, y_pos),
+                v_idx: V_TOP_RIGHT as f32,
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Bottom Left
+                position: Point::new(x_pos, y_pos + cell_height),
+                v_idx: V_BOT_LEFT as f32,
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Bottom Right
+                position: Point::new(x_pos + cell_width, y_pos + cell_height),
+                v_idx: V_BOT_RIGHT as f32,
+                ..Default::default()
+            });
+
+            // Emit two triangles to form the glyph quad
+            indices.push(idx);
+            indices.push(idx + 1);
+            indices.push(idx + 2);
+            indices.push(idx + 1);
+            indices.push(idx + 2);
+            indices.push(idx + 3);
+        }
+        Ok((
+            VertexBuffer::dynamic(facade, &verts)?,
+            IndexBuffer::new(facade, glium::index::PrimitiveType::TrianglesList, &indices)?,
+        ))
+    }
+
+    pub fn compute_sprite_vertices<F: Facade>(
+        facade: &F,
+        width: f32,
+        height: f32,
+    ) -> (VertexBuffer<SpriteVertex>, IndexBuffer<u32>) {
+        let mut verts = Vec::new();
+
+        let (w, h) = { (width / 2.0, height / 2.0) };
+
+        verts.push(SpriteVertex {
+            // Top left
+            tex_coords: Point::new(0.0, 1.0),
+            position: Point::new(-w, -h),
+            ..Default::default()
+        });
+        verts.push(SpriteVertex {
+            // Top Right
+            tex_coords: Point::new(1.0, 1.0),
+            position: Point::new(-w + SPRITE_SIZE, -h),
+            ..Default::default()
+        });
+        verts.push(SpriteVertex {
+            // Bottom Left
+            tex_coords: Point::new(0.0, 0.0),
+            position: Point::new(-w, -h + SPRITE_SIZE),
+            ..Default::default()
+        });
+        verts.push(SpriteVertex {
+            // Bottom Right
+            tex_coords: Point::new(1.0, 0.0),
+            position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
+            ..Default::default()
+        });
+
+        (
+            VertexBuffer::dynamic(facade, &verts).unwrap(),
+            IndexBuffer::new(
+                facade,
+                glium::index::PrimitiveType::TrianglesList,
+                &[0, 1, 2, 1, 3, 2],
+            )
+            .unwrap(),
+        )
+    }
+
+    pub fn compute_rect_vertices<F: Facade>(
+        facade: &F,
+        width: f32,
+        height: f32,
+    ) -> (VertexBuffer<RectVertex>, IndexBuffer<u32>) {
+        let r = 99.0 / 255.0;
+        let g = 134.0 / 255.0;
+        let b = 251.0 / 255.0;
+        let mut verts = Vec::new();
+
+        let (w, h) = ((width / 2.0), (height / 2.0));
+
+        verts.push(RectVertex { position: [-w, -h], color: [r, g, b] });
+        verts.push(RectVertex { position: [w, -h], color: [r, g, b] });
+        verts.push(RectVertex { position: [-w, -h + HEADER_HEIGHT], color: [r, g, b] });
+        verts.push(RectVertex { position: [w, -h + HEADER_HEIGHT], color: [r, g, b] });
+
+        (
+            VertexBuffer::dynamic(facade, &verts).unwrap(),
+            IndexBuffer::new(
+                facade,
+                glium::index::PrimitiveType::TrianglesList,
+                &[0, 1, 2, 1, 3, 2],
+            )
+            .unwrap(),
+        )
+    }
+
+    pub fn paint_sprite(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
+        let sprite = &mut self.spritesheet.sprites[(self.frame_count % 3) as usize];
+        let w = self.width as f32 / 2.0;
+
+        // Draw mario
+        target.draw(
+            &*self.sprite_vertex_buffer.borrow(),
+            &self.sprite_index_buffer,
+            &self.p_program,
+            &uniform! {
+                projection: self.projection.to_arrays(),
+                tex: &self.player_texture.tex,
+                source_dimensions: sprite.size.to_array(),
+                source_position: sprite.position.to_array(),
+                source_texture_dimensions: [self.player_texture.width, self.player_texture.height]
+            },
+            &glium::DrawParameters {
+                blend: glium::Blend::alpha_blending(),
+                dithering: false,
+                ..Default::default()
+            },
+        )?;
+
+        self.slide_sprite(w);
+        Ok(())
+    }
+
+    pub fn slide_sprite(&mut self, width: f32) {
+        let mut vb = self.sprite_vertex_buffer.borrow_mut();
+        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
+
+        let delta = Point::new(10.0, 0.0);
+
+        let size = 32.0;
+
+        if vert[V_TOP_LEFT].position.0.x > width {
+            vert[V_TOP_LEFT].position.0.x = -width;
+            vert[V_TOP_RIGHT].position.0.x = -width + size;
+            vert[V_BOT_LEFT].position.0.x = -width;
+            vert[V_BOT_RIGHT].position.0.x = -width + size;
+        } else {
+            vert[V_TOP_LEFT].position += delta;
+            vert[V_TOP_RIGHT].position += delta;
+            vert[V_BOT_LEFT].position += delta;
+            vert[V_BOT_RIGHT].position += delta;
+        }
+    }
+
+    /// The projection corrects for the aspect ratio and flips the y-axis
+    fn compute_projection(width: f32, height: f32) -> Transform3D {
+        Transform3D::ortho(-width / 2.0, width / 2.0, height / 2.0, -height / 2.0, -1.0, 1.0)
     }
 
     /// A little helper for shaping text.
@@ -863,8 +914,9 @@ impl<'a> TerminalWindow<'a> {
         line: &Line,
         selection: Range<usize>,
         cursor: &CursorPosition,
+        terminal: &term::Terminal,
     ) -> Result<(), Error> {
-        let num_cols = self.terminal.screen().physical_cols;
+        let num_cols = terminal.screen().physical_cols;
         let mut vb = self.glyph_vertex_buffer.borrow_mut();
         let mut vertices = {
             let per_line = num_cols * VERTICES_PER_CELL;
@@ -874,7 +926,7 @@ impl<'a> TerminalWindow<'a> {
                 .map()
         };
 
-        let current_highlight = self.terminal.current_highlight();
+        let current_highlight = terminal.current_highlight();
         let cell_width = self.cell_width as f32;
         let cell_height = self.cell_height as f32;
 
@@ -966,24 +1018,14 @@ impl<'a> TerminalWindow<'a> {
                     }
                     last_cell_idx = cell_idx;
 
-                    let selected = term::in_range(cell_idx, &selection);
-                    let is_cursor = line_idx as i64 == cursor.y && cursor.x == cell_idx;
-
-                    let (glyph_color, bg_color) = match (selected, is_cursor) {
-                        // Normally, render the cell as configured
-                        (false, false) => (glyph_color, bg_color),
-                        // Cursor cell always renders with background over cursor color
-                        (_, true) => (
-                            self.palette.background.to_linear_tuple_rgba(),
-                            self.palette.cursor.to_linear_tuple_rgba(),
-                        ),
-                        // Selection text colors the background
-                        (true, false) => (
-                            glyph_color,
-                            // TODO: configurable selection color
-                            self.palette.cursor.to_linear_tuple_rgba(),
-                        ),
-                    };
+                    let (glyph_color, bg_color) = self.compute_cell_fg_bg(
+                        line_idx,
+                        cell_idx,
+                        &cursor,
+                        &selection,
+                        glyph_color,
+                        bg_color,
+                    );
 
                     let vert_idx = cell_idx * VERTICES_PER_CELL;
                     let vert = &mut vertices[vert_idx..vert_idx + VERTICES_PER_CELL];
@@ -1070,29 +1112,76 @@ impl<'a> TerminalWindow<'a> {
         // open a vim split horizontally.  Backgrounding vim would leave
         // the right pane with its prior contents instead of showing the
         // cleared lines from the shell in the main screen.
-        let bg_color = self.palette.background.to_linear_tuple_rgba();
-        let vert_idx = (last_cell_idx + 1) * VERTICES_PER_CELL;
-        let vert_slice = &mut vertices[vert_idx..];
-        for vert in vert_slice.iter_mut() {
-            vert.bg_color = bg_color;
-            vert.underline = U_NONE;
-            vert.tex = (0.0, 0.0);
-            vert.adjust = Default::default();
-            vert.has_color = 0.0;
+
+        for cell_idx in last_cell_idx + 1..num_cols {
+            let vert_idx = cell_idx * VERTICES_PER_CELL;
+            let vert_slice = &mut vertices[vert_idx..vert_idx + 4];
+
+            // Even though we don't have a cell for these, they still
+            // hold the cursor or the selection so we need to compute
+            // the colors in the usual way.
+            let (glyph_color, bg_color) = self.compute_cell_fg_bg(
+                line_idx,
+                cell_idx,
+                &cursor,
+                &selection,
+                self.palette.foreground.to_linear_tuple_rgba(),
+                self.palette.background.to_linear_tuple_rgba(),
+            );
+
+            for vert in vert_slice.iter_mut() {
+                vert.bg_color = bg_color;
+                vert.fg_color = glyph_color;
+                vert.underline = U_NONE;
+                vert.tex = (0.0, 0.0);
+                vert.adjust = Default::default();
+                vert.has_color = 0.0;
+            }
         }
+
         Ok(())
     }
+
+    fn compute_cell_fg_bg(
+        &self,
+        line_idx: usize,
+        cell_idx: usize,
+        cursor: &CursorPosition,
+        selection: &Range<usize>,
+        fg_color: RgbaTuple,
+        bg_color: RgbaTuple,
+    ) -> (RgbaTuple, RgbaTuple) {
+        let selected = term::in_range(cell_idx, &selection);
+        let is_cursor = line_idx as i64 == cursor.y && cursor.x == cell_idx;
+
+        let (fg_color, bg_color) = match (selected, is_cursor) {
+            // Normally, render the cell as configured
+            (false, false) => (fg_color, bg_color),
+            // Cursor cell always renders with background over cursor color
+            (_, true) => (
+                self.palette.background.to_linear_tuple_rgba(),
+                self.palette.cursor.to_linear_tuple_rgba(),
+            ),
+            // Selection text colors the background
+            (true, false) => (
+                fg_color,
+                // TODO: configurable selection color
+                self.palette.cursor.to_linear_tuple_rgba(),
+            ),
+        };
+
+        (fg_color, bg_color)
+    }
+
     pub fn render_header_text(&mut self) -> Result<(), Error> {
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
-
         let cpu_load = match self.sys.cpu_temp() {
             Ok(cpu_temp) => {
                 format!("Cpu {:02}°C", cpu_temp)
             }
             Err(_) => format!("Cpu XX°C"),
         };
-
         let mut vb = self.glyph_header_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
@@ -1192,168 +1281,28 @@ impl<'a> TerminalWindow<'a> {
         Ok(())
     }
 
-    fn compute_header_text_vertices(
-        host: &Host,
-        top_padding: f32,
-        width_padding: f32,
-        left_num_cols: usize,
-        right_num_cols: usize,
-        width: f32,
-        height: f32,
-        cell_width: f32,
-        cell_height: f32,
-    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>), Error> {
-        let mut verts = Vec::new();
-        let mut indices = Vec::new();
-
-        for x in 0..(left_num_cols + right_num_cols) {
-            let y_pos = height / -2.0 + top_padding;
-            let x_pos = if x < left_num_cols {
-                (width / -2.0) + width_padding + (x as f32 * cell_width)
-            } else {
-                (width / 2.0)
-                    - width_padding
-                    - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
-                    + 5.0
-            };
-            // Remember starting index for this position
-            let idx = verts.len() as u32;
-            verts.push(Vertex {
-                // Top left
-                position: Point::new(x_pos, y_pos),
-                v_idx: V_TOP_LEFT as f32,
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Top Right
-                position: Point::new(x_pos + cell_width, y_pos),
-                v_idx: V_TOP_RIGHT as f32,
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Bottom Left
-                position: Point::new(x_pos, y_pos + cell_height),
-                v_idx: V_BOT_LEFT as f32,
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Bottom Right
-                position: Point::new(x_pos + cell_width, y_pos + cell_height),
-                v_idx: V_BOT_RIGHT as f32,
-                ..Default::default()
-            });
-
-            // Emit two triangles to form the glyph quad
-            indices.push(idx);
-            indices.push(idx + 1);
-            indices.push(idx + 2);
-            indices.push(idx + 1);
-            indices.push(idx + 2);
-            indices.push(idx + 3);
-        }
-        Ok((
-            VertexBuffer::dynamic(&host.window, &verts)?,
-            IndexBuffer::new(&host.window, glium::index::PrimitiveType::TrianglesList, &indices)?,
-        ))
-    }
-
-    pub fn paint_sprite(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
-        let image = image::open(&self.spritesheet.image_path).unwrap().to_rgba8();
-        let image_dimensions = image.dimensions();
-        let image =
-            glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-
-        let player_texture =
-            glium::texture::CompressedSrgbTexture2d::new(&self.host.window, image).unwrap();
-
-        let sprite = &mut self.spritesheet.sprites[(self.count % 3) as usize];
-
-        let (w, _) = {
-            let (width, height) = self.host.window.gl.get_framebuffer_dimensions();
-            ((width / 2) as f32, (height / 2) as f32)
-        };
-
-        // Draw mario
-        target.draw(
-            &*self.sprite_vertex_buffer.borrow(),
-            &self.sprite_index_buffer,
-            &self.p_program,
-            &uniform! {
-                projection: self.projection.to_arrays(),
-                tex: &player_texture,
-                source_dimensions: sprite.size.to_array(),
-                source_position: sprite.position.to_array(),
-                source_texture_dimensions: [image_dimensions.0  as f32, image_dimensions.1 as f32]
-            },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
-        )?;
-
-        self.slide_sprite(w);
-        Ok(())
-    }
-
-    pub fn reset_sprite_pos(&mut self, height: f32) {
-        let mut vb = self.sprite_vertex_buffer.borrow_mut();
-        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
-        let size = crate::spritesheet::SPRITE_SIZE;
-
-        vert[V_TOP_LEFT].position.0.y = -height;
-        vert[V_TOP_RIGHT].position.0.y = -height;
-        vert[V_BOT_LEFT].position.0.y = -height + size;
-        vert[V_BOT_RIGHT].position.0.y = -height + size;
-    }
-
-    pub fn slide_sprite(&mut self, width: f32) {
-        let mut vb = self.sprite_vertex_buffer.borrow_mut();
-        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
-
-        let delta = Point::new(10.0, 0.0);
-
-        let size = crate::spritesheet::SPRITE_SIZE;
-
-        if vert[V_TOP_LEFT].position.0.x > width {
-            vert[V_TOP_LEFT].position.0.x = -width;
-            vert[V_TOP_RIGHT].position.0.x = -width + size;
-            vert[V_BOT_LEFT].position.0.x = -width;
-            vert[V_BOT_RIGHT].position.0.x = -width + size;
-        } else {
-            vert[V_TOP_LEFT].position += delta;
-            vert[V_TOP_RIGHT].position += delta;
-            vert[V_BOT_LEFT].position += delta;
-            vert[V_BOT_RIGHT].position += delta;
-        }
-    }
-
-    pub fn paint(&mut self, with_sprite: bool) -> Result<(), Error> {
-        let mut target = self.host.window.draw();
-        let res = self.do_paint(&mut target);
-        if with_sprite {
-            self.paint_sprite(&mut target)?;
-        }
-        // Ensure that we finish() the target before we let the
-        // error bubble up, otherwise we lose the context.
-        target.finish().unwrap();
-        res?;
-        Ok(())
-    }
-
-    fn do_paint(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
+    pub fn paint(
+        &mut self,
+        target: &mut glium::Frame,
+        term: &mut term::Terminal,
+    ) -> Result<(), Error> {
         let background_color = self.palette.resolve(&term::color::ColorAttribute::Background);
         let (r, g, b, a) = background_color.to_linear_tuple_rgba();
         target.clear_color(r, g, b, a);
-        let cursor = self.terminal.cursor_pos();
+
+        let cursor = term.cursor_pos();
         {
-            let dirty_lines = self.terminal.get_dirty_lines();
+            let dirty_lines = term.get_dirty_lines();
+
             for (line_idx, line, selrange) in dirty_lines {
-                self.render_screen_line(line_idx, line, selrange, &cursor)?;
+                self.render_screen_line(line_idx, line, selrange, &cursor, term)?;
             }
         }
-        let tex = self.atlas.borrow().texture();
-        // Pass 1: Draw backgrounds
+        self.render_header_text()?;
+
+        let tex = self.glyph_atlas.borrow().texture();
+
+        // Pass 1: Draw backgrounds, strikethrough and underline
         target.draw(
             &*self.glyph_vertex_buffer.borrow(),
             &self.glyph_index_buffer,
@@ -1361,17 +1310,13 @@ impl<'a> TerminalWindow<'a> {
             &uniform! {
                 projection: self.projection.to_arrays(),
                 glyph_tex: &*tex,
-                bg_fill: true,
-                underlining: false,
+                bg_and_line_layer: true,
                 underline_tex: &self.underline_tex,
             },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
+            &glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() },
         )?;
-        // Pass 3: Draw glyphs
+
+        // Pass 2: Draw glyphs
         target.draw(
             &*self.glyph_vertex_buffer.borrow(),
             &self.glyph_index_buffer,
@@ -1379,87 +1324,25 @@ impl<'a> TerminalWindow<'a> {
             &uniform! {
                 projection: self.projection.to_arrays(),
                 glyph_tex: &*tex,
-                bg_fill: false,
-                underlining: false,
+                bg_and_line_layer: false,
             },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
+            &glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() },
         )?;
-        // Pass 3: Draw underline/strikethrough
-        target.draw(
-            &*self.glyph_vertex_buffer.borrow(),
-            &self.glyph_index_buffer,
-            &self.g_program,
-            &uniform! {
-                projection: self.projection.to_arrays(),
-                glyph_tex: &*tex,
-                bg_fill: false,
-                underlining: true,
-            },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
-        )?;
-        self.terminal.clean_dirty_lines();
-        let (vertex_buffer, index_buffer) = {
-            #[derive(Copy, Clone)]
-            struct Vertex {
-                position: [f32; 2],
-                color: [f32; 3],
-            }
-            implement_vertex!(Vertex, position, color);
-            let r = 99.0 / 255.0;
-            let g = 134.0 / 255.0;
-            let b = 251.0 / 255.0;
-            let (w, h) = {
-                let (width, height) = self.host.window.gl.get_framebuffer_dimensions();
-                ((width / 2) as f32, (height / 2) as f32)
-            };
-            let vb = glium::VertexBuffer::new(
-                &self.host.window,
-                &[
-                    Vertex { position: [-w, -h], color: [r, g, b] },
-                    Vertex { position: [w, -h], color: [r, g, b] },
-                    Vertex { position: [-w, -h + HEADER_HEIGHT], color: [r, g, b] },
-                    Vertex { position: [w, -h + HEADER_HEIGHT], color: [r, g, b] },
-                ],
-            )
-            .unwrap();
 
-            let ib_data: Vec<u16> = vec![0, 1, 2, 1, 3, 2];
-
-            let ib = glium::IndexBuffer::new(
-                &self.host.window,
-                glium::index::PrimitiveType::TrianglesList,
-                &ib_data,
-            )
-            .unwrap();
-
-            (vb, ib)
-        };
+        term.clean_dirty_lines();
 
         // Draw header background
         target.draw(
-            &vertex_buffer,
-            &index_buffer,
+            &*self.rect_vertex_buffer.borrow(),
+            &self.rect_index_buffer,
             &self.r_program,
             &uniform! {
                 projection: self.projection.to_arrays(),
             },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
+            &glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() },
         )?;
 
-        self.render_header_text()?;
-        // Pass 3: Draw glyphs
+        // Pass 3: Draw glyphs header
         target.draw(
             &*self.glyph_header_vertex_buffer.borrow(),
             &self.glyph_header_index_buffer,
@@ -1470,13 +1353,236 @@ impl<'a> TerminalWindow<'a> {
                 bg_fill: false,
                 underlining: false,
             },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
+            &glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() },
         )?;
 
+        Ok(())
+    }
+}
+
+/// Holds the information we need to implement TerminalHost
+struct Host<'a> {
+    window: Window<'a>,
+    pty: MasterPty,
+    timestamp: xcb::xproto::Timestamp,
+    clipboard: Option<String>,
+}
+
+pub struct TerminalWindow<'a> {
+    host: Host<'a>,
+    conn: &'a Connection,
+    renderer: Renderer,
+    width: u16,
+    height: u16,
+    cell_height: usize,
+    cell_width: usize,
+    terminal: term::Terminal,
+    process: Child,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GlyphKey {
+    font_idx: usize,
+    glyph_pos: u32,
+    style: TextStyle,
+}
+
+/// Caches a rendered glyph.
+/// The image data may be None for whitespace glyphs.
+#[derive(Debug)]
+struct CachedGlyph {
+    has_color: bool,
+    x_offset: isize,
+    y_offset: isize,
+    bearing_x: isize,
+    bearing_y: isize,
+    texture: Option<Sprite>,
+    scale: f32,
+}
+
+impl<'a> term::TerminalHost for Host<'a> {
+    fn writer(&mut self) -> &mut dyn Write {
+        &mut self.pty
+    }
+
+    fn click_link(&mut self, link: &Rc<Hyperlink>) {
+        // TODO: make this configurable
+        let mut cmd = Command::new("xdg-open");
+        cmd.arg(&link.url);
+        match cmd.spawn() {
+            Ok(_) => {}
+            Err(err) => eprintln!("failed to spawn xdg-open {}: {:?}", link.url, err),
+        }
+    }
+
+    // Check out https://tronche.com/gui/x/icccm/sec-2.html for some deep and complex
+    // background on what's happening in here.
+    fn get_clipboard(&mut self) -> Result<String, Error> {
+        // If we own the clipboard, just return the text now
+        if let Some(ref text) = self.clipboard {
+            return Ok(text.clone());
+        }
+
+        let conn = self.window.get_conn();
+
+        xcb::convert_selection(
+            conn.conn(),
+            self.window.as_drawable(),
+            xcb::ATOM_PRIMARY,
+            conn.atom_utf8_string,
+            conn.atom_xsel_data,
+            self.timestamp,
+        );
+        conn.flush();
+
+        loop {
+            let event =
+                conn.wait_for_event().ok_or_else(|| failure::err_msg("X connection EOF"))?;
+            match event.response_type() & 0x7f {
+                xcb::SELECTION_NOTIFY => {
+                    let selection: &xcb::SelectionNotifyEvent = unsafe { xcb::cast_event(&event) };
+
+                    if selection.selection() == xcb::ATOM_PRIMARY
+                        && selection.property() != xcb::NONE
+                    {
+                        let prop = xcb_util::icccm::get_text_property(
+                            conn,
+                            selection.requestor(),
+                            selection.property(),
+                        )
+                        .get_reply()?;
+                        return Ok(prop.name().into());
+                    }
+                }
+                _ => {
+                    eprintln!(
+                        "whoops: got XCB event type {} while waiting for selection",
+                        event.response_type() & 0x7f
+                    );
+                    // Rather than block forever, give up and yield an empty string
+                    // for pasting purposes.  We lost an event.  This sucks.
+                    // Will likely need to rethink how we handle passing the clipboard
+                    // data down to the terminal.
+                    return Ok("".into());
+                }
+            }
+        }
+    }
+
+    fn set_clipboard(&mut self, clip: Option<String>) -> Result<(), Error> {
+        self.clipboard = clip;
+        let conn = self.window.get_conn();
+
+        xcb::set_selection_owner(
+            conn.conn(),
+            if self.clipboard.is_some() { self.window.as_drawable() } else { xcb::NONE },
+            xcb::ATOM_PRIMARY,
+            self.timestamp,
+        );
+        // Also set the CLIPBOARD atom, not just the PRIMARY selection.
+        // TODO: make xterm clipboard selection configurable
+        xcb::set_selection_owner(
+            conn.conn(),
+            if self.clipboard.is_some() { self.window.as_drawable() } else { xcb::NONE },
+            conn.atom_clipboard,
+            self.timestamp,
+        );
+
+        // TODO: icccm says that we should check that we got ownership and
+        // amend our UI accordingly
+
+        Ok(())
+    }
+
+    fn set_title(&mut self, title: &str) {
+        self.window.set_title(title);
+    }
+}
+
+impl<'a> TerminalWindow<'a> {
+    pub fn new(
+        conn: &Connection,
+        width: u16,
+        height: u16,
+        terminal: term::Terminal,
+        pty: MasterPty,
+        process: Child,
+        fonts: FontConfiguration,
+        palette: term::color::ColorPalette,
+        sys: systemstat::System,
+    ) -> Result<TerminalWindow, Error> {
+        let (cell_height, cell_width, _) = {
+            // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
+            let font = fonts.default_font()?;
+            let tuple = font.borrow_mut().get_metrics()?;
+            tuple
+        };
+
+        let window = Window::new(&conn, width, height)?;
+        window.set_title("miro");
+
+        let host = Host { window, pty, timestamp: 0, clipboard: None };
+
+        let renderer = Renderer::new(&host.window, width, height, fonts, palette, sys)?;
+        let cell_height = cell_height.ceil() as usize;
+        let cell_width = cell_width.ceil() as usize;
+
+        Ok(TerminalWindow {
+            host,
+            renderer: renderer,
+            conn,
+            width,
+            height,
+            cell_height,
+            cell_width,
+            terminal,
+            process,
+        })
+    }
+
+    pub fn show(&self) {
+        self.host.window.show();
+    }
+
+    pub fn resize_surfaces(&mut self, width: u16, height: u16) -> Result<bool, Error> {
+        if width != self.width || height != self.height {
+            debug!("resize {},{}", width, height);
+
+            self.width = width;
+            self.height = height;
+            self.renderer.resize(&self.host.window, width, height)?;
+
+            // The +1 in here is to handle an irritating case.
+            // When we get N rows with a gap of cell_height - 1 left at
+            // the bottom, we can usually squeeze that extra row in there,
+            // so optimistically pretend that we have that extra pixel!
+            let rows = ((height as usize + 1) / self.cell_height) as u16;
+            let cols = ((width as usize + 1) / self.cell_width) as u16;
+            self.host.pty.resize(rows, cols, width, height)?;
+            self.terminal.resize(rows as usize, cols as usize);
+
+            Ok(true)
+        } else {
+            debug!("ignoring extra resize");
+            Ok(false)
+        }
+    }
+
+    pub fn expose(&mut self, _x: u16, _y: u16, _width: u16, _height: u16) -> Result<(), Error> {
+        self.paint(false)
+    }
+
+    pub fn paint(&mut self, with_sprite: bool) -> Result<(), Error> {
+        self.renderer.frame_count += 1;
+        let mut target = self.host.window.draw();
+        let res = self.renderer.paint(&mut target, &mut self.terminal);
+        if with_sprite {
+            self.renderer.paint_sprite(&mut target)?;
+        }
+        // Ensure that we finish() the target before we let the
+        // error bubble up, otherwise we lose the context.
+        target.finish().unwrap();
+        res?;
         Ok(())
     }
 
@@ -1503,11 +1609,6 @@ impl<'a> TerminalWindow<'a> {
             Ok(size) => self.terminal.advance_bytes(&buf[0..size], &mut self.host),
             Err(err) => eprintln!("error reading from pty: {:?}", err),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn need_paint(&self) -> bool {
-        self.terminal.has_dirty_lines()
     }
 
     fn decode_key(&self, event: &xcb::KeyPressEvent) -> (KeyCode, KeyModifiers) {
@@ -1616,10 +1717,11 @@ impl<'a> TerminalWindow<'a> {
                     request.property()
                 );
                 debug!(
-                    "XSEL={}, UTF8={} PRIMARY={}",
+                    "XSEL={}, UTF8={} PRIMARY={} clip={}",
                     self.conn.atom_xsel_data,
                     self.conn.atom_utf8_string,
                     xcb::ATOM_PRIMARY,
+                    self.conn.atom_clipboard,
                 );
 
                 // I'd like to use `match` here, but the atom values are not

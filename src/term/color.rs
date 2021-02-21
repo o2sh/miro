@@ -27,6 +27,8 @@ pub enum AnsiColor {
     White,
 }
 
+pub type RgbaTuple = (f32, f32, f32, f32);
+
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
 pub struct RgbColor {
     pub red: u8,
@@ -45,7 +47,7 @@ impl RgbColor {
         palette::Rgba::new_u8(self.red, self.green, self.blue, 0xff)
     }
 
-    pub fn to_linear_tuple_rgba(&self) -> (f32, f32, f32, f32) {
+    pub fn to_linear_tuple_rgba(&self) -> RgbaTuple {
         self.to_linear().to_pixel()
     }
 

@@ -17,7 +17,45 @@ use xcb_util::ffi::keysyms::{
 
 use failure::{self, Error};
 pub type Result<T> = result::Result<T, Error>;
-pub use crate::xkeysyms::*;
+
+pub mod xkeysyms;
+pub mod xwin;
+
+#[derive(Copy, Clone, Debug)]
+pub struct Point(euclid::Point2D<f32, f32>);
+
+impl Default for Point {
+    fn default() -> Point {
+        Point::new(0.0, 0.0)
+    }
+}
+
+impl Deref for Point {
+    type Target = euclid::Point2D<f32, f32>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+unsafe impl glium::vertex::Attribute for Point {
+    #[inline]
+    fn get_type() -> glium::vertex::AttributeType {
+        glium::vertex::AttributeType::F32F32
+    }
+}
+
+impl Point {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { 0: euclid::point2(x, y) }
+    }
+}
+
+impl std::ops::AddAssign for Point {
+    fn add_assign(&mut self, other: Self) {
+        self.0.x += other.0.x;
+        self.0.y += other.0.y;
+    }
+}
 
 pub struct Connection {
     pub display: *mut x11::xlib::Display,
@@ -28,6 +66,7 @@ pub struct Connection {
     pub atom_utf8_string: xcb::Atom,
     pub atom_xsel_data: xcb::Atom,
     pub atom_targets: xcb::Atom,
+    pub atom_clipboard: xcb::Atom,
     keysyms: *mut xcb_key_symbols_t,
     egl_display: Rc<egli::Display>,
     egl_config: egli::FrameBufferConfigRef,
@@ -66,6 +105,7 @@ impl Connection {
         let atom_utf8_string = xcb::intern_atom(&conn, false, "UTF8_STRING").get_reply()?.atom();
         let atom_xsel_data = xcb::intern_atom(&conn, false, "XSEL_DATA").get_reply()?.atom();
         let atom_targets = xcb::intern_atom(&conn, false, "TARGETS").get_reply()?.atom();
+        let atom_clipboard = xcb::intern_atom(&conn, false, "CLIPBOARD").get_reply()?.atom();
 
         let keysyms = unsafe { xcb_key_symbols_alloc(conn.get_raw_conn()) };
 
@@ -97,6 +137,7 @@ impl Connection {
             conn,
             screen_num,
             atom_protocols,
+            atom_clipboard,
             atom_delete,
             keysyms,
             atom_utf8_string,
@@ -147,7 +188,7 @@ pub trait Drawable {
     fn get_conn(&self) -> &Connection;
 }
 
-pub struct GlState {
+struct GlState {
     display: Rc<egli::Display>,
     surface: egli::Surface,
     egl_context: egli::Context,
@@ -157,7 +198,7 @@ pub struct GlState {
 pub struct Window<'a> {
     window_id: xcb::xproto::Window,
     conn: &'a Connection,
-    pub gl: Rc<GlState>,
+    gl: Rc<GlState>,
     glium_context: Rc<glium::backend::Context>,
 }
 

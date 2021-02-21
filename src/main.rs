@@ -14,14 +14,12 @@ extern crate freetype;
 extern crate harfbuzz_sys;
 extern crate libc;
 extern crate mio;
-extern crate resize;
 extern crate serde;
 extern crate unicode_width;
 #[macro_use]
 extern crate serde_derive;
 extern crate palette;
 extern crate toml;
-extern crate x11;
 #[macro_use]
 pub mod log;
 
@@ -47,15 +45,16 @@ mod font;
 mod game_loop;
 mod spritesheet;
 mod term;
-mod xgfx;
-mod xkeysyms;
 use font::{ftwrap, FontConfiguration};
 
 mod pty;
 mod sigchld;
 mod texture_atlas;
-mod xwin;
-use xwin::TerminalWindow;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+mod x_window;
+#[cfg(all(unix, not(target_os = "macos")))]
+use x_window::xwin::TerminalWindow;
 
 pub const ANIMATION_SPAN: u32 = 5;
 
@@ -80,7 +79,7 @@ fn get_shell() -> Result<String, Error> {
 
 fn run() -> Result<(), Error> {
     let poll = Poll::new()?;
-    let conn = xgfx::Connection::new()?;
+    let conn = x_window::Connection::new()?;
     let sys = System::new();
     let waiter = sigchld::ChildWaiter::new()?;
 
@@ -144,6 +143,7 @@ fn run() -> Result<(), Error> {
     let mut events = Events::with_capacity(8);
     conn.flush();
 
+    let mut count = 0;
     loop {
         if poll.poll(&mut events, Some(Duration::new(0, 0)))? == 0 {
             // No immediately ready events.  Before we go to sleep,
@@ -155,11 +155,10 @@ fn run() -> Result<(), Error> {
 
         for event in &events {
             if event.token() == Token(3) {
-                if window.frame_count % ANIMATION_SPAN == 0 {
+                if count % ANIMATION_SPAN == 0 {
                     window.paint(true)?;
-                    window.count += 1;
                 }
-                window.frame_count += 1;
+                count += 1;
             }
             if event.token() == Token(0) && event.readiness().is_readable() {
                 window.handle_pty_readable_event();

@@ -273,13 +273,15 @@ impl TerminalState {
                             self.selection_range = None;
                             self.selection_start = Some(SelectionCoordinate {
                                 x: event.x,
-                                y: event.y as ScrollbackOrVisibleRowIndex,
+                                y: event.y as ScrollbackOrVisibleRowIndex
+                                    - self.viewport_offset as ScrollbackOrVisibleRowIndex,
                             });
                             host.set_clipboard(None)?;
                         }
                         // Double click to select a word on the current line
                         Some(&LastMouseClick { streak: 2, .. }) => {
-                            let y = event.y as ScrollbackOrVisibleRowIndex;
+                            let y = event.y as ScrollbackOrVisibleRowIndex
+                                - self.viewport_offset as ScrollbackOrVisibleRowIndex;
                             let idx = self.screen().scrollback_or_visible_row(y);
                             let line = self.screen().lines[idx].as_str();
                             use unicode_segmentation::UnicodeSegmentation;
@@ -312,19 +314,12 @@ impl TerminalState {
                         }
                         // triple click to select the current line
                         Some(&LastMouseClick { streak: 3, .. }) => {
-                            self.selection_start = Some(SelectionCoordinate {
-                                x: event.x,
-                                y: event.y as ScrollbackOrVisibleRowIndex,
-                            });
+                            let y = event.y as ScrollbackOrVisibleRowIndex
+                                - self.viewport_offset as ScrollbackOrVisibleRowIndex;
+                            self.selection_start = Some(SelectionCoordinate { x: event.x, y });
                             self.selection_range = Some(SelectionRange {
-                                start: SelectionCoordinate {
-                                    x: 0,
-                                    y: event.y as ScrollbackOrVisibleRowIndex,
-                                },
-                                end: SelectionCoordinate {
-                                    x: usize::max_value(),
-                                    y: event.y as ScrollbackOrVisibleRowIndex,
-                                },
+                                start: SelectionCoordinate { x: 0, y },
+                                end: SelectionCoordinate { x: usize::max_value(), y },
                             });
                             self.dirty_selection_lines();
                             let text = self.get_selection_text();
@@ -376,7 +371,8 @@ impl TerminalState {
                     self.dirty_selection_lines();
                     let end = SelectionCoordinate {
                         x: event.x,
-                        y: event.y as ScrollbackOrVisibleRowIndex,
+                        y: event.y as ScrollbackOrVisibleRowIndex
+                            - self.viewport_offset as ScrollbackOrVisibleRowIndex,
                     };
                     let sel = match self.selection_range.take() {
                         None => SelectionRange::start(self.selection_start.unwrap_or(end.clone()))
@@ -583,6 +579,7 @@ impl TerminalState {
     }
 
     /// Returns true if any of the visible lines are marked dirty
+    #[allow(dead_code)]
     pub fn has_dirty_lines(&self) -> bool {
         let screen = self.screen();
         let height = screen.physical_rows;
@@ -802,6 +799,15 @@ impl TerminalState {
     fn perform_csi(&mut self, act: CSIAction) {
         debug!("{:?}", act);
         match act {
+            CSIAction::DeleteCharacter(n) => {
+                let y = self.cursor.y;
+                let x = self.cursor.x;
+                let screen = self.screen_mut();
+                let limit = (x + n as usize).min(screen.physical_cols);
+                for _ in x..limit as usize {
+                    screen.erase_cell(x, y);
+                }
+            }
             CSIAction::EraseCharacter(n) => {
                 let y = self.cursor.y;
                 let x = self.cursor.x;
