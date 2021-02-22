@@ -20,11 +20,11 @@ Make sure to have the following libraries installed on your machine:
 
 ```sh
 sudo apt-get install -y libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev \
-libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
+libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev libharfbuzz-dev
 ```
 
 - Arch Linux
 
 ```sh
-sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
+sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig harfbuzz
 ```
