@@ -26,5 +26,5 @@ libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
 - Arch Linux
 
 ```sh
-sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm \ mesa freetype2 fontconfig
+sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
 ```
