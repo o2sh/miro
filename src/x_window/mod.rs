@@ -22,7 +22,7 @@ pub mod xkeysyms;
 pub mod xwin;
 
 #[derive(Copy, Clone, Debug)]
-pub struct Point(euclid::Point2D<f32, f32>);
+pub struct Point(pub euclid::Point2D<f32, f32>);
 
 impl Default for Point {
     fn default() -> Point {

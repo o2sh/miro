@@ -43,13 +43,12 @@ use std::str;
 mod config;
 mod font;
 mod game_loop;
-mod spritesheet;
+mod opengl;
 mod term;
 use font::{ftwrap, FontConfiguration};
 
 mod pty;
 mod sigchld;
-mod texture_atlas;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 mod x_window;
