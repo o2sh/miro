@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 use std::process::Child;
 use std::process::Command;
 use std::rc::Rc;
+use sysinfo::{System, SystemExt};
 use term::hyperlink::Hyperlink;
 use xcb;
 use xcb_util;
@@ -144,7 +145,7 @@ impl<'a> TerminalWindow<'a> {
         process: Child,
         fonts: FontConfiguration,
         palette: term::color::ColorPalette,
-        sys: systemstat::System,
+        sys: System,
     ) -> Result<TerminalWindow, Error> {
         let (cell_height, cell_width, _) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
@@ -209,6 +210,9 @@ impl<'a> TerminalWindow<'a> {
 
     pub fn paint(&mut self, with_sprite: bool) -> Result<(), Error> {
         self.renderer.frame_count += 1;
+        if self.renderer.frame_count % 5 == 0 {
+            self.renderer.sys.refresh_system();
+        }
         let mut target = self.host.window.draw();
         let res = self.renderer.paint(&mut target, &mut self.terminal);
         if with_sprite {

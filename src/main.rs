@@ -23,7 +23,7 @@ extern crate toml;
 #[macro_use]
 pub mod log;
 
-use systemstat::{Platform, System};
+use sysinfo::{System, SystemExt};
 
 use failure::Error;
 use mio::{Poll, PollOpt, Ready, Token};

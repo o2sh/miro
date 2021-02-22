@@ -31,8 +31,8 @@ maplit = "1.0.1"
 unicode-segmentation = "1.2.0"
 vte = "0.3.2"
 chrono = "0.4"
-systemstat = "0.1.7"
 lazy_static = "1.4.0"
+sysinfo = "0.16.4"
 
 [dependencies.glium]
 default-features = false

@@ -16,7 +16,7 @@ use std::mem;
 use std::ops::Range;
 use std::rc::Rc;
 use std::slice;
-use systemstat::Platform;
+use sysinfo::{ProcessorExt, System, SystemExt};
 use term::color::RgbaTuple;
 
 use crate::opengl::texture_atlas::{Atlas, Sprite, SpriteSlice, TEX_SIZE};
@@ -102,7 +102,7 @@ const HEADER_HEIGHT: f32 = 32.0;
 
 lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
-    static ref CPU_LOAD_LENGTH: usize = "Cpu 00°C".chars().count();
+    static ref CPU_LOAD_LENGTH: usize = "CPU:00%".chars().count();
 }
 const HEADER_TOP_PADDING: f32 = 15.0;
 const HEADER_WIDTH_PADDING: f32 = 13.0;
@@ -166,7 +166,7 @@ pub struct Renderer {
     spritesheet: SpriteSheet,
     pub frame_count: u32,
     player_texture: SpriteSheetTexture,
-    sys: systemstat::System,
+    pub sys: System,
 }
 
 impl Renderer {
@@ -176,7 +176,7 @@ impl Renderer {
         height: u16,
         fonts: FontConfiguration,
         palette: term::color::ColorPalette,
-        sys: systemstat::System,
+        sys: System,
     ) -> Result<Self, Error> {
         let spritesheet = get_spritesheet();
         let (cell_height, cell_width, descender) = {
@@ -1184,19 +1184,16 @@ impl Renderer {
     pub fn render_header_text(&mut self) -> Result<(), Error> {
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load = match self.sys.cpu_temp() {
-            Ok(cpu_temp) => {
-                format!("Cpu {:02}°C", cpu_temp)
-            }
-            Err(_) => format!("Cpu XX°C"),
-        };
+        let cpu_load = self.sys.get_global_processor_info().get_cpu_usage();
         let mut vb = self.glyph_header_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
             .ok_or_else(|| format_err!("we're confused about the screen size"))?
             .map();
-        let glyph_info =
-            self.shape_text(&format!("{}{}", cpu_load, current_time), &self.header_text_style)?;
+        let glyph_info = self.shape_text(
+            &format!("CPU:{:02}%{}", cpu_load.round(), current_time),
+            &self.header_text_style,
+        )?;
         let glyph_color = self
             .palette
             .resolve(&term::color::ColorAttribute::PaletteIndex(15))
