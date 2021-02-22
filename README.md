@@ -4,16 +4,27 @@ A GPU-accelerated terminal emulator written in Rust.
 
 ![miro](resources/miro.gif)
 
-## Building
+## Building from source
+
+First, install the [Rust toolchain](https://www.rust-lang.org/tools/install) and then
+
+```sh
+git clone https://github.com/o2sh/miro
+cd miro
+cargo run
+```
 
 Make sure to have the following libraries installed on your machine:
 
-```bash
-sudo apt-get install -y libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
+- Ubuntu
+
+```sh
+sudo apt-get install -y libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev \
+libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
 ```
 
-Once the dependencies are set up, you can build and run the app simply using:
+- Arch Linux
 
-```bash
-cargo run
+```sh
+sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm \ mesa freetype2 fontconfig
 ```

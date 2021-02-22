@@ -110,13 +110,13 @@ const U_STRIKE_ONE: f32 = 4.0 / U_COLS;
 /// Texture coord for the RHS of the strikethrough + double underline glyph
 const U_STRIKE_TWO: f32 = 5.0 / U_COLS;
 
-const HEADER_HEIGHT: f32 = 30.0;
+const HEADER_HEIGHT: f32 = 32.0;
 
 lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
     static ref CPU_LOAD_LENGTH: usize = "Cpu 00°C".chars().count();
 }
-const HEADER_TOP_PADDING: f32 = 13.0;
+const HEADER_TOP_PADDING: f32 = 15.0;
 const HEADER_WIDTH_PADDING: f32 = 13.0;
 
 const GLYPH_VERTEX_SHADER: &str = include_str!("../../assets/shader/g_vertex.glsl");
