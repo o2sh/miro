@@ -1,5 +1,6 @@
 use super::xkeysyms;
 use super::{Connection, Drawable, Window};
+use crate::config::Config;
 use crate::font::FontConfiguration;
 use crate::opengl::renderer::Renderer;
 use crate::pty::MasterPty;
@@ -143,10 +144,12 @@ impl<'a> TerminalWindow<'a> {
         terminal: term::Terminal,
         pty: MasterPty,
         process: Child,
-        fonts: FontConfiguration,
-        palette: term::color::ColorPalette,
+        config: Config,
         sys: System,
     ) -> Result<TerminalWindow, Error> {
+        let fonts = FontConfiguration::new(config.clone());
+        let palette =
+            config.colors.map(|p| p.into()).unwrap_or_else(term::color::ColorPalette::default);
         let (cell_height, cell_width, _) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
@@ -159,7 +162,8 @@ impl<'a> TerminalWindow<'a> {
 
         let host = Host { window, pty, timestamp: 0, clipboard: None };
 
-        let renderer = Renderer::new(&host.window, width, height, fonts, palette, sys)?;
+        let renderer =
+            Renderer::new(&host.window, width, height, fonts, palette, config.theme, sys)?;
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
 

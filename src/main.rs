@@ -23,7 +23,13 @@ extern crate toml;
 #[macro_use]
 pub mod log;
 
+use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
+
 use sysinfo::{System, SystemExt};
+
+use config::{Config, Theme};
+
+use term::color::RgbColor;
 
 use failure::Error;
 use mio::{Poll, PollOpt, Ready, Token};
@@ -76,13 +82,13 @@ fn get_shell() -> Result<String, Error> {
     })
 }
 
-fn run() -> Result<(), Error> {
+fn run(theme: Theme) -> Result<(), Error> {
     let poll = Poll::new()?;
     let conn = x_window::Connection::new()?;
     let sys = System::new();
     let waiter = sigchld::ChildWaiter::new()?;
 
-    let config = config::Config::default();
+    let config = Config::new(theme);
     println!("Using configuration: {:#?}", config);
 
     // First step is to figure out the font metrics so that we know how
@@ -132,8 +138,7 @@ fn run() -> Result<(), Error> {
         terminal,
         master,
         child,
-        fontconfig,
-        config.colors.map(|p| p.into()).unwrap_or_else(term::color::ColorPalette::default),
+        config,
         sys,
     )?;
 
@@ -201,5 +206,33 @@ fn run() -> Result<(), Error> {
 }
 
 fn main() {
-    run().unwrap();
+    let matches = App::new(crate_name!())
+        .version(crate_version!())
+        .about(crate_description!())
+        .setting(AppSettings::ColoredHelp)
+        .setting(AppSettings::DeriveDisplayOrder)
+        .setting(AppSettings::UnifiedHelpMessage)
+        .arg(
+            Arg::with_name("theme")
+                .short("t")
+                .long("theme")
+                .help("Which theme to use.")
+                .possible_values(&["mario", "sonic"])
+                .default_value("mario"),
+        )
+        .get_matches();
+
+    let theme = match matches.value_of("theme") {
+        Some("mario") => Theme {
+            spritesheet_path: String::from("assets/gfx/mario.json"),
+            header_color: RgbColor { red: 99, green: 137, blue: 250 },
+        },
+        Some("sonic") => Theme {
+            spritesheet_path: String::from("assets/gfx/sonic.json"),
+            header_color: RgbColor { red: 8, green: 129, blue: 0 },
+        },
+        _ => unreachable!("other values are not allowed"),
+    };
+
+    run(theme).unwrap();
 }

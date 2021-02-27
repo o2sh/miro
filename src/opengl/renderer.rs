@@ -1,5 +1,5 @@
 use crate::config::SpriteSheetConfig;
-use crate::config::TextStyle;
+use crate::config::{TextStyle, Theme};
 use crate::font::{ftwrap, FontConfiguration, GlyphInfo};
 use crate::opengl::spritesheet::{SpriteSheet, SpriteSheetTexture};
 use crate::term::{self, CursorPosition, Line, Underline};
@@ -64,8 +64,6 @@ implement_vertex!(
     v_idx,
 );
 
-pub const SPRITE_SIZE: f32 = 32.0;
-
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SpriteVertex {
     pub position: Point,
@@ -97,8 +95,6 @@ const U_STRIKE: f32 = 3.0 / U_COLS;
 const U_STRIKE_ONE: f32 = 4.0 / U_COLS;
 /// Texture coord for the RHS of the strikethrough + double underline glyph
 const U_STRIKE_TWO: f32 = 5.0 / U_COLS;
-
-const HEADER_HEIGHT: f32 = 32.0;
 
 lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
@@ -140,6 +136,7 @@ pub struct Renderer {
     width: u16,
     height: u16,
     fonts: FontConfiguration,
+    header_banner_color: RgbaTuple,
     header_text_style: TextStyle,
     header_cell_height: usize,
     header_cell_width: usize,
@@ -176,9 +173,10 @@ impl Renderer {
         height: u16,
         fonts: FontConfiguration,
         palette: term::color::ColorPalette,
+        theme: Theme,
         sys: System,
     ) -> Result<Self, Error> {
-        let spritesheet = get_spritesheet();
+        let spritesheet = get_spritesheet(&theme.spritesheet_path);
         let (cell_height, cell_width, descender) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
@@ -314,7 +312,7 @@ impl Renderer {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
             facade,
-            HEADER_HEIGHT + 1.0,
+            spritesheet.height + 1.0,
             cell_width as f32,
             cell_height as f32,
             width as f32,
@@ -322,10 +320,15 @@ impl Renderer {
         )?;
 
         let (sprite_vertex_buffer, sprite_index_buffer) =
-            Self::compute_sprite_vertices(facade, width as f32, height as f32);
+            Self::compute_sprite_vertices(facade, spritesheet.height, width as f32, height as f32);
 
-        let (rect_vertex_buffer, rect_index_buffer) =
-            Self::compute_rect_vertices(facade, width as f32, height as f32);
+        let (rect_vertex_buffer, rect_index_buffer) = Self::compute_rect_vertices(
+            facade,
+            theme.header_color.to_linear_tuple_rgba(),
+            spritesheet.height,
+            width as f32,
+            height as f32,
+        );
 
         let g_program =
             glium::Program::from_source(facade, GLYPH_VERTEX_SHADER, GLYPH_FRAGMENT_SHADER, None)?;
@@ -384,6 +387,7 @@ impl Renderer {
             spritesheet,
             frame_count: 0,
             sys,
+            header_banner_color: theme.header_color.to_linear_tuple_rgba(),
         })
     }
 
@@ -396,7 +400,7 @@ impl Renderer {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
             facade,
-            HEADER_HEIGHT + 1.0,
+            self.spritesheet.height + 1.0,
             self.cell_width as f32,
             self.cell_height as f32,
             width as f32,
@@ -423,8 +427,13 @@ impl Renderer {
         self.glyph_header_vertex_buffer = RefCell::new(glyph_header_vertex_buffer);
         self.glyph_header_index_buffer = glyph_header_index_buffer;
 
-        let (rect_vertex_buffer, rect_index_buffer) =
-            Self::compute_rect_vertices(facade, width as f32, height as f32);
+        let (rect_vertex_buffer, rect_index_buffer) = Self::compute_rect_vertices(
+            facade,
+            self.header_banner_color,
+            self.spritesheet.height,
+            width as f32,
+            height as f32,
+        );
 
         self.rect_vertex_buffer = RefCell::new(rect_vertex_buffer);
         self.rect_index_buffer = rect_index_buffer;
@@ -778,6 +787,7 @@ impl Renderer {
 
     pub fn compute_sprite_vertices<F: Facade>(
         facade: &F,
+        sprite_size: f32,
         width: f32,
         height: f32,
     ) -> (VertexBuffer<SpriteVertex>, IndexBuffer<u32>) {
@@ -794,19 +804,19 @@ impl Renderer {
         verts.push(SpriteVertex {
             // Top Right
             tex_coords: Point::new(1.0, 1.0),
-            position: Point::new(-w + SPRITE_SIZE, -h),
+            position: Point::new(-w + sprite_size, -h),
             ..Default::default()
         });
         verts.push(SpriteVertex {
             // Bottom Left
             tex_coords: Point::new(0.0, 0.0),
-            position: Point::new(-w, -h + SPRITE_SIZE),
+            position: Point::new(-w, -h + sprite_size),
             ..Default::default()
         });
         verts.push(SpriteVertex {
             // Bottom Right
             tex_coords: Point::new(1.0, 0.0),
-            position: Point::new(-w + SPRITE_SIZE, -h + SPRITE_SIZE),
+            position: Point::new(-w + sprite_size, -h + sprite_size),
             ..Default::default()
         });
 
@@ -823,20 +833,22 @@ impl Renderer {
 
     pub fn compute_rect_vertices<F: Facade>(
         facade: &F,
+        color: RgbaTuple,
+        banner_height: f32,
         width: f32,
         height: f32,
     ) -> (VertexBuffer<RectVertex>, IndexBuffer<u32>) {
-        let r = 99.0 / 255.0;
-        let g = 134.0 / 255.0;
-        let b = 251.0 / 255.0;
+        let r = color.0;
+        let g = color.1;
+        let b = color.2;
         let mut verts = Vec::new();
 
         let (w, h) = ((width / 2.0), (height / 2.0));
 
         verts.push(RectVertex { position: [-w, -h], color: [r, g, b] });
         verts.push(RectVertex { position: [w, -h], color: [r, g, b] });
-        verts.push(RectVertex { position: [-w, -h + HEADER_HEIGHT], color: [r, g, b] });
-        verts.push(RectVertex { position: [w, -h + HEADER_HEIGHT], color: [r, g, b] });
+        verts.push(RectVertex { position: [-w, -h + banner_height], color: [r, g, b] });
+        verts.push(RectVertex { position: [w, -h + banner_height], color: [r, g, b] });
 
         (
             VertexBuffer::dynamic(facade, &verts).unwrap(),
@@ -850,7 +862,8 @@ impl Renderer {
     }
 
     pub fn paint_sprite(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
-        let sprite = &mut self.spritesheet.sprites[(self.frame_count % 3) as usize];
+        let sprite = &mut self.spritesheet.sprites
+            [(self.frame_count % self.spritesheet.number_of_sprite) as usize];
         let w = self.width as f32 / 2.0;
 
         // Draw mario
@@ -882,7 +895,7 @@ impl Renderer {
 
         let delta = Point::new(10.0, 0.0);
 
-        let size = 32.0;
+        let size = self.spritesheet.height;
 
         if vert[V_TOP_LEFT].position.0.x > width {
             vert[V_TOP_LEFT].position.0.x = -width;
@@ -1365,7 +1378,7 @@ impl Renderer {
     }
 }
 
-pub fn get_spritesheet() -> SpriteSheet {
-    let spritesheet_config = SpriteSheetConfig::load("assets/gfx/mario.json").unwrap();
+pub fn get_spritesheet(path: &str) -> SpriteSheet {
+    let spritesheet_config = SpriteSheetConfig::load(path).unwrap();
     SpriteSheet::from_config(&spritesheet_config)
 }

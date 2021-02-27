@@ -8,6 +8,12 @@ use crate::term;
 use crate::term::color::RgbColor;
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct Theme {
+    pub spritesheet_path: String,
+    pub header_color: RgbColor,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// The font size, measured in points
     #[serde(default = "default_font_size")]
@@ -31,6 +37,8 @@ pub struct Config {
 
     /// How many lines of scrollback you want to retain
     pub scrollback_lines: Option<usize>,
+
+    pub theme: Theme,
 }
 
 fn default_font_size() -> f64 {
@@ -41,8 +49,8 @@ fn default_dpi() -> f64 {
     96.0
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub fn new(theme: Theme) -> Self {
         Self {
             font_size: default_font_size(),
             dpi: default_dpi(),
@@ -50,6 +58,7 @@ impl Default for Config {
             font_rules: Vec::new(),
             colors: None,
             scrollback_lines: None,
+            theme,
         }
     }
 }
