@@ -2,10 +2,11 @@
 
 A GPU-accelerated terminal emulator written in Rust.
 
-|miro -t mario|miro -t sonic|
+|miro -t pika|miro -t kirby|
 -|-
-|![mario](resources/miro.gif)|![sonic](resources/miro_sonic.gif)|
-
+|![mario](resources/pika.gif)|![sonic](resources/kirby.gif)|
+|miro -t mario|miro -t sonic|
+|![mario](resources/mario.gif)|![sonic](resources/sonic.gif)|
 ## Building from source
 
 First, install the [Rust toolchain](https://www.rust-lang.org/tools/install) and then

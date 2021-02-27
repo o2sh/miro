@@ -16,8 +16,8 @@ pub struct Sprite {
 pub struct SpriteSheet {
     pub image_path: String,
     pub sprites: Vec<Sprite>,
-    pub height: f32,
-    pub number_of_sprite: u32,
+    pub sprite_height: f32,
+    pub sprite_width: f32,
 }
 
 impl SpriteSheet {
@@ -31,12 +31,13 @@ impl SpriteSheet {
             });
         }
 
-        let height = sprites[0].size.0.y;
+        let sprite_height = sprites[0].size.0.y;
+        let sprite_width = sprites[0].size.0.x;
         SpriteSheet {
             image_path: String::from(&config.image_path),
-            number_of_sprite: sprites.len() as u32,
             sprites,
-            height,
+            sprite_height,
+            sprite_width,
         }
     }
 }

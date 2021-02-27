@@ -217,7 +217,7 @@ fn main() {
                 .short("t")
                 .long("theme")
                 .help("Which theme to use.")
-                .possible_values(&["mario", "sonic"])
+                .possible_values(&["mario", "sonic", "pika", "mega", "kirby"])
                 .default_value("mario"),
         )
         .get_matches();
@@ -230,6 +230,18 @@ fn main() {
         Some("sonic") => Theme {
             spritesheet_path: String::from("assets/gfx/sonic.json"),
             header_color: RgbColor { red: 8, green: 129, blue: 0 },
+        },
+        Some("pika") => Theme {
+            spritesheet_path: String::from("assets/gfx/pika.json"),
+            header_color: RgbColor { red: 176, green: 139, blue: 24 },
+        },
+        Some("mega") => Theme {
+            spritesheet_path: String::from("assets/gfx/mega.json"),
+            header_color: RgbColor { red: 1, green: 135, blue: 147 },
+        },
+        Some("kirby") => Theme {
+            spritesheet_path: String::from("assets/gfx/kirby.json"),
+            header_color: RgbColor { red: 242, green: 120, blue: 141 },
         },
         _ => unreachable!("other values are not allowed"),
     };

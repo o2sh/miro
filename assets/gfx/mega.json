@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "image": "assets/gfx/mega.png",
+    "size": {
+      "w": 176,
+      "h": 38
+    },
+    "scale": "1"
+  },
+  "frames": {
+    "mega0.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "sourceSize": {
+        "w": 44,
+        "h": 38
+      }
+    },
+    "mega1.png": {
+      "frame": {
+        "x": 44,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "sourceSize": {
+        "w": 44,
+        "h": 38
+      }
+    },
+    "mega2.png": {
+      "frame": {
+        "x": 88,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "sourceSize": {
+        "w": 44,
+        "h": 38
+      }
+    },
+    "mega3.png": {
+      "frame": {
+        "x": 132,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 44,
+        "h": 38
+      },
+      "sourceSize": {
+        "w": 44,
+        "h": 38
+      }
+    }
+  }
+}

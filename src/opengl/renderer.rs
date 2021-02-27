@@ -100,7 +100,6 @@ lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
     static ref CPU_LOAD_LENGTH: usize = "CPU:00%".chars().count();
 }
-const HEADER_TOP_PADDING: f32 = 15.0;
 const HEADER_WIDTH_PADDING: f32 = 13.0;
 
 const GLYPH_VERTEX_SHADER: &str = include_str!("../../assets/shader/g_vertex.glsl");
@@ -300,7 +299,7 @@ impl Renderer {
         let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
             Self::compute_header_text_vertices(
                 facade,
-                HEADER_TOP_PADDING,
+                spritesheet.sprite_height,
                 HEADER_WIDTH_PADDING,
                 *CPU_LOAD_LENGTH,
                 *CURRENT_TIME_LENGTH,
@@ -312,20 +311,25 @@ impl Renderer {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
             facade,
-            spritesheet.height + 1.0,
+            spritesheet.sprite_height + 1.0,
             cell_width as f32,
             cell_height as f32,
             width as f32,
             height as f32,
         )?;
 
-        let (sprite_vertex_buffer, sprite_index_buffer) =
-            Self::compute_sprite_vertices(facade, spritesheet.height, width as f32, height as f32);
+        let (sprite_vertex_buffer, sprite_index_buffer) = Self::compute_sprite_vertices(
+            facade,
+            spritesheet.sprite_width,
+            spritesheet.sprite_height,
+            width as f32,
+            height as f32,
+        );
 
         let (rect_vertex_buffer, rect_index_buffer) = Self::compute_rect_vertices(
             facade,
             theme.header_color.to_linear_tuple_rgba(),
-            spritesheet.height,
+            spritesheet.sprite_height,
             width as f32,
             height as f32,
         );
@@ -400,7 +404,7 @@ impl Renderer {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
             facade,
-            self.spritesheet.height + 1.0,
+            self.spritesheet.sprite_height + 1.0,
             self.cell_width as f32,
             self.cell_height as f32,
             width as f32,
@@ -414,7 +418,7 @@ impl Renderer {
         let (glyph_header_vertex_buffer, glyph_header_index_buffer) =
             Self::compute_header_text_vertices(
                 facade,
-                HEADER_TOP_PADDING,
+                self.spritesheet.sprite_height,
                 HEADER_WIDTH_PADDING,
                 *CPU_LOAD_LENGTH,
                 *CURRENT_TIME_LENGTH,
@@ -430,7 +434,7 @@ impl Renderer {
         let (rect_vertex_buffer, rect_index_buffer) = Self::compute_rect_vertices(
             facade,
             self.header_banner_color,
-            self.spritesheet.height,
+            self.spritesheet.sprite_height,
             width as f32,
             height as f32,
         );
@@ -444,12 +448,11 @@ impl Renderer {
     pub fn reset_sprite_pos(&mut self, height: f32) {
         let mut vb = self.sprite_vertex_buffer.borrow_mut();
         let mut vert = { vb.slice_mut(0..4).unwrap().map() };
-        let size = 32.0;
 
         vert[V_TOP_LEFT].position.0.y = -height;
         vert[V_TOP_RIGHT].position.0.y = -height;
-        vert[V_BOT_LEFT].position.0.y = -height + size;
-        vert[V_BOT_RIGHT].position.0.y = -height + size;
+        vert[V_BOT_LEFT].position.0.y = -height + self.spritesheet.sprite_height;
+        vert[V_BOT_RIGHT].position.0.y = -height + self.spritesheet.sprite_height;
     }
 
     /// Resolve a glyph from the cache, rendering the glyph on-demand if
@@ -722,7 +725,7 @@ impl Renderer {
 
     fn compute_header_text_vertices<F: Facade>(
         facade: &F,
-        top_padding: f32,
+        banner_height: f32,
         width_padding: f32,
         left_num_cols: usize,
         right_num_cols: usize,
@@ -734,6 +737,7 @@ impl Renderer {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
+        let top_padding = (banner_height / 2.0) - 1.0;
         for x in 0..(left_num_cols + right_num_cols) {
             let y_pos = height / -2.0 + top_padding;
             let x_pos = if x < left_num_cols {
@@ -787,7 +791,8 @@ impl Renderer {
 
     pub fn compute_sprite_vertices<F: Facade>(
         facade: &F,
-        sprite_size: f32,
+        sprite_width: f32,
+        sprite_height: f32,
         width: f32,
         height: f32,
     ) -> (VertexBuffer<SpriteVertex>, IndexBuffer<u32>) {
@@ -804,19 +809,19 @@ impl Renderer {
         verts.push(SpriteVertex {
             // Top Right
             tex_coords: Point::new(1.0, 1.0),
-            position: Point::new(-w + sprite_size, -h),
+            position: Point::new(-w + sprite_width, -h),
             ..Default::default()
         });
         verts.push(SpriteVertex {
             // Bottom Left
             tex_coords: Point::new(0.0, 0.0),
-            position: Point::new(-w, -h + sprite_size),
+            position: Point::new(-w, -h + sprite_height),
             ..Default::default()
         });
         verts.push(SpriteVertex {
             // Bottom Right
             tex_coords: Point::new(1.0, 0.0),
-            position: Point::new(-w + sprite_size, -h + sprite_size),
+            position: Point::new(-w + sprite_width, -h + sprite_height),
             ..Default::default()
         });
 
@@ -862,8 +867,9 @@ impl Renderer {
     }
 
     pub fn paint_sprite(&mut self, target: &mut glium::Frame) -> Result<(), Error> {
-        let sprite = &mut self.spritesheet.sprites
-            [(self.frame_count % self.spritesheet.number_of_sprite) as usize];
+        let number_of_sprites = self.spritesheet.sprites.len();
+        let sprite =
+            &mut self.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
         let w = self.width as f32 / 2.0;
 
         // Draw mario
@@ -895,13 +901,13 @@ impl Renderer {
 
         let delta = Point::new(10.0, 0.0);
 
-        let size = self.spritesheet.height;
+        let sprite_width = self.spritesheet.sprite_width;
 
         if vert[V_TOP_LEFT].position.0.x > width {
             vert[V_TOP_LEFT].position.0.x = -width;
-            vert[V_TOP_RIGHT].position.0.x = -width + size;
+            vert[V_TOP_RIGHT].position.0.x = -width + sprite_width;
             vert[V_BOT_LEFT].position.0.x = -width;
-            vert[V_BOT_RIGHT].position.0.x = -width + size;
+            vert[V_BOT_RIGHT].position.0.x = -width + sprite_width;
         } else {
             vert[V_TOP_LEFT].position += delta;
             vert[V_TOP_RIGHT].position += delta;
