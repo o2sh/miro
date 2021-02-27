@@ -2,7 +2,7 @@
 
 A GPU-accelerated terminal emulator written in Rust.
 
-|miro --t mario|miro -t sonic|
+|miro -t mario|miro -t sonic|
 -|-
 |![mario](resources/miro.gif)|![sonic](resources/miro_sonic.gif)|
 
