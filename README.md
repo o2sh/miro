@@ -2,8 +2,8 @@
 
 A GPU-accelerated terminal emulator written in Rust.
 
-| | | |
-|-|-|-|
+| | |
+|-|-|
 |miro -t pika|miro -t kirby|
 |![mario](resources/pika.gif)|![sonic](resources/kirby.gif)|
 |miro -t mario|miro -t sonic|
