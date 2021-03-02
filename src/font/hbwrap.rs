@@ -3,7 +3,7 @@
 use crate::ftwrap::Face;
 use failure::Error;
 use freetype::freetype;
-pub use harfbuzz::*;
+pub use harfbuzz_sys::*;
 use std::mem;
 use std::ptr;
 use std::slice;

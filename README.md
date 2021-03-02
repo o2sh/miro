@@ -14,9 +14,8 @@ A GPU-accelerated terminal emulator written in Rust.
 First, install the [Rust toolchain](https://www.rust-lang.org/tools/install) and then
 
 ```sh
-git clone https://github.com/o2sh/miro --depth=1
+git clone https://github.com/o2sh/miro
 cd miro
-git submodule update --init --recursive
 cargo run
 ```
 
