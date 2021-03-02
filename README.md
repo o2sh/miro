@@ -8,13 +8,15 @@ A GPU-accelerated terminal emulator written in Rust.
 |![mario](resources/pika.gif)|![sonic](resources/kirby.gif)|
 |miro -t mario|miro -t sonic|
 |![mario](resources/mario.gif)|![sonic](resources/sonic.gif)|
+
 ## Building from source
 
 First, install the [Rust toolchain](https://www.rust-lang.org/tools/install) and then
 
 ```sh
-git clone https://github.com/o2sh/miro
+git clone https://github.com/o2sh/miro --depth=1
 cd miro
+git submodule update --init --recursive
 cargo run
 ```
 
@@ -23,7 +25,7 @@ Make sure to have the following libraries installed on your machine:
 - Ubuntu
 
 ```sh
-sudo apt-get install -y libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev \
+sudo apt-get install -y libx11-xcb-dev libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev \
 libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
 ```
 

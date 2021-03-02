@@ -1,9 +1,15 @@
 //! Higher level harfbuzz bindings
 
-use crate::ftwrap::Face;
+#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
+extern crate freetype;
+#[macro_use]
+extern crate failure;
+
+pub mod sys;
+pub use sys::*;
+
 use failure::Error;
-use freetype::freetype;
-pub use harfbuzz::*;
+
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -24,8 +30,11 @@ pub fn feature_from_string(s: &str) -> Result<hb_feature_t, Error> {
     unsafe {
         let mut feature = mem::zeroed();
         ensure!(
-            hb_feature_from_string(s.as_ptr() as *const i8, s.len() as i32, &mut feature as *mut _,)
-                != 0,
+            hb_feature_from_string(
+                s.as_ptr() as *const i8,
+                s.len() as i32,
+                &mut feature as *mut _,
+            ) != 0,
             "failed to create feature from {}",
             s
         );
@@ -47,15 +56,15 @@ impl Drop for Font {
 
 impl Font {
     /// Create a harfbuzz face from a freetype font
-    pub fn new(face: &Face) -> Font {
+    pub fn new(face: freetype::freetype::FT_Face) -> Font {
         // hb_ft_font_create_referenced always returns a
         // pointer to something, or derefs a nullptr internally
         // if everything fails, so there's nothing for us to
         // test here.
-        Font { font: unsafe { hb_ft_font_create_referenced(face.face) } }
+        Font { font: unsafe { hb_ft_font_create_referenced(face) } }
     }
 
-    pub fn set_load_flags(&mut self, load_flags: freetype::FT_Int32) {
+    pub fn set_load_flags(&mut self, load_flags: freetype::freetype::FT_Int32) {
         unsafe {
             hb_ft_font_set_load_flags(self.font, load_flags);
         }
@@ -90,7 +99,10 @@ impl Buffer {
     /// Create a new buffer
     pub fn new() -> Result<Buffer, Error> {
         let buf = unsafe { hb_buffer_create() };
-        ensure!(unsafe { hb_buffer_allocation_successful(buf) } != 0, "hb_buffer_create failed");
+        ensure!(
+            unsafe { hb_buffer_allocation_successful(buf) } != 0,
+            "hb_buffer_create failed"
+        );
         Ok(Buffer { buf })
     }
 
