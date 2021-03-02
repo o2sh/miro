@@ -11,7 +11,7 @@ extern crate glium;
 extern crate fontconfig; // from servo-fontconfig
 #[cfg(not(target_os = "macos"))]
 extern crate freetype;
-extern crate harfbuzz_sys;
+extern crate harfbuzz;
 extern crate libc;
 extern crate mio;
 extern crate serde;

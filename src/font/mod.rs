@@ -7,13 +7,13 @@ use std::rc::Rc;
 use std::slice;
 use unicode_width::UnicodeWidthStr;
 
-pub mod ftwrap;
 pub mod fcwrap;
+pub mod ftwrap;
 
 pub use self::fcwrap::Pattern as FontPattern;
 
 use super::config::{Config, TextStyle};
-use term::CellAttributes;
+use crate::term::CellAttributes;
 
 /// Matches and loads fonts for a given input style
 pub struct FontConfiguration {
@@ -24,10 +24,7 @@ pub struct FontConfiguration {
 impl FontConfiguration {
     /// Create a new empty configuration
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            fonts: RefCell::new(HashMap::new()),
-        }
+        Self { config, fonts: RefCell::new(HashMap::new()) }
     }
 
     /// Given a text style, load (without caching) the font that
@@ -76,7 +73,7 @@ impl FontConfiguration {
                     }
                 }
                 // matches so far...
-            }
+            };
         };
 
         for rule in self.config.font_rules.iter() {
@@ -174,9 +171,7 @@ impl Font {
     /// Construct a new Font from the user supplied pattern
     pub fn new(mut pattern: FontPattern) -> Result<Font, Error> {
         let mut lib = ftwrap::Library::new()?;
-        lib.set_lcd_filter(
-            ftwrap::FT_LcdFilter::FT_LCD_FILTER_DEFAULT,
-        )?;
+        lib.set_lcd_filter(ftwrap::FT_LcdFilter::FT_LCD_FILTER_DEFAULT)?;
 
         // Enable some filtering options and pull in the standard
         // fallback font selection from the user configuration
@@ -188,19 +183,12 @@ impl Font {
         // at index 0.
         let font_list = pattern.sort(true)?;
 
-        Ok(Font {
-            lib,
-            font_list,
-            pattern,
-            fonts: Vec::new(),
-        })
+        Ok(Font { lib, font_list, pattern, fonts: Vec::new() })
     }
 
     fn load_next_fallback(&mut self) -> Result<(), Error> {
         let idx = self.fonts.len();
-        let pat = self.font_list.iter().nth(idx).ok_or(failure::err_msg(
-            "no more fallbacks",
-        ))?;
+        let pat = self.font_list.iter().nth(idx).ok_or(failure::err_msg("no more fallbacks"))?;
         let pat = self.pattern.render_prepare(&pat)?;
         let file = pat.get_file()?;
 
@@ -243,12 +231,7 @@ impl Font {
         let (cell_width, cell_height) = face.cell_metrics();
         debug!("metrics: width={} height={}", cell_width, cell_height);
 
-        self.fonts.push(FontInfo {
-            face,
-            font,
-            cell_height,
-            cell_width,
-        });
+        self.fonts.push(FontInfo { face, font, cell_height, cell_width });
         Ok(())
     }
 
@@ -266,29 +249,23 @@ impl Font {
 
     pub fn has_color(&mut self, idx: usize) -> Result<bool, Error> {
         let font = self.get_font(idx)?;
-        unsafe {
-            Ok(
-                ((*font.face.face).face_flags & ftwrap::FT_FACE_FLAG_COLOR as i64) != 0,
-            )
-        }
+        unsafe { Ok(((*font.face.face).face_flags & ftwrap::FT_FACE_FLAG_COLOR as i64) != 0) }
     }
 
     pub fn get_metrics(&mut self) -> Result<(f64, f64, i16), Error> {
         let font = self.get_font(0)?;
-        Ok((font.cell_height, font.cell_width, unsafe {
-            (*font.face.face).descender
-        }))
+        Ok((font.cell_height, font.cell_width, unsafe { (*font.face.face).descender }))
     }
 
     pub fn shape(&mut self, font_idx: usize, s: &str) -> Result<Vec<GlyphInfo>, Error> {
         /*
-        debug!(
-            "shape text for font_idx {} with len {} {}",
-            font_idx,
-            s.len(),
-            s
-        );
-*/
+                debug!(
+                    "shape text for font_idx {} with len {} {}",
+                    font_idx,
+                    s.len(),
+                    s
+                );
+        */
         let features = vec![
             // kerning
             harfbuzz::feature_from_string("kern")?,
@@ -386,12 +363,7 @@ impl Font {
         if let Some(start) = first_fallback_pos {
             let substr = &s[start..];
             if false {
-                debug!(
-                "at end {:?}-{:?} needs fallback {}",
-                start,
-                s.len() - 1,
-                substr,
-            );
+                debug!("at end {:?}-{:?} needs fallback {}", start, s.len() - 1, substr,);
             }
             let mut shape = self.shape(font_idx + 1, substr)?;
             // Fixup the cluster member to match our current offset
@@ -439,10 +411,6 @@ impl Font {
             (render_mode as i32) << 16;
 
         info.font.set_load_flags(load_flags);
-        info.face.load_and_render_glyph(
-            glyph_pos,
-            load_flags,
-            render_mode,
-        )
+        info.face.load_and_render_glyph(glyph_pos, load_flags, render_mode)
     }
 }
