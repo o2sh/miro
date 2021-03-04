@@ -33,3 +33,9 @@ libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
 ```sh
 sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
 ```
+
+## Status
+
+Miro only runs on Linux with XCB and OpenGL ES 2.
+
+Please feel free to suggest any kind of improvements, refactorings or just more funny themes! ❤️
