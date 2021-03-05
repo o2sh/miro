@@ -65,8 +65,11 @@ impl TerminalWindow {
         eprintln!("make window with {}x{}", width, height);
 
         let display = {
-            let pref_context =
-                glutin::ContextBuilder::new().with_vsync(true).with_pixel_format(24, 8);
+            let pref_context = glutin::ContextBuilder::new()
+                .with_gl(glutin::GlRequest::Specific(glutin::Api::OpenGlEs, (2, 0)))
+                .with_vsync(true)
+                .with_pixel_format(24, 8)
+                .with_srgb(true);
             let window = glutin::window::WindowBuilder::new()
                 .with_inner_size(logical_size)
                 .with_title("miro");

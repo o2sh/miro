@@ -90,7 +90,7 @@ pub struct TerminalState {
     /// purely for display purposes.
     /// The offset is measured from the top of the physical viewable
     /// screen with larger numbers going backwards.
-    viewport_offset: VisibleRowIndex,
+    pub(crate) viewport_offset: VisibleRowIndex,
 
     /// Remembers the starting coordinate of the selection prior to
     /// dragging.
@@ -164,7 +164,7 @@ impl TerminalState {
                 if s.len() > 0 {
                     s.push('\n');
                 }
-                s.push_str(&screen.lines[idx].columns_as_str(cols).trim_end());
+                s.push_str(&screen.lines[idx].columns_as_str(cols).trim_right());
             }
         }
 
@@ -228,7 +228,7 @@ impl TerminalState {
     pub fn mouse_event(
         &mut self,
         mut event: MouseEvent,
-        host: &mut dyn TerminalHost,
+        host: &mut TerminalHost,
     ) -> Result<(), Error> {
         // Clamp the mouse coordinates to the size of the model.
         // This situation can trigger for example when the
@@ -463,7 +463,7 @@ impl TerminalState {
         &mut self,
         key: KeyCode,
         mods: KeyModifiers,
-        host: &mut dyn TerminalHost,
+        host: &mut TerminalHost,
     ) -> Result<(), Error> {
         const CTRL: KeyModifiers = KeyModifiers::CTRL;
         const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
@@ -480,21 +480,19 @@ impl TerminalState {
         // TODO: also respect self.application_keypad
 
         let to_send = match (key, ctrl, alt, shift, self.application_cursor_keys) {
-            (Char(c), CTRL, _, SHIFT, _) if c <= 0xff as char => {
+            (Char(c), CTRL, _, SHIFT, _) if c <= 0xff as char && c > 0x40 as char => {
                 // If shift is held we have C == 0x43 and want to translate
                 // that into 0x03
                 buf.push((c as u8 - 0x40) as char);
                 buf.as_str()
             }
-            (Char(c), CTRL, ..) if c <= 0xff as char => {
+            (Char(c), CTRL, ..) if c <= 0xff as char && c > 0x60 as char => {
                 // If shift is not held we have C == 0x63 and want to translate
                 // that into 0x03
                 buf.push((c as u8 - 0x60) as char);
                 buf.as_str()
             }
-            (Char(c), _, ALT, ..) if c <= 0xff as char => {
-                // TODO: add config option to select 8-bit vs. escape behavior?
-                //buf.push((c as u8 | 0x80) as char);
+            (Char(c), _, ALT, ..) => {
                 buf.push(0x1b as char);
                 buf.push(c);
                 buf.as_str()
@@ -566,7 +564,7 @@ impl TerminalState {
         &mut self,
         _: KeyCode,
         _: KeyModifiers,
-        _: &mut dyn TerminalHost,
+        _: &mut TerminalHost,
     ) -> Result<(), Error> {
         Ok(())
     }
@@ -579,7 +577,6 @@ impl TerminalState {
     }
 
     /// Returns true if any of the visible lines are marked dirty
-    #[allow(dead_code)]
     pub fn has_dirty_lines(&self) -> bool {
         let screen = self.screen();
         let height = screen.physical_rows;
@@ -608,7 +605,7 @@ impl TerminalState {
 
         let selection = self.selection_range.map(|r| r.normalize());
 
-        for (i, line) in screen.lines.iter().skip(len - height).enumerate() {
+        for (i, mut line) in screen.lines.iter().skip(len - height).enumerate() {
             if i >= height {
                 // When scrolling back, make sure we don't emit lines that
                 // are below the bottom of the viewport
@@ -632,11 +629,23 @@ impl TerminalState {
         res
     }
 
+    pub fn get_viewport_offset(&self) -> VisibleRowIndex {
+        self.viewport_offset
+    }
+
     /// Clear the dirty flag for all dirty lines
     pub fn clean_dirty_lines(&mut self) {
         let screen = self.screen_mut();
         for line in screen.lines.iter_mut() {
             line.set_clean();
+        }
+    }
+
+    /// When dealing with selection, mark a range of lines as dirty
+    pub fn make_all_lines_dirty(&mut self) {
+        let screen = self.screen_mut();
+        for line in screen.lines.iter_mut() {
+            line.set_dirty();
         }
     }
 
@@ -860,7 +869,7 @@ impl TerminalState {
             CSIAction::EraseInLine(erase) => {
                 let cx = self.cursor.x;
                 let cy = self.cursor.y;
-                let screen = self.screen_mut();
+                let mut screen = self.screen_mut();
                 let cols = screen.physical_cols;
                 match erase {
                     LineErase::ToRight => {
@@ -876,7 +885,7 @@ impl TerminalState {
             }
             CSIAction::EraseInDisplay(erase) => {
                 let cy = self.cursor.y;
-                let screen = self.screen_mut();
+                let mut screen = self.screen_mut();
                 let cols = screen.physical_cols;
                 let rows = screen.physical_rows as VisibleRowIndex;
                 match erase {

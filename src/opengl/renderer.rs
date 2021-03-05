@@ -884,11 +884,7 @@ impl Renderer {
                 source_position: sprite.position.to_array(),
                 source_texture_dimensions: [self.player_texture.width, self.player_texture.height]
             },
-            &glium::DrawParameters {
-                blend: glium::Blend::alpha_blending(),
-                dithering: false,
-                ..Default::default()
-            },
+            &glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() },
         )?;
 
         self.slide_sprite(w);
