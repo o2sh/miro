@@ -19,6 +19,9 @@ pub struct Hyperlink {
 }
 
 impl Hyperlink {
+    pub fn uri(&self) -> &str {
+        &self.url
+    }
     pub fn new(url: &str, params: &HashMap<&str, &str>) -> Self {
         let id = params.get("id").unwrap_or(&"");
         Self { url: url.into(), id: (**id).into() }

@@ -1,8 +1,11 @@
 //! Configuration for the gui portion of the terminal
+use failure::Error;
 use regex::Regex;
 use serde_json::Value;
 use std;
 use std::collections::HashMap;
+use std::env;
+use std::ffi::CStr;
 
 use crate::term;
 use crate::term::color::RgbColor;
@@ -232,4 +235,23 @@ fn get_mainname(filename: &str) -> String {
     let re = Regex::new(r"^(.*)").unwrap();
     re.captures(filename)
         .map_or_else(|| filename.to_string(), |caps| caps.get(1).unwrap().as_str().to_string())
+}
+
+/// Determine which shell to run.
+/// We take the contents of the $SHELL env var first, then
+/// fall back to looking it up from the password database.
+pub fn get_shell() -> Result<String, Error> {
+    env::var("SHELL").or_else(|_| {
+        let ent = unsafe { libc::getpwuid(libc::getuid()) };
+
+        if ent.is_null() {
+            Ok("/bin/sh".into())
+        } else {
+            let shell = unsafe { CStr::from_ptr((*ent).pw_shell) };
+            shell
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|e| format_err!("failed to resolve shell: {:?}", e))
+        }
+    })
 }

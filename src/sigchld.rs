@@ -1,82 +1,37 @@
 //! Helper for detecting SIGCHLD
 
+use crate::wakeup::{Wakeup, WakeupMsg};
 use failure::Error;
 use libc;
-use mio::event::Evented;
-use mio::unix::EventedFd;
-use mio::{Poll, PollOpt, Ready, Token};
 use std::io;
 use std::mem;
-use std::os::unix::io::RawFd;
 use std::ptr;
 
-pub struct ChildWaiter {
-    fd: RawFd,
-}
+static mut EVENT_LOOP: Option<Wakeup> = None;
 
-impl Drop for ChildWaiter {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.fd);
-        }
-    }
-}
-
-impl ChildWaiter {
-    pub fn new() -> Result<ChildWaiter, Error> {
-        unsafe {
-            let mut mask: libc::sigset_t = mem::zeroed();
-            libc::sigaddset(&mut mask, libc::SIGCHLD);
-            let res = libc::sigprocmask(libc::SIG_BLOCK, &mut mask, ptr::null_mut());
-            if res == -1 {
-                bail!("sigprocmask BLOCK SIGCHLD failed: {:?}", io::Error::last_os_error());
+extern "C" fn chld_handler(_signo: libc::c_int, _si: *const libc::siginfo_t, _: *const u8) {
+    unsafe {
+        match EVENT_LOOP.as_mut() {
+            Some(wakeup) => {
+                wakeup.send(WakeupMsg::SigChld).ok();
             }
-
-            let fd = libc::signalfd(-1, &mask, libc::SFD_NONBLOCK | libc::SFD_CLOEXEC);
-            if fd == -1 {
-                bail!("signalfd SIGCHLD failed: {:?}", io::Error::last_os_error());
-            }
-
-            Ok(ChildWaiter { fd })
-        }
-    }
-
-    pub fn read_one(&self) -> Result<u32, Error> {
-        const BUFSIZE: usize = mem::size_of::<libc::signalfd_siginfo>();
-        let mut buf = [0u8; BUFSIZE];
-        let res = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut _, buf.len()) };
-        if res == BUFSIZE as isize {
-            let siginfo: libc::signalfd_siginfo = unsafe { mem::transmute(buf) };
-            Ok(siginfo.ssi_pid)
-        } else {
-            bail!("signalfd read failed: {:?}", io::Error::last_os_error());
+            None => (),
         }
     }
 }
 
-/// Glue for working with mio
-impl Evented for ChildWaiter {
-    fn register(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> io::Result<()> {
-        EventedFd(&self.fd).register(poll, token, interest, opts)
-    }
+pub fn activate(wakeup: Wakeup) -> Result<(), Error> {
+    unsafe {
+        EVENT_LOOP = Some(wakeup);
 
-    fn reregister(
-        &self,
-        poll: &Poll,
-        token: Token,
-        interest: Ready,
-        opts: PollOpt,
-    ) -> io::Result<()> {
-        EventedFd(&self.fd).reregister(poll, token, interest, opts)
-    }
+        let mut sa: libc::sigaction = mem::zeroed();
+        sa.sa_sigaction = chld_handler as usize;
+        sa.sa_flags = (libc::SA_SIGINFO | libc::SA_RESTART | libc::SA_NOCLDSTOP) as _;
+        let res = libc::sigaction(libc::SIGCHLD, &sa, ptr::null_mut());
+        if res == -1 {
+            bail!("sigaction SIGCHLD failed: {:?}", io::Error::last_os_error());
+        }
 
-    fn deregister(&self, poll: &Poll) -> io::Result<()> {
-        EventedFd(&self.fd).deregister(poll)
+        Ok(())
     }
 }

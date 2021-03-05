@@ -20,7 +20,7 @@ use sysinfo::{ProcessorExt, System, SystemExt};
 use term::color::RgbaTuple;
 
 use crate::opengl::texture_atlas::{Atlas, Sprite, SpriteSlice, TEX_SIZE};
-use crate::x_window::Point;
+use crate::window::Point;
 
 type Transform3D = euclid::Transform3D<f32, f32, f32>;
 

@@ -1,5 +1,5 @@
 use crate::config::SpriteSheetConfig;
-use crate::x_window::Point;
+use crate::window::Point;
 use glium::texture::CompressedSrgbTexture2d;
 
 pub struct SpriteSheetTexture {

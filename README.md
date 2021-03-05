@@ -25,7 +25,7 @@ Make sure to have the following libraries installed on your machine:
 
 ```sh
 sudo apt-get install -y libx11-xcb-dev libxcb-icccm4-dev libxcb-ewmh-dev libxcb-keysyms1-dev \
-libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev
+libfontconfig1-dev libfreetype6-dev libegl1-mesa-dev libharfbuzz-dev
 ```
 
 - Arch Linux

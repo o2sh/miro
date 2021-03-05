@@ -34,22 +34,10 @@ chrono = "0.4"
 lazy_static = "1.4.0"
 sysinfo = "0.16.4"
 clap = "2.33.3"
+clipboard = "0.5"
+open = "1.2"
 
 [dependencies.glium]
 default-features = false
 version = "0.29.0"
-
-[dependencies.x11]
-features = ["xlib"]
-version = "2.17.2"
-
-[dependencies.xcb]
-version = "0.9.0"
-
-[dependencies.xcb-util]
-features = [
-    "icccm",
-    "ewmh",
-    "keysyms",
-]
-version = "0.3.0"
+features = ["glutin"]
