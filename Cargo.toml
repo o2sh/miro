@@ -34,11 +34,11 @@ sysinfo = "0.16.4"
 clap = "2.33.3"
 clipboard = "0.5"
 open = "1.2"
-font-loader = "0.8"
-freetype = "0.3.0"
+font-loader = "0.11.0"
+freetype = "0.7.0"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-servo-fontconfig = "0.4.0"
+servo-fontconfig = "0.5.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-text = "~13.1"

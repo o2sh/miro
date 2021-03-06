@@ -2,12 +2,13 @@
 
 use failure::Error;
 pub use freetype::freetype::*;
+pub use freetype::succeeded;
 use std::ffi::CString;
 use std::ptr;
 
 /// Translate an error and value into a result
 fn ft_result<T>(err: FT_Error, t: T) -> Result<T, Error> {
-    if err.succeeded() {
+    if succeeded(err) {
         Ok(t)
     } else {
         Err(format_err!("FreeType error {:?}", err))
@@ -64,7 +65,7 @@ impl Face {
         unsafe {
             let glyph_pos = FT_Get_Char_Index(self.face, codepoint as u32 as _);
             let res = FT_Load_Glyph(self.face, glyph_pos, FT_LOAD_COLOR as i32);
-            ensure!(res.succeeded(), "load_codepoint {}: FreeType error {:?}", codepoint, res);
+            ensure!(succeeded(res), "load_codepoint {}: FreeType error {:?}", codepoint, res);
 
             let glyph = &(*(*self.face).glyph);
             Ok((glyph_pos, glyph.metrics))
@@ -79,9 +80,9 @@ impl Face {
     ) -> Result<&FT_GlyphSlotRec_, Error> {
         unsafe {
             let res = FT_Load_Glyph(self.face, glyph_index, load_flags);
-            if res.succeeded() {
+            if succeeded(res) {
                 let render = FT_Render_Glyph((*self.face).glyph, render_mode);
-                if !render.succeeded() {
+                if !succeeded(render) {
                     bail!("FT_Render_Glyph failed: {:?}", render);
                 }
             }
@@ -99,7 +100,7 @@ impl Face {
             for i in 32..128 {
                 let glyph_pos = FT_Get_Char_Index(self.face, i);
                 let res = FT_Load_Glyph(self.face, glyph_pos, FT_LOAD_COLOR as i32);
-                if res.succeeded() {
+                if succeeded(res) {
                     let glyph = &(*(*self.face).glyph);
                     if glyph.metrics.horiAdvance as f64 > width {
                         width = glyph.metrics.horiAdvance as f64;
