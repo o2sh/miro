@@ -38,7 +38,7 @@ void main() {
         // take that pixel, otherwise we'll use the background color.
         if (o_underline != 0.0) {
             // Compute the pixel color for this location
-            vec4 under_color = multiply(o_fg_color, texture2D(underline_tex, underline_coords));
+            vec4 under_color = multiply(o_fg_color, texture(underline_tex, underline_coords));
             if (under_color.a != 0.0) {
                 // if the line glyph isn't transparent in this position then
                 // we take this pixel color, otherwise we'll leave the color
@@ -47,7 +47,7 @@ void main() {
             }
         }
     } else {
-        color = texture2D(glyph_tex, tex_coords);
+        color = texture(glyph_tex, tex_coords);
         if (o_has_color == 0.0) {
             // if it's not a color emoji, tint with the fg_color
             color = multiply(o_fg_color, color);
