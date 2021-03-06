@@ -35,12 +35,14 @@ clap = "2.33.3"
 clipboard = "0.5"
 open = "1.2"
 
-[target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
+[target.'cfg(not(target_os = "macos"))'.dependencies]
 freetype = "0.3.0"
 servo-fontconfig = "0.4.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-text = "9.2.0"
+core-text = "~13.1"
+core-graphics = "0.17"
+core-foundation = "0.6"
 
 [dependencies.glium]
 default-features = false

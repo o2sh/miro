@@ -13,7 +13,6 @@ use crate::window::glium_window::TerminalWindow;
 use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
 use config::{get_shell, Config, Theme};
 use failure::Error;
-use font::{ftwrap, FontConfiguration};
 use glium::glutin;
 use mio::unix::EventedFd;
 use mio::Events;
