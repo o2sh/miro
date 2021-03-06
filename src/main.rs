@@ -49,12 +49,12 @@ fn run(theme: Theme) -> Result<(), Error> {
 
     let cmd = Command::new(get_shell()?);
     let font = fontconfig.default_font()?;
-    let (cell_height, cell_width, _) = font.borrow_mut().get_metrics()?;
+    let metrics = font.borrow_mut().get_fallback(0)?.metrics();
 
     let initial_cols = 80u16;
     let initial_rows = 24u16;
-    let initial_pixel_width = initial_cols * cell_width.ceil() as u16;
-    let initial_pixel_height = initial_rows * cell_height.ceil() as u16;
+    let initial_pixel_width = initial_cols * metrics.cell_width.ceil() as u16;
+    let initial_pixel_height = initial_rows * metrics.cell_height.ceil() as u16;
 
     let (master, slave) =
         openpty(initial_rows, initial_cols, initial_pixel_width, initial_pixel_height)?;
@@ -78,7 +78,7 @@ fn run(theme: Theme) -> Result<(), Error> {
                 .expect("failed to register pty");
             let mut events = Events::with_capacity(8);
             let mut last_paint = Instant::now();
-            let refresh = Duration::from_millis(50);
+            let refresh = Duration::from_millis(100);
 
             loop {
                 let now = Instant::now();

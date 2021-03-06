@@ -1,6 +1,6 @@
 use crate::config::SpriteSheetConfig;
 use crate::config::{TextStyle, Theme};
-use crate::font::{ftwrap, FontConfiguration, GlyphInfo};
+use crate::font::{FontConfiguration, GlyphInfo};
 use crate::opengl::spritesheet::{SpriteSheet, SpriteSheetTexture};
 use crate::term::{self, CursorPosition, Line, Underline};
 use chrono::{DateTime, Utc};
@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
 use std::rc::Rc;
-use std::slice;
 use sysinfo::{ProcessorExt, System, SystemExt};
 use term::color::RgbaTuple;
 
@@ -179,8 +178,8 @@ impl Renderer {
         let (cell_height, cell_width, descender) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
-            let tuple = font.borrow_mut().get_metrics()?;
-            tuple
+            let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+            (metrics.cell_height, metrics.cell_width, metrics.descender)
         };
         let descender = if descender.is_positive() {
             ((descender as f64) / 64.0).ceil() as isize
@@ -287,8 +286,8 @@ impl Renderer {
         };
         let font = fonts.cached_font(&header_text_style)?;
         let (header_cell_height, header_cell_width, header_cell_descender) = {
-            let tuple = font.borrow_mut().get_metrics()?;
-            (tuple.0.ceil() as usize, tuple.1.ceil() as usize, tuple.2)
+            let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+            (metrics.cell_height as usize, metrics.cell_width as usize, metrics.descender)
         };
         let header_cell_descender = if header_cell_descender.is_positive() {
             ((header_cell_descender as f64) / 64.0).ceil() as isize
@@ -474,22 +473,20 @@ impl Renderer {
 
     /// Perform the load and render of a glyph
     fn load_glyph(&self, info: &GlyphInfo, style: &TextStyle) -> Result<Rc<CachedGlyph>, Error> {
-        let (has_color, ft_glyph, cell_width, cell_height) = {
+        let (has_color, glyph, cell_width, cell_height) = {
             let font = self.fonts.cached_font(style)?;
             let mut font = font.borrow_mut();
-            let (height, width, _) = font.get_metrics()?;
-            let has_color = font.has_color(info.font_idx)?;
-            // This clone is conceptually unsafe, but ok in practice as we are
-            // single threaded and don't load any other glyphs in the body of
-            // this load_glyph() function.
-            let ft_glyph = font.load_glyph(info.font_idx, info.glyph_pos)?.clone();
-            (has_color, ft_glyph, width, height)
+            let metrics = font.get_fallback(0)?.metrics();
+            let active_font = font.get_fallback(info.font_idx)?;
+            let has_color = active_font.has_color();
+            let glyph = active_font.rasterize_glyph(info.glyph_pos)?;
+            (has_color, glyph, metrics.cell_width, metrics.cell_height)
         };
 
         let scale = if (info.x_advance / info.num_cells as f64).floor() > cell_width {
             info.num_cells as f64 * (cell_width / info.x_advance)
-        } else if ft_glyph.bitmap.rows as f64 > cell_height {
-            cell_height / ft_glyph.bitmap.rows as f64
+        } else if glyph.height as f64 > cell_height {
+            cell_height / glyph.height as f64
         } else {
             1.0f64
         };
@@ -499,7 +496,7 @@ impl Renderer {
             (info.x_offset, info.y_offset)
         };
 
-        let glyph = if ft_glyph.bitmap.width == 0 || ft_glyph.bitmap.rows == 0 {
+        let glyph = if glyph.width == 0 || glyph.height == 0 {
             // a whitespace glyph
             CachedGlyph {
                 texture: None,
@@ -511,119 +508,10 @@ impl Renderer {
                 scale: scale as f32,
             }
         } else {
-            let mode: ftwrap::FT_Pixel_Mode =
-                unsafe { mem::transmute(ft_glyph.bitmap.pixel_mode as u32) };
-
-            // pitch is the number of bytes per source row
-            let pitch = ft_glyph.bitmap.pitch.abs() as usize;
-            let data = unsafe {
-                slice::from_raw_parts_mut(
-                    ft_glyph.bitmap.buffer,
-                    ft_glyph.bitmap.rows as usize * pitch,
-                )
-            };
-
-            let raw_im = match mode {
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
-                    let width = ft_glyph.bitmap.width as usize / 3;
-                    let height = ft_glyph.bitmap.rows as usize;
-                    let size = (width * height * 4) as usize;
-                    let mut rgba = Vec::with_capacity(size);
-                    rgba.resize(size, 0u8);
-                    for y in 0..height {
-                        let src_offset = y * pitch as usize;
-                        let dest_offset = y * width * 4;
-                        for x in 0..width {
-                            let blue = data[src_offset + (x * 3) + 0];
-                            let green = data[src_offset + (x * 3) + 1];
-                            let red = data[src_offset + (x * 3) + 2];
-                            let alpha = red | green | blue;
-                            rgba[dest_offset + (x * 4) + 0] = red;
-                            rgba[dest_offset + (x * 4) + 1] = green;
-                            rgba[dest_offset + (x * 4) + 2] = blue;
-                            rgba[dest_offset + (x * 4) + 3] = alpha;
-                        }
-                    }
-
-                    glium::texture::RawImage2d::from_raw_rgba(rgba, (width as u32, height as u32))
-                }
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
-                    let width = ft_glyph.bitmap.width as usize;
-                    let height = ft_glyph.bitmap.rows as usize;
-                    let size = (width * height * 4) as usize;
-                    let mut rgba = Vec::with_capacity(size);
-                    rgba.resize(size, 0u8);
-                    for y in 0..height {
-                        let src_offset = y * pitch as usize;
-                        let dest_offset = y * width * 4;
-                        for x in 0..width {
-                            let blue = data[src_offset + (x * 4) + 0];
-                            let green = data[src_offset + (x * 4) + 1];
-                            let red = data[src_offset + (x * 4) + 2];
-                            let alpha = data[src_offset + (x * 4) + 3];
-
-                            rgba[dest_offset + (x * 4) + 0] = red;
-                            rgba[dest_offset + (x * 4) + 1] = green;
-                            rgba[dest_offset + (x * 4) + 2] = blue;
-                            rgba[dest_offset + (x * 4) + 3] = alpha;
-                        }
-                    }
-
-                    glium::texture::RawImage2d::from_raw_rgba(rgba, (width as u32, height as u32))
-                }
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_GRAY => {
-                    let width = ft_glyph.bitmap.width as usize;
-                    let height = ft_glyph.bitmap.rows as usize;
-                    let size = (width * height * 4) as usize;
-                    let mut rgba = Vec::with_capacity(size);
-                    rgba.resize(size, 0u8);
-                    for y in 0..height {
-                        let src_offset = y * pitch;
-                        let dest_offset = y * width * 4;
-                        for x in 0..width {
-                            let gray = data[src_offset + x];
-
-                            rgba[dest_offset + (x * 4) + 0] = gray;
-                            rgba[dest_offset + (x * 4) + 1] = gray;
-                            rgba[dest_offset + (x * 4) + 2] = gray;
-                            rgba[dest_offset + (x * 4) + 3] = gray;
-                        }
-                    }
-                    glium::texture::RawImage2d::from_raw_rgba(rgba, (width as u32, height as u32))
-                }
-                ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_MONO => {
-                    let width = ft_glyph.bitmap.width as usize;
-                    let height = ft_glyph.bitmap.rows as usize;
-                    let size = (width * height * 4) as usize;
-                    let mut rgba = Vec::with_capacity(size);
-                    rgba.resize(size, 0u8);
-                    for y in 0..height {
-                        let src_offset = y * pitch;
-                        let dest_offset = y * width * 4;
-                        let mut x = 0;
-                        for i in 0..pitch {
-                            if x >= width {
-                                break;
-                            }
-                            let mut b = data[src_offset + i];
-                            for _ in 0..8 {
-                                if x >= width {
-                                    break;
-                                }
-                                if b & 0x80 == 0x80 {
-                                    for j in 0..4 {
-                                        rgba[dest_offset + (x * 4) + j] = 0xff;
-                                    }
-                                }
-                                b = b << 1;
-                                x += 1;
-                            }
-                        }
-                    }
-                    glium::texture::RawImage2d::from_raw_rgba(rgba, (width as u32, height as u32))
-                }
-                mode @ _ => bail!("unhandled pixel mode: {:?}", mode),
-            };
+            let raw_im = glium::texture::RawImage2d::from_raw_rgba(
+                glyph.data,
+                (glyph.width as u32, glyph.height as u32),
+            );
 
             let tex =
                 match self.glyph_atlas.borrow_mut().allocate(raw_im.width, raw_im.height, raw_im) {
@@ -639,8 +527,8 @@ impl Renderer {
                     }
                 };
 
-            let bearing_x = (ft_glyph.bitmap_left as f64 * scale) as isize;
-            let bearing_y = (ft_glyph.bitmap_top as f64 * scale) as isize;
+            let bearing_x = (glyph.bearing_x as f64 * scale) as isize;
+            let bearing_y = (glyph.bearing_y as f64 * scale) as isize;
 
             CachedGlyph {
                 texture: Some(tex),
@@ -917,20 +805,6 @@ impl Renderer {
         Transform3D::ortho(-width / 2.0, width / 2.0, height / 2.0, -height / 2.0, -1.0, 1.0)
     }
 
-    /// A little helper for shaping text.
-    /// This is needed to dance around interior mutability concerns,
-    /// as the font caches things.
-    /// TODO: consider pushing this down into the Font impl itself.
-    fn shape_text(&self, s: &str, style: &TextStyle) -> Result<Vec<GlyphInfo>, Error> {
-        let font = self.fonts.cached_font(style)?;
-        let mut font = font.borrow_mut();
-        font.shape(0, s)
-    }
-
-    /// "Render" a line of the terminal screen into the vertex buffer.
-    /// This is nominally a matter of setting the fg/bg color and the
-    /// texture coordinates for a given glyph.  There's a little bit
-    /// of extra complexity to deal with multi-cell glyphs.
     fn render_screen_line(
         &self,
         line_idx: usize,
@@ -978,7 +852,12 @@ impl Renderer {
             let bg_color = self.palette.resolve(bg_color).to_linear_tuple_rgba();
 
             // Shape the printable text from this cluster
-            let glyph_info = self.shape_text(&cluster.text, &style)?;
+            let glyph_info = {
+                let font = self.fonts.cached_font(&style)?;
+                let mut font = font.borrow_mut();
+                font.shape(&cluster.text)?
+            };
+
             for info in glyph_info.iter() {
                 let cell_idx = cluster.byte_to_cell_idx[info.cluster as usize];
                 let glyph = self.cached_glyph(info, &style)?;
@@ -1205,10 +1084,12 @@ impl Renderer {
             .slice_mut(..)
             .ok_or_else(|| format_err!("we're confused about the screen size"))?
             .map();
-        let glyph_info = self.shape_text(
-            &format!("CPU:{:02}%{}", cpu_load.round(), current_time),
-            &self.header_text_style,
-        )?;
+
+        let glyph_info = {
+            let font = self.fonts.cached_font(&self.header_text_style)?;
+            let mut font = font.borrow_mut();
+            font.shape(&format!("CPU:{:02}%{}", cpu_load.round(), current_time))?
+        };
         let glyph_color = self
             .palette
             .resolve(&term::color::ColorAttribute::PaletteIndex(15))

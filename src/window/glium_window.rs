@@ -51,11 +51,11 @@ impl TerminalWindow {
     ) -> Result<TerminalWindow, Error> {
         let fonts = FontConfiguration::new(config.clone());
         let palette = config.colors.map(|p| p.into()).unwrap_or_else(ColorPalette::default);
-        let (cell_height, cell_width, _) = {
+        let (cell_height, cell_width) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
-            let tuple = font.borrow_mut().get_metrics()?;
-            tuple
+            let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+            (metrics.cell_height, metrics.cell_width)
         };
 
         let size = pty.get_size()?;
@@ -146,7 +146,7 @@ impl TerminalWindow {
             let cols = ((width as usize + 1) / self.cell_width) as u16;
             self.host.pty.resize(rows, cols, width, height)?;
             self.terminal.resize(rows as usize, cols as usize);
-            self.paint_if_needed()?;
+            self.paint_if_needed(false)?;
 
             Ok(true)
         } else {
@@ -172,12 +172,7 @@ impl TerminalWindow {
         mods
     }
 
-    fn mouse_move(
-        &mut self,
-        x: f64,
-        y: f64,
-        modifiers: glium::glutin::event::ModifiersState,
-    ) -> Result<(), Error> {
+    fn mouse_move(&mut self, x: f64, y: f64) -> Result<(), Error> {
         self.last_mouse_coords = (x, y);
         self.terminal.mouse_event(
             MouseEvent {
@@ -185,7 +180,7 @@ impl TerminalWindow {
                 button: MouseButton::None,
                 x: (x as usize / self.cell_width) as usize,
                 y: (y as usize / self.cell_height) as i64,
-                modifiers: Self::decode_modifiers(modifiers),
+                modifiers: self.last_modifiers,
             },
             &mut self.host,
         )?;
@@ -200,7 +195,6 @@ impl TerminalWindow {
         &mut self,
         state: ElementState,
         button: glutin::event::MouseButton,
-        modifiers: glium::glutin::event::ModifiersState,
     ) -> Result<(), Error> {
         self.terminal.mouse_event(
             MouseEvent {
@@ -216,20 +210,16 @@ impl TerminalWindow {
                 },
                 x: (self.last_mouse_coords.0 as usize / self.cell_width) as usize,
                 y: (self.last_mouse_coords.1 as usize / self.cell_height) as i64,
-                modifiers: Self::decode_modifiers(modifiers),
+                modifiers: self.last_modifiers,
             },
             &mut self.host,
         )?;
-        self.paint_if_needed()?;
+        self.paint_if_needed(false)?;
 
         Ok(())
     }
 
-    fn mouse_wheel(
-        &mut self,
-        delta: glutin::event::MouseScrollDelta,
-        modifiers: glium::glutin::event::ModifiersState,
-    ) -> Result<(), Error> {
+    fn mouse_wheel(&mut self, delta: glutin::event::MouseScrollDelta) -> Result<(), Error> {
         let button = match delta {
             glutin::event::MouseScrollDelta::LineDelta(_, lines) if lines > 0.0 => {
                 MouseButton::WheelUp
@@ -255,18 +245,17 @@ impl TerminalWindow {
                 button,
                 x: (self.last_mouse_coords.0 as usize / self.cell_width) as usize,
                 y: (self.last_mouse_coords.1 as usize / self.cell_height) as i64,
-                modifiers: Self::decode_modifiers(modifiers),
+                modifiers: self.last_modifiers,
             },
             &mut self.host,
         )?;
-        self.paint_if_needed()?;
+        self.paint_if_needed(false)?;
 
         Ok(())
     }
 
     fn key_event(&mut self, event: glium::glutin::event::KeyboardInput) -> Result<(), Error> {
-        let mods = Self::decode_modifiers(event.modifiers);
-        self.last_modifiers = mods;
+        let mods = self.last_modifiers;
         if let Some(code) = event.virtual_keycode {
             use glium::glutin::event::VirtualKeyCode as V;
             let key = match code {
@@ -313,6 +302,7 @@ impl TerminalWindow {
                 | V::Colon
                 | V::Space
                 | V::Equals
+                | V::Plus
                 | V::Apostrophe
                 | V::Backslash
                 | V::Grave
@@ -352,13 +342,13 @@ impl TerminalWindow {
                 ElementState::Released => self.terminal.key_up(key, mods, &mut self.host)?,
             }
         }
-        self.paint_if_needed()?;
+        self.paint_if_needed(false)?;
         Ok(())
     }
 
-    pub fn paint_if_needed(&mut self) -> Result<(), Error> {
+    pub fn paint_if_needed(&mut self, with_sprite: bool) -> Result<(), Error> {
         if self.terminal.has_dirty_lines() {
-            self.paint(true)?;
+            self.paint(with_sprite)?;
         }
         Ok(())
     }
@@ -386,27 +376,22 @@ impl TerminalWindow {
             }
             Event::WindowEvent { event: WindowEvent::ReceivedCharacter(c), .. } => {
                 self.terminal.key_down(KeyCode::Char(c), self.last_modifiers, &mut self.host)?;
-                self.paint_if_needed()?;
+                self.paint_if_needed(false)?;
             }
             Event::WindowEvent { event: WindowEvent::KeyboardInput { input, .. }, .. } => {
                 self.key_event(input)?;
             }
-            Event::WindowEvent {
-                event: WindowEvent::CursorMoved { position, modifiers, .. },
-                ..
-            } => {
-                self.mouse_move(position.x, position.y, modifiers)?;
+            Event::WindowEvent { event: WindowEvent::CursorMoved { position, .. }, .. } => {
+                self.mouse_move(position.x, position.y)?;
             }
-            Event::WindowEvent {
-                event: WindowEvent::MouseInput { state, button, modifiers, .. },
-                ..
-            } => {
-                self.mouse_click(state, button, modifiers)?;
+            Event::WindowEvent { event: WindowEvent::MouseInput { state, button, .. }, .. } => {
+                self.mouse_click(state, button)?;
             }
-            Event::WindowEvent {
-                event: WindowEvent::MouseWheel { delta, modifiers, .. }, ..
-            } => {
-                self.mouse_wheel(delta, modifiers)?;
+            Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } => {
+                self.mouse_wheel(delta)?;
+            }
+            Event::WindowEvent { event: WindowEvent::ModifiersChanged(modifiers), .. } => {
+                self.last_modifiers = Self::decode_modifiers(modifiers);
             }
 
             Event::UserEvent(_) => loop {
