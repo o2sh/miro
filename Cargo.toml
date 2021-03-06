@@ -16,7 +16,7 @@ palette = "0.2.1"
 serde = "1.0.27"
 serde_derive = "1.0.27"
 toml = "0.5.8"
-harfbuzz-sys = "0.1.15"
+harfbuzz-sys = "0.5.0"
 libc = "0.2.86"
 mio = "0.6.12"
 unicode-width = "0.1.4"
@@ -35,9 +35,9 @@ clap = "2.33.3"
 clipboard = "0.5"
 open = "1.2"
 font-loader = "0.8"
+freetype = "0.3.0"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-freetype = "0.3.0"
 servo-fontconfig = "0.4.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]

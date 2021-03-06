@@ -61,10 +61,12 @@ impl FontSystemSelection {
             FontSystemSelection::FontConfigAndFreeType => {
                 #[cfg(all(unix, not(target_os = "macos")))]
                 return Box::new(fcftwrap::FontSystemImpl::new());
+                #[cfg(target_os = "macos")]
+                panic!("coretext not compiled in");
             }
             FontSystemSelection::CoreText => {
                 #[cfg(target_os = "macos")]
-                return Box::new(coretext::FontSystemImpl::new());
+                return Box::new(core_text::FontSystemImpl::new());
                 #[cfg(not(target_os = "macos"))]
                 panic!("coretext not compiled in");
             }

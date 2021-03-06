@@ -1,4 +1,4 @@
-#version 300 es
+#version 330
 precision mediump float;
 in vec2 tex_coords;
 in vec2 underline_coords;

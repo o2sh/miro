@@ -1,4 +1,4 @@
-#version 300 es
+#version 330
 precision mediump float;
 in vec3 vColor;
 out vec4 f_color;

@@ -1,4 +1,4 @@
-#version 300 es
+#version 330
 in vec2 position;
 in vec2 adjust;
 in vec2 tex;

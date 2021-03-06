@@ -1,4 +1,4 @@
-#version 300 es
+#version 330
 precision mediump float;
 uniform sampler2D tex;
 in vec2 v_tex_coords;
