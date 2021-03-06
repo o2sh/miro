@@ -133,7 +133,7 @@ pub struct CachedGlyph {
 pub struct Renderer {
     width: u16,
     height: u16,
-    fonts: FontConfiguration,
+    pub fonts: Rc<FontConfiguration>,
     header_banner_color: RgbaTuple,
     header_text_style: TextStyle,
     header_cell_height: usize,
@@ -169,9 +169,9 @@ impl Renderer {
         facade: &F,
         width: u16,
         height: u16,
-        fonts: FontConfiguration,
+        fonts: &Rc<FontConfiguration>,
         palette: term::color::ColorPalette,
-        theme: Theme,
+        theme: &Theme,
         sys: System,
     ) -> Result<Self, Error> {
         let spritesheet = get_spritesheet(&theme.spritesheet_path);
@@ -282,7 +282,7 @@ impl Renderer {
         //Header Text
         let header_text_style = TextStyle {
             fontconfig_pattern: String::from("Operator Mono SSm Lig:style=Bold Lig:size=12"),
-            foreground: None,
+            ..Default::default()
         };
         let font = fonts.cached_font(&header_text_style)?;
         let (header_cell_height, header_cell_width, header_cell_descender) = {
@@ -376,7 +376,7 @@ impl Renderer {
             palette,
             width,
             height,
-            fonts,
+            fonts: Rc::clone(fonts),
             cell_height,
             cell_width,
             descender,

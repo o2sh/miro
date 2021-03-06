@@ -46,11 +46,12 @@ impl TerminalWindow {
         terminal: Terminal,
         pty: MasterPty,
         process: Child,
-        config: Config,
+        fonts: &Rc<FontConfiguration>,
+        config: &Rc<Config>,
         sys: System,
     ) -> Result<TerminalWindow, Error> {
-        let fonts = FontConfiguration::new(config.clone());
-        let palette = config.colors.map(|p| p.into()).unwrap_or_else(ColorPalette::default);
+        let palette =
+            config.colors.as_ref().map(|p| p.clone().into()).unwrap_or_else(ColorPalette::default);
         let (cell_height, cell_width) = {
             // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
             let font = fonts.default_font()?;
@@ -81,7 +82,7 @@ impl TerminalWindow {
         let host = Host { display, pty, clipboard: Clipboard::default() };
 
         let renderer =
-            Renderer::new(&host.display, width, height, fonts, palette, config.theme, sys)?;
+            Renderer::new(&host.display, width, height, fonts, palette, &config.theme, sys)?;
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
 

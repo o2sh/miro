@@ -34,6 +34,7 @@ sysinfo = "0.16.4"
 clap = "2.33.3"
 clipboard = "0.5"
 open = "1.2"
+font-loader = "0.8"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 freetype = "0.3.0"

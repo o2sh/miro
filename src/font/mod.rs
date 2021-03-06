@@ -1,61 +1,153 @@
 use failure::Error;
+mod ftfont;
+mod hbwrap;
+use self::hbwrap as harfbuzz;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub mod hbwrap;
 pub mod system;
 pub use self::system::*;
 
-#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
 pub mod ftwrap;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub mod fcftwrap;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub mod fcwrap;
-#[cfg(all(unix, not(target_os = "macos")))]
-use self::fcftwrap::FontSystemImpl;
 
 #[cfg(target_os = "macos")]
 pub mod core_text;
-#[cfg(target_os = "macos")]
-use self::coretext::FontSystemImpl;
+
+pub mod font_loader;
 
 use super::config::{Config, TextStyle};
 use crate::term::CellAttributes;
 
+type FontPtr = Rc<RefCell<Box<NamedFont>>>;
+
 /// Matches and loads fonts for a given input style
 pub struct FontConfiguration {
-    config: Config,
-    fonts: RefCell<HashMap<TextStyle, Rc<RefCell<Box<dyn NamedFont>>>>>,
-    system: FontSystemImpl,
+    config: Rc<Config>,
+    fonts: RefCell<HashMap<TextStyle, FontPtr>>,
+    system: Box<FontSystem>,
+    metrics: RefCell<Option<FontMetrics>>,
+    dpi_scale: RefCell<f64>,
+    font_scale: RefCell<f64>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
+pub enum FontSystemSelection {
+    FontConfigAndFreeType,
+    CoreText,
+}
+
+impl Default for FontSystemSelection {
+    fn default() -> Self {
+        if cfg!(all(unix, not(target_os = "macos"),)) {
+            FontSystemSelection::FontConfigAndFreeType
+        } else if cfg!(target_os = "macos") {
+            FontSystemSelection::CoreText
+        } else {
+            panic!("")
+        }
+    }
+}
+
+impl FontSystemSelection {
+    fn new_font_system(&self) -> Box<FontSystem> {
+        match self {
+            FontSystemSelection::FontConfigAndFreeType => {
+                #[cfg(all(unix, not(target_os = "macos")))]
+                return Box::new(fcftwrap::FontSystemImpl::new());
+            }
+            FontSystemSelection::CoreText => {
+                #[cfg(target_os = "macos")]
+                return Box::new(coretext::FontSystemImpl::new());
+                #[cfg(not(target_os = "macos"))]
+                panic!("coretext not compiled in");
+            }
+        }
+    }
+    pub fn variants() -> Vec<&'static str> {
+        vec!["FontConfigAndFreeType", "FontLoaderAndFreeType", "FontLoaderAndRustType", "CoreText"]
+    }
+}
+
+impl std::str::FromStr for FontSystemSelection {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_ref() {
+            "fontconfigandfreetype" => Ok(FontSystemSelection::FontConfigAndFreeType),
+            "coretext" => Ok(FontSystemSelection::CoreText),
+            _ => Err(format_err!(
+                "{} is not a valid FontSystemSelection variant, possible values are {:?}",
+                s,
+                FontSystemSelection::variants()
+            )),
+        }
+    }
 }
 
 impl FontConfiguration {
     /// Create a new empty configuration
-    pub fn new(config: Config) -> Self {
-        Self { config, fonts: RefCell::new(HashMap::new()), system: FontSystemImpl::new() }
+    pub fn new(config: Rc<Config>, system: FontSystemSelection) -> Self {
+        Self {
+            config,
+            fonts: RefCell::new(HashMap::new()),
+            system: system.new_font_system(),
+            metrics: RefCell::new(None),
+            font_scale: RefCell::new(1.0),
+            dpi_scale: RefCell::new(1.0),
+        }
     }
 
     /// Given a text style, load (with caching) the font that best
     /// matches according to the fontconfig pattern.
-    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
+    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Box<NamedFont>>>, Error> {
         let mut fonts = self.fonts.borrow_mut();
 
         if let Some(entry) = fonts.get(style) {
             return Ok(Rc::clone(entry));
         }
 
-        let font = Rc::new(RefCell::new(self.system.load_font(&self.config, style)?));
+        let scale = *self.dpi_scale.borrow() * *self.font_scale.borrow();
+        let font = Rc::new(RefCell::new(self.system.load_font(&self.config, style, scale)?));
         fonts.insert(style.clone(), Rc::clone(&font));
         Ok(font)
     }
 
+    pub fn change_scaling(&self, font_scale: f64, dpi_scale: f64) {
+        *self.dpi_scale.borrow_mut() = dpi_scale;
+        *self.font_scale.borrow_mut() = font_scale;
+        self.fonts.borrow_mut().clear();
+        self.metrics.borrow_mut().take();
+    }
+
     /// Returns the baseline font specified in the configuration
-    pub fn default_font(&self) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
+    pub fn default_font(&self) -> Result<Rc<RefCell<Box<NamedFont>>>, Error> {
         self.cached_font(&self.config.font)
+    }
+
+    pub fn get_font_scale(&self) -> f64 {
+        *self.font_scale.borrow()
+    }
+
+    pub fn default_font_metrics(&self) -> Result<FontMetrics, Error> {
+        {
+            let metrics = self.metrics.borrow();
+            if let Some(metrics) = metrics.as_ref() {
+                return Ok(*metrics);
+            }
+        }
+
+        let font = self.default_font()?;
+        let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+
+        *self.metrics.borrow_mut() = Some(metrics.clone());
+
+        Ok(metrics)
     }
 
     /// Apply the defined font_rules from the user configuration to
@@ -78,7 +170,7 @@ impl FontConfiguration {
             };
         };
 
-        for rule in self.config.font_rules.iter() {
+        for rule in &self.config.font_rules {
             attr_match!(intensity, &rule);
             attr_match!(underline, &rule);
             attr_match!(italic, &rule);
@@ -95,24 +187,26 @@ impl FontConfiguration {
     }
 }
 
+#[allow(dead_code)]
+#[cfg(unix)]
 pub fn shape_with_harfbuzz(
-    font: &mut dyn NamedFont,
+    font: &mut NamedFont,
     font_idx: system::FallbackIdx,
     s: &str,
 ) -> Result<Vec<GlyphInfo>, Error> {
     let features = vec![
         // kerning
-        hbwrap::feature_from_string("kern")?,
+        harfbuzz::feature_from_string("kern")?,
         // ligatures
-        hbwrap::feature_from_string("liga")?,
+        harfbuzz::feature_from_string("liga")?,
         // contextual ligatures
-        hbwrap::feature_from_string("clig")?,
+        harfbuzz::feature_from_string("clig")?,
     ];
 
-    let mut buf = hbwrap::Buffer::new()?;
-    buf.set_script(hbwrap::HB_SCRIPT_LATIN);
-    buf.set_direction(hbwrap::HB_DIRECTION_LTR);
-    buf.set_language(hbwrap::language_from_string("en")?);
+    let mut buf = harfbuzz::Buffer::new()?;
+    buf.set_script(harfbuzz::HB_SCRIPT_LATIN);
+    buf.set_direction(harfbuzz::HB_DIRECTION_LTR);
+    buf.set_language(harfbuzz::language_from_string("en")?);
     buf.add_str(s);
 
     {
@@ -174,39 +268,61 @@ pub fn shape_with_harfbuzz(
                 // Start of a run that needs fallback
                 first_fallback_pos = Some(pos);
             }
-        } else if let Some(start) = first_fallback_pos {
+        } else if let Some(start_pos) = first_fallback_pos {
             // End of a fallback run
             //debug!("range: {:?}-{:?} needs fallback", start, pos);
 
-            let substr = &s[start..pos];
-            let mut shape = shape_with_harfbuzz(font, font_idx + 1, substr)?;
+            let substr = &s[start_pos..pos];
+            let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
+                Ok(shape) => Ok(shape),
+                Err(e) => {
+                    eprintln!("{:?} for {:?}", e, substr);
+                    if font_idx == 0 && s == "?" {
+                        bail!("unable to find any usable glyphs for `?` in font_idx 0");
+                    }
+                    shape_with_harfbuzz(font, 0, "?")
+                }
+            }?;
 
             // Fixup the cluster member to match our current offset
-            for info in shape.iter_mut() {
-                info.cluster += start as u32;
+            for mut info in &mut shape {
+                info.cluster += start_pos as u32;
             }
             cluster.append(&mut shape);
 
             first_fallback_pos = None;
         }
         if info.codepoint != 0 {
-            let text = &s[pos..pos + sizes[i]];
-            //debug!("glyph from `{}`", text);
-            cluster.push(GlyphInfo::new(text, font_idx, info, &positions[i]));
+            if s.is_char_boundary(pos) && s.is_char_boundary(pos + sizes[i]) {
+                let text = &s[pos..pos + sizes[i]];
+                //debug!("glyph from `{}`", text);
+                cluster.push(GlyphInfo::new(text, font_idx, info, &positions[i]));
+            } else {
+                cluster.append(&mut shape_with_harfbuzz(font, 0, "?")?);
+            }
         }
     }
 
     // Check to see if we started and didn't finish a
     // fallback run.
-    if let Some(start) = first_fallback_pos {
-        let substr = &s[start..];
+    if let Some(start_pos) = first_fallback_pos {
+        let substr = &s[start_pos..];
         if false {
-            debug!("at end {:?}-{:?} needs fallback {}", start, s.len() - 1, substr,);
+            debug!("at end {:?}-{:?} needs fallback {}", start_pos, s.len() - 1, substr,);
         }
-        let mut shape = shape_with_harfbuzz(font, font_idx + 1, substr)?;
+        let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
+            Ok(shape) => Ok(shape),
+            Err(e) => {
+                eprintln!("{:?} for {:?}", e, substr);
+                if font_idx == 0 && s == "?" {
+                    bail!("unable to find any usable glyphs for `?` in font_idx 0");
+                }
+                shape_with_harfbuzz(font, 0, "?")
+            }
+        }?;
         // Fixup the cluster member to match our current offset
-        for info in shape.iter_mut() {
-            info.cluster += start as u32;
+        for mut info in &mut shape {
+            info.cluster += start_pos as u32;
         }
         cluster.append(&mut shape);
     }

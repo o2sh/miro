@@ -1,15 +1,41 @@
 //! Higher level harfbuzz bindings
+#![allow(dead_code)]
+#[cfg(target_os = "macos")]
+use core_text::font::{CTFont, CTFontRef};
+#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
+use freetype;
 
-use crate::ftwrap::Face;
+pub use self::harfbuzz::*;
+use harfbuzz_sys as harfbuzz;
+
 use failure::Error;
-use freetype::freetype;
-pub use harfbuzz_sys::*;
 use std::mem;
 use std::ptr;
 use std::slice;
 
+#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
 extern "C" {
     fn hb_ft_font_set_load_flags(font: *mut hb_font_t, load_flags: i32);
+}
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn hb_coretext_font_create(ct_font: CTFontRef) -> *mut hb_font_t;
+    /*
+
+    HB_EXTERN hb_face_t *
+    hb_coretext_face_create (CGFontRef cg_font);
+
+    HB_EXTERN hb_font_t *
+    hb_coretext_font_create (CTFontRef ct_font);
+
+
+    HB_EXTERN CGFontRef
+    hb_coretext_face_get_cg_font (hb_face_t *face);
+
+    HB_EXTERN CTFontRef
+    hb_coretext_font_get_ct_font (hb_font_t *font);
+
+           */
 }
 
 pub fn language_from_string(s: &str) -> Result<hb_language_t, Error> {
@@ -45,17 +71,89 @@ impl Drop for Font {
     }
 }
 
+struct Blob {
+    blob: *mut hb_blob_t,
+}
+
+impl Drop for Blob {
+    fn drop(&mut self) {
+        unsafe {
+            hb_blob_destroy(self.blob);
+        }
+    }
+}
+
+impl Blob {
+    fn from_slice(data: &[u8]) -> Result<Self, Error> {
+        let blob = unsafe {
+            hb_blob_create(
+                data.as_ptr() as *const i8,
+                data.len() as u32,
+                HB_MEMORY_MODE_READONLY,
+                ptr::null_mut(),
+                None,
+            )
+        };
+        ensure!(!blob.is_null(), "failed to create harfbuzz blob for slice");
+        Ok(Self { blob })
+    }
+}
+
+struct Face {
+    face: *mut hb_face_t,
+}
+
+impl Drop for Face {
+    fn drop(&mut self) {
+        unsafe {
+            hb_face_destroy(self.face);
+        }
+    }
+}
+
+impl Face {
+    fn from_blob(blob: &Blob, idx: u32) -> Result<Face, Error> {
+        let face = unsafe { hb_face_create(blob.blob, idx) };
+        ensure!(!face.is_null(), "failed to create face from blob data at idx {}", idx);
+        Ok(Self { face })
+    }
+}
+
 impl Font {
+    #[cfg(not(target_os = "macos"))]
     /// Create a harfbuzz face from a freetype font
-    pub fn new(face: &Face) -> Font {
+    pub fn new(face: freetype::freetype::FT_Face) -> Font {
         // hb_ft_font_create_referenced always returns a
         // pointer to something, or derefs a nullptr internally
         // if everything fails, so there's nothing for us to
         // test here.
-        Font { font: unsafe { hb_ft_font_create_referenced(face.face) } }
+        Font { font: unsafe { hb_ft_font_create_referenced(face) } }
+    }
+    #[cfg(target_os = "macos")]
+    /// Create a harfbuzz face from a freetype font
+    pub fn new_coretext(ct_font: &CTFont) -> Font {
+        // hb_ft_font_create_referenced always returns a
+        // pointer to something, or derefs a nullptr internally
+        // if everything fails, so there's nothing for us to
+        // test here.
+        use core_foundation::base::TCFType;
+        Font { font: unsafe { hb_coretext_font_create(ct_font.as_concrete_TypeRef()) } }
     }
 
-    pub fn set_load_flags(&mut self, load_flags: freetype::FT_Int32) {
+    /// Create a font from raw data
+    /// Harfbuzz doesn't know how to interpret this without registering
+    /// some callbacks
+    /// FIXME: need to specialize this for rusttype
+    pub fn new_from_slice(data: &[u8], idx: u32) -> Result<Font, Error> {
+        let blob = Blob::from_slice(data)?;
+        let face = Face::from_blob(&blob, idx)?;
+        let font = unsafe { hb_font_create(face.face) };
+        ensure!(!font.is_null(), "failed to convert face to font");
+        Ok(Self { font })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn set_load_flags(&mut self, load_flags: freetype::freetype::FT_Int32) {
         unsafe {
             hb_ft_font_set_load_flags(self.font, load_flags);
         }

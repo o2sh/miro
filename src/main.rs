@@ -13,6 +13,7 @@ use crate::window::glium_window::TerminalWindow;
 use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
 use config::{get_shell, Config, Theme};
 use failure::Error;
+use font::{FontConfiguration, FontSystemSelection};
 use glium::glutin;
 use mio::unix::EventedFd;
 use mio::Events;
@@ -38,8 +39,9 @@ mod wakeup;
 mod window;
 
 fn run(theme: Theme) -> Result<(), Error> {
-    let config = Config::new(theme);
-    let fontconfig = Rc::new(FontConfiguration::new(config.clone()));
+    let config = Rc::new(Config::new(theme));
+    let font_system = FontSystemSelection::default();
+    let fontconfig = Rc::new(FontConfiguration::new(Rc::clone(&config), font_system));
     let event_loop = glutin::event_loop::EventLoop::<WakeupMsg>::with_user_event();
     let sys = System::new();
 
@@ -67,8 +69,16 @@ fn run(theme: Theme) -> Result<(), Error> {
     );
 
     let master_fd = master.as_raw_fd();
-    let mut window =
-        TerminalWindow::new(&event_loop, wakeup_receiver, terminal, master, child, config, sys)?;
+    let mut window = TerminalWindow::new(
+        &event_loop,
+        wakeup_receiver,
+        terminal,
+        master,
+        child,
+        &fontconfig,
+        &config,
+        sys,
+    )?;
     {
         let mut wakeup = wakeup.clone();
         thread::spawn(move || {

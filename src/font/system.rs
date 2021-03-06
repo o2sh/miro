@@ -1,9 +1,9 @@
 //! Abstracts over the font selection system for the system
 
-use crate::config::{Config, TextStyle};
-use crate::font::hbwrap;
+use super::super::config::{Config, TextStyle};
+#[cfg(unix)]
+use super::hbwrap as harfbuzz;
 use failure::Error;
-use unicode_width::UnicodeWidthStr;
 
 /// A bitmap representation of a glyph.
 /// The data is stored as pre-multiplied RGBA 32bpp.
@@ -40,12 +40,15 @@ pub struct GlyphInfo {
 }
 
 impl GlyphInfo {
+    #[allow(dead_code)]
+    #[cfg(unix)]
     pub fn new(
         text: &str,
         font_idx: usize,
-        info: &hbwrap::hb_glyph_info_t,
-        pos: &hbwrap::hb_glyph_position_t,
+        info: &harfbuzz::hb_glyph_info_t,
+        pos: &harfbuzz::hb_glyph_position_t,
     ) -> GlyphInfo {
+        use unicode_width::UnicodeWidthStr;
         let num_cells = UnicodeWidthStr::width(text) as u8;
         GlyphInfo {
             #[cfg(debug_assertions)]
@@ -54,38 +57,44 @@ impl GlyphInfo {
             font_idx,
             glyph_pos: info.codepoint,
             cluster: info.cluster,
-            x_advance: pos.x_advance as f64 / 64.0,
-            y_advance: pos.y_advance as f64 / 64.0,
-            x_offset: pos.x_offset as f64 / 64.0,
-            y_offset: pos.y_offset as f64 / 64.0,
+            x_advance: f64::from(pos.x_advance) / 64.0,
+            y_advance: f64::from(pos.y_advance) / 64.0,
+            x_offset: f64::from(pos.x_offset) / 64.0,
+            y_offset: f64::from(pos.y_offset) / 64.0,
         }
     }
 }
 
-/// Represents a numbered index in the fallback sequence for a NamedFont.
+/// Represents a numbered index in the fallback sequence for a `NamedFont`.
 /// 0 is the first, best match.  If a glyph isn't present then we will
 /// want to search for a fallback in later indices.
 pub type FallbackIdx = usize;
 
 /// Represents a named, user-selected font.
-/// This is really a set of fallback fonts indexed by FallbackIdx with
+/// This is really a set of fallback fonts indexed by `FallbackIdx` with
 /// zero as the best/most preferred font.
 pub trait NamedFont {
     /// Get a reference to a numbered fallback Font instance
-    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&dyn Font, Error>;
+    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&Font, Error>;
 
     /// Shape text and return a vector of GlyphInfo
     fn shape(&mut self, text: &str) -> Result<Vec<GlyphInfo>, Error>;
 }
 
-/// FontSystem is a handle to the system font selection system
+/// `FontSystem` is a handle to the system font selection system
 pub trait FontSystem {
     /// Given a text style, load (without caching) the font that
     /// best matches according to the fontconfig pattern.
-    fn load_font(&self, config: &Config, style: &TextStyle) -> Result<Box<dyn NamedFont>, Error>;
+    fn load_font(
+        &self,
+        config: &Config,
+        style: &TextStyle,
+        font_scale: f64,
+    ) -> Result<Box<NamedFont>, Error>;
 }
 
 /// Describes the key font metrics that we use in rendering
+#[derive(Copy, Clone, Debug, Default)]
 pub struct FontMetrics {
     /// Width of a character cell in pixels
     pub cell_width: f64,
@@ -112,5 +121,10 @@ pub trait Font {
     /// Perform shaping on the supplied harfbuzz buffer.
     /// This is really just a proxy for calling the harfbuzz::Font::shape()
     /// method on the contained harfbuzz font instance.
-    fn harfbuzz_shape(&self, buf: &mut hbwrap::Buffer, features: Option<&[hbwrap::hb_feature_t]>);
+    #[cfg(unix)]
+    fn harfbuzz_shape(
+        &self,
+        buf: &mut harfbuzz::Buffer,
+        features: Option<&[harfbuzz::hb_feature_t]>,
+    );
 }

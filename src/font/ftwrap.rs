@@ -48,8 +48,27 @@ impl Face {
         )
     }
 
+    #[allow(unused)]
     pub fn set_pixel_sizes(&mut self, char_width: u32, char_height: u32) -> Result<(), Error> {
         ft_result(unsafe { FT_Set_Pixel_Sizes(self.face, char_width, char_height) }, ())
+    }
+
+    pub fn select_size(&mut self, idx: usize) -> Result<(), Error> {
+        ft_result(unsafe { FT_Select_Size(self.face, idx as i32) }, ())
+    }
+
+    pub fn load_codepoint(
+        &mut self,
+        codepoint: char,
+    ) -> Result<(FT_UInt, FT_Glyph_Metrics_), Error> {
+        unsafe {
+            let glyph_pos = FT_Get_Char_Index(self.face, codepoint as u32 as _);
+            let res = FT_Load_Glyph(self.face, glyph_pos, FT_LOAD_COLOR as i32);
+            ensure!(res.succeeded(), "load_codepoint {}: FreeType error {:?}", codepoint, res);
+
+            let glyph = &(*(*self.face).glyph);
+            Ok((glyph_pos, glyph.metrics))
+        }
     }
 
     pub fn load_and_render_glyph(
@@ -73,8 +92,8 @@ impl Face {
     pub fn cell_metrics(&mut self) -> (f64, f64) {
         unsafe {
             let metrics = &(*(*self.face).size).metrics;
-            let height =
-                (metrics.y_scale as f64 * (*self.face).height as f64) / (0x10000 as f64 * 64.0);
+            let height = (metrics.y_scale as f64 * f64::from((*self.face).height))
+                / (f64::from(0x1_0000) * 64.0);
 
             let mut width = 0.0;
             for i in 32..128 {
@@ -112,6 +131,7 @@ impl Library {
         Ok(Library { lib })
     }
 
+    #[allow(dead_code)]
     pub fn new_face<P>(&self, path: P, face_index: FT_Long) -> Result<Face, Error>
     where
         P: Into<Vec<u8>>,
@@ -120,6 +140,21 @@ impl Library {
         let path = CString::new(path.into())?;
 
         let res = unsafe { FT_New_Face(self.lib, path.as_ptr(), face_index, &mut face as *mut _) };
+        Ok(Face { face: ft_result(res, face)? })
+    }
+
+    pub fn new_face_from_slice(&self, data: &[u8], face_index: FT_Long) -> Result<Face, Error> {
+        let mut face = ptr::null_mut();
+
+        let res = unsafe {
+            FT_New_Memory_Face(
+                self.lib,
+                data.as_ptr(),
+                data.len() as _,
+                face_index,
+                &mut face as *mut _,
+            )
+        };
         Ok(Face { face: ft_result(res, face)? })
     }
 
