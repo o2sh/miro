@@ -206,82 +206,11 @@ impl Renderer {
         let cell_height = cell_height.ceil() as usize;
         let cell_width = cell_width.ceil() as usize;
 
-        // Create the texture atlas for the line decoration layer.
-        // This is a bitmap with columns to accomodate the U_XXX
-        // constants defined above.
-        let underline_tex = {
-            let width = 5 * cell_width;
-            let mut underline_data = Vec::with_capacity(width * cell_height * 4);
-            underline_data.resize(width * cell_height * 4, 0u8);
-
-            let descender_row = (cell_height as isize + descender) as usize;
-            let descender_plus_one = (1 + descender_row).min(cell_height - 1);
-            let descender_plus_two = (2 + descender_row).min(cell_height - 1);
-            let strike_row = descender_row / 2;
-
-            // First, the single underline.
-            // We place this just under the descender position.
-            {
-                let col = 0;
-                let offset = ((width * 4) * descender_plus_one) + (col * 4 * cell_width);
-                for i in 0..4 * cell_width {
-                    underline_data[offset + i] = 0xff;
-                }
-            }
-            // Double underline,
-            // We place this at and just below the descender
-            {
-                let col = 1;
-                let offset_one = ((width * 4) * (descender_row)) + (col * 4 * cell_width);
-                let offset_two = ((width * 4) * (descender_plus_two)) + (col * 4 * cell_width);
-                for i in 0..4 * cell_width {
-                    underline_data[offset_one + i] = 0xff;
-                    underline_data[offset_two + i] = 0xff;
-                }
-            }
-            // Strikethrough
-            {
-                let col = 2;
-                let offset = (width * 4) * strike_row + (col * 4 * cell_width);
-                for i in 0..4 * cell_width {
-                    underline_data[offset + i] = 0xff;
-                }
-            }
-            // Strikethrough and single underline
-            {
-                let col = 3;
-                let offset_one = ((width * 4) * descender_plus_one) + (col * 4 * cell_width);
-                let offset_two = ((width * 4) * strike_row) + (col * 4 * cell_width);
-                for i in 0..4 * cell_width {
-                    underline_data[offset_one + i] = 0xff;
-                    underline_data[offset_two + i] = 0xff;
-                }
-            }
-            // Strikethrough and double underline
-            {
-                let col = 4;
-                let offset_one = ((width * 4) * (descender_row)) + (col * 4 * cell_width);
-                let offset_two = ((width * 4) * strike_row) + (col * 4 * cell_width);
-                let offset_three = ((width * 4) * (descender_plus_two)) + (col * 4 * cell_width);
-                for i in 0..4 * cell_width {
-                    underline_data[offset_one + i] = 0xff;
-                    underline_data[offset_two + i] = 0xff;
-                    underline_data[offset_three + i] = 0xff;
-                }
-            }
-
-            glium::texture::SrgbTexture2d::new(
-                facade,
-                glium::texture::RawImage2d::from_raw_rgba(
-                    underline_data,
-                    (width as u32, cell_height as u32),
-                ),
-            )?
-        };
+        let underline_tex = Self::compute_underlines(facade, cell_width, cell_height, descender)?;
 
         //Header Text
         let header_text_style = TextStyle {
-            fontconfig_pattern: String::from("Operator Mono SSm Lig:style=Bold Lig:size=12"),
+            fontconfig_pattern: String::from("monospace:size=13"),
             ..Default::default()
         };
         let font = fonts.cached_font(&header_text_style)?;
@@ -333,18 +262,44 @@ impl Renderer {
             height as f32,
         );
 
-        let g_program =
-            glium::Program::from_source(facade, GLYPH_VERTEX_SHADER, GLYPH_FRAGMENT_SHADER, None)?;
+        let g_source = glium::program::ProgramCreationInput::SourceCode {
+            vertex_shader: GLYPH_VERTEX_SHADER,
+            fragment_shader: GLYPH_FRAGMENT_SHADER,
+            outputs_srgb: true,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            transform_feedback_varyings: None,
+            uses_point_size: false,
+            geometry_shader: None,
+        };
 
-        let r_program =
-            glium::Program::from_source(facade, RECT_VERTEX_SHADER, RECT_FRAGMENT_SHADER, None)?;
+        let r_source = glium::program::ProgramCreationInput::SourceCode {
+            vertex_shader: RECT_VERTEX_SHADER,
+            fragment_shader: RECT_FRAGMENT_SHADER,
+            outputs_srgb: true,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            transform_feedback_varyings: None,
+            uses_point_size: false,
+            geometry_shader: None,
+        };
 
-        let p_program = glium::Program::from_source(
-            facade,
-            PLAYER_VERTEX_SHADER,
-            PLAYER_FRAGMENT_SHADER,
-            None,
-        )?;
+        let p_source = glium::program::ProgramCreationInput::SourceCode {
+            vertex_shader: PLAYER_VERTEX_SHADER,
+            fragment_shader: PLAYER_FRAGMENT_SHADER,
+            outputs_srgb: true,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            transform_feedback_varyings: None,
+            uses_point_size: false,
+            geometry_shader: None,
+        };
+
+        let g_program = glium::Program::new(facade, g_source)?;
+
+        let r_program = glium::Program::new(facade, r_source)?;
+
+        let p_program = glium::Program::new(facade, p_source)?;
 
         let glyph_atlas = RefCell::new(Atlas::new(facade, TEX_SIZE)?);
 
@@ -392,6 +347,84 @@ impl Renderer {
             sys,
             header_banner_color: theme.header_color.to_linear_tuple_rgba(),
         })
+    }
+
+    /// Create the texture atlas for the line decoration layer.
+    /// This is a bitmap with columns to accomodate the U_XXX
+    /// constants defined above.
+    fn compute_underlines<F: Facade>(
+        facade: &F,
+        cell_width: usize,
+        cell_height: usize,
+        descender: isize,
+    ) -> Result<SrgbTexture2d, glium::texture::TextureCreationError> {
+        let width = 5 * cell_width;
+        let mut underline_data = Vec::with_capacity(width * cell_height * 4);
+        underline_data.resize(width * cell_height * 4, 0u8);
+
+        let descender_row = (cell_height as isize + descender) as usize;
+        let descender_plus_one = (1 + descender_row).min(cell_height - 1);
+        let descender_plus_two = (2 + descender_row).min(cell_height - 1);
+        let strike_row = descender_row / 2;
+
+        // First, the single underline.
+        // We place this just under the descender position.
+        {
+            let col = 0;
+            let offset = ((width * 4) * descender_plus_one) + (col * 4 * cell_width);
+            for i in 0..4 * cell_width {
+                underline_data[offset + i] = 0xff;
+            }
+        }
+        // Double underline,
+        // We place this at and just below the descender
+        {
+            let col = 1;
+            let offset_one = ((width * 4) * (descender_row)) + (col * 4 * cell_width);
+            let offset_two = ((width * 4) * (descender_plus_two)) + (col * 4 * cell_width);
+            for i in 0..4 * cell_width {
+                underline_data[offset_one + i] = 0xff;
+                underline_data[offset_two + i] = 0xff;
+            }
+        }
+        // Strikethrough
+        {
+            let col = 2;
+            let offset = (width * 4) * strike_row + (col * 4 * cell_width);
+            for i in 0..4 * cell_width {
+                underline_data[offset + i] = 0xff;
+            }
+        }
+        // Strikethrough and single underline
+        {
+            let col = 3;
+            let offset_one = ((width * 4) * descender_plus_one) + (col * 4 * cell_width);
+            let offset_two = ((width * 4) * strike_row) + (col * 4 * cell_width);
+            for i in 0..4 * cell_width {
+                underline_data[offset_one + i] = 0xff;
+                underline_data[offset_two + i] = 0xff;
+            }
+        }
+        // Strikethrough and double underline
+        {
+            let col = 4;
+            let offset_one = ((width * 4) * (descender_row)) + (col * 4 * cell_width);
+            let offset_two = ((width * 4) * strike_row) + (col * 4 * cell_width);
+            let offset_three = ((width * 4) * (descender_plus_two)) + (col * 4 * cell_width);
+            for i in 0..4 * cell_width {
+                underline_data[offset_one + i] = 0xff;
+                underline_data[offset_two + i] = 0xff;
+                underline_data[offset_three + i] = 0xff;
+            }
+        }
+
+        glium::texture::SrgbTexture2d::new(
+            facade,
+            glium::texture::RawImage2d::from_raw_rgba(
+                underline_data,
+                (width as u32, cell_height as u32),
+            ),
+        )
     }
 
     pub fn resize<F: Facade>(&mut self, facade: &F, width: u16, height: u16) -> Result<(), Error> {
@@ -625,9 +658,9 @@ impl Renderer {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
-        let top_padding = (banner_height / 2.0) - 1.0;
+        let top_padding = ((banner_height - cell_height) / 2.0) + 6.0;
+        let y_pos = (height / -2.0) + top_padding;
         for x in 0..(left_num_cols + right_num_cols) {
-            let y_pos = height / -2.0 + top_padding;
             let x_pos = if x < left_num_cols {
                 (width / -2.0) + width_padding + (x as f32 * cell_width)
             } else {

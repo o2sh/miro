@@ -25,27 +25,8 @@ impl FontSystem for FontConfigAndFreeType {
         font_scale: f64,
     ) -> Result<Box<NamedFont>, Error> {
         let fonts = style.font_with_fallback();
-        let mut pattern = if fonts.len() >= 1 {
-            let mut pattern = FontPattern::new()?;
-            if fonts.len() > 1 {
-                eprintln!(
-                    "FIXME: fontconfig loader currently only processes
-                      the first in your set of fonts for {:?}",
-                    style
-                );
-            }
-            let attr = &fonts[0];
-            pattern.family(&attr.family)?;
-            if *attr.bold.as_ref().unwrap_or(&false) {
-                pattern.add_integer("weight", 200)?;
-            }
-            if *attr.italic.as_ref().unwrap_or(&false) {
-                pattern.add_integer("slant", 100)?;
-            }
-            pattern
-        } else {
-            FontPattern::parse(&style.fontconfig_pattern)?
-        };
+        let mut pattern = FontPattern::parse(&style.fontconfig_pattern)?;
+
         pattern.add_double("size", config.font_size * font_scale)?;
         pattern.add_double("dpi", config.dpi)?;
 
