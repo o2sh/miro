@@ -4,6 +4,7 @@ use std::str;
 
 use super::color;
 use super::hyperlink::Hyperlink;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CellAttributes {
@@ -184,6 +185,23 @@ impl Cell {
         self.bytes[0] = b' ';
         self.attrs = CellAttributes::default();
     }
+}
+
+/// Returns the number of cells visually occupied by a sequence
+/// of graphemes
+pub fn unicode_column_width(s: &str) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    s.graphemes(true).map(grapheme_column_width).sum()
+}
+
+pub fn grapheme_column_width(s: &str) -> usize {
+    // Due to this issue:
+    // https://github.com/unicode-rs/unicode-width/issues/4
+    // we cannot simply use the unicode-width crate to compute
+    // the desired value.
+    // Let's check for emoji-ness for ourselves first
+
+    UnicodeWidthStr::width(s)
 }
 
 impl From<char> for Cell {

@@ -14,11 +14,12 @@ use core_text::font_collection::create_for_family;
 use core_text::font_descriptor::{
     kCTFontDefaultOrientation, SymbolicTraitAccessors, TraitAccessors,
 };
-use failure::Error;
+use failure::{format_err, Error};
+use log::debug;
 use std::ptr;
 
 #[allow(non_upper_case_globals)]
-const kCTFontTraitColorGlyphs: u32 = (1 << 13);
+const kCTFontTraitColorGlyphs: u32 = 1 << 13;
 
 pub type FontSystemImpl = CoreTextSystem;
 
@@ -47,7 +48,7 @@ impl FontSystem for CoreTextSystem {
         config: &Config,
         style: &TextStyle,
         font_scale: f64,
-    ) -> Result<Box<NamedFont>, Error> {
+    ) -> Result<Box<dyn NamedFont>, Error> {
         let mut fonts = Vec::new();
         for font_attr in style.font_with_fallback() {
             let col = match create_for_family(&font_attr.family) {
@@ -79,11 +80,11 @@ impl FontSystem for CoreTextSystem {
 }
 
 impl NamedFont for NamedFontImpl {
-    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&Font, Error> {
+    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&dyn Font, Error> {
         self.fonts
             .get(idx)
             .map(|f| {
-                let f: &Font = f;
+                let f: &dyn Font = f;
                 f
             })
             .ok_or_else(|| format_err!("no fallback fonts available (idx={})", idx))
@@ -135,7 +136,9 @@ fn metrics(codepoint: char, ct_font: &CTFont) -> Option<Metrics> {
             cell_width,
             // render.rs divides this value by 64 because freetype returns
             // a scaled integer value, so compensate here
-            descender: -64 * descent as i16,
+            descender: -descent,
+            underline_thickness: 1.0,
+            underline_position: 0.0,
         },
         ascent,
         descent,
@@ -151,7 +154,7 @@ impl CoreTextFontImpl {
         let m_metrics = metrics('M', &ct_font);
         let zero_metrics = metrics('0', &ct_font);
         let metrics = w_metrics.unwrap_or_else(|| {
-            m_metrics.unwrap_or_else(|| zero_metrics.unwrap_or_else(|| Default::default()))
+            m_metrics.unwrap_or_else(|| zero_metrics.unwrap_or_else(Default::default))
         });
         Self { ct_font, hb_font, metrics, has_color }
     }
@@ -179,20 +182,22 @@ impl Font for CoreTextFontImpl {
             .ct_font
             .get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph_pos as CGGlyph]);
 
-        let left = rect.origin.x.floor();
-        let descent = (-rect.origin.y).ceil();
-        let ascent = (rect.size.height + rect.origin.y).ceil();
+        // Pad out the size of the bitmap to allow for antialiasing.
+        // If we don't do this, we cut off the antialiased edges.
+        const AA_PADDING: f64 = 1.5;
+        let width = rect.size.width + 2.0 * AA_PADDING;
+        let height = rect.size.height + 2.0 * AA_PADDING;
 
-        let width = (rect.origin.x - left + rect.size.width).ceil() as usize;
-        let height = (descent + ascent) as usize;
+        let width = width.ceil() as usize;
+        let height = height.ceil() as usize;
 
         if width == 0 || height == 0 {
             return Ok(RasterizedGlyph {
                 data: Vec::new(),
                 height: 0,
                 width: 0,
-                bearing_x: 0,
-                bearing_y: 0,
+                bearing_x: 0.0,
+                bearing_y: 0.0,
             });
         }
 
@@ -224,13 +229,23 @@ impl Font for CoreTextFontImpl {
 
         self.ct_font.draw_glyphs(
             &[glyph_pos as CGGlyph],
-            &[CGPoint { x: -left, y: descent }],
+            &[CGPoint { x: -rect.origin.x + AA_PADDING, y: -rect.origin.y + AA_PADDING }],
             context.clone(),
         );
 
         let data = context.data().to_vec();
 
-        let bearing_y = (rect.origin.y + rect.size.height).ceil() as i32;
-        Ok(RasterizedGlyph { data, height, width, bearing_x: left as i32, bearing_y })
+        // FIXME: there's something funky in this stuff still.
+        // For the most part things line up, but with operator mono
+        // the `s` glyph is slightly too high when compared to the
+        // freetype renderer.
+        let bearing_x = rect.origin.x - AA_PADDING;
+        let bearing_y = height as f64 + AA_PADDING + rect.origin.y;
+        debug!(
+            "rasterize_glyph {:?} -> {}x{} bearing_x={} bearing_y={}",
+            rect, width, height, bearing_x, bearing_y
+        );
+
+        Ok(RasterizedGlyph { data, height, width, bearing_x, bearing_y })
     }
 }

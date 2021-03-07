@@ -1,17 +1,21 @@
 //! Higher level freetype bindings
 
-use failure::Error;
+use failure::{bail, format_err, Error, Fallible, ResultExt};
 pub use freetype::freetype::*;
-pub use freetype::succeeded;
 use std::ffi::CString;
 use std::ptr;
+
+#[inline]
+pub fn succeeded(error: FT_Error) -> bool {
+    error == freetype::freetype::FT_Err_Ok as FT_Error
+}
 
 /// Translate an error and value into a result
 fn ft_result<T>(err: FT_Error, t: T) -> Result<T, Error> {
     if succeeded(err) {
         Ok(t)
     } else {
-        Err(format_err!("FreeType error {:?}", err))
+        Err(format_err!("FreeType error {:?} 0x{:x}", err, err))
     }
 }
 
@@ -50,26 +54,13 @@ impl Face {
     }
 
     #[allow(unused)]
-    pub fn set_pixel_sizes(&mut self, char_width: u32, char_height: u32) -> Result<(), Error> {
+    pub fn set_pixel_sizes(&mut self, char_width: u32, char_height: u32) -> Fallible<()> {
         ft_result(unsafe { FT_Set_Pixel_Sizes(self.face, char_width, char_height) }, ())
+            .map_err(|e| e.context("set_pixel_sizes").into())
     }
 
     pub fn select_size(&mut self, idx: usize) -> Result<(), Error> {
         ft_result(unsafe { FT_Select_Size(self.face, idx as i32) }, ())
-    }
-
-    pub fn load_codepoint(
-        &mut self,
-        codepoint: char,
-    ) -> Result<(FT_UInt, FT_Glyph_Metrics_), Error> {
-        unsafe {
-            let glyph_pos = FT_Get_Char_Index(self.face, codepoint as u32 as _);
-            let res = FT_Load_Glyph(self.face, glyph_pos, FT_LOAD_COLOR as i32);
-            ensure!(succeeded(res), "load_codepoint {}: FreeType error {:?}", codepoint, res);
-
-            let glyph = &(*(*self.face).glyph);
-            Ok((glyph_pos, glyph.metrics))
-        }
     }
 
     pub fn load_and_render_glyph(
@@ -128,7 +119,7 @@ impl Library {
     pub fn new() -> Result<Library, Error> {
         let mut lib = ptr::null_mut();
         let res = unsafe { FT_Init_FreeType(&mut lib as *mut _) };
-        let lib = ft_result(res, lib)?;
+        let lib = ft_result(res, lib).context("FT_Init_FreeType")?;
         Ok(Library { lib })
     }
 
@@ -141,9 +132,10 @@ impl Library {
         let path = CString::new(path.into())?;
 
         let res = unsafe { FT_New_Face(self.lib, path.as_ptr(), face_index, &mut face as *mut _) };
-        Ok(Face { face: ft_result(res, face)? })
+        Ok(Face { face: ft_result(res, face).context("FT_New_Face")? })
     }
 
+    #[allow(dead_code)]
     pub fn new_face_from_slice(&self, data: &[u8], face_index: FT_Long) -> Result<Face, Error> {
         let mut face = ptr::null_mut();
 
@@ -156,7 +148,10 @@ impl Library {
                 &mut face as *mut _,
             )
         };
-        Ok(Face { face: ft_result(res, face)? })
+        Ok(Face {
+            face: ft_result(res, face)
+                .map_err(|e| e.context(format!("FT_New_Memory_Face for index {}", face_index)))?,
+        })
     }
 
     pub fn set_lcd_filter(&mut self, filter: FT_LcdFilter) -> Result<(), Error> {

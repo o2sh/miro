@@ -1,13 +1,11 @@
-use crate::font::system::GlyphInfo;
+#![allow(clippy::cast_lossless)]
+use super::hbwrap as harfbuzz;
 use crate::font::{ftwrap, Font, FontMetrics, RasterizedGlyph};
-use failure::Error;
+use failure::{bail, Error};
+use log::debug;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::mem;
 use std::slice;
-
-#[cfg(unix)]
-use super::hbwrap as harfbuzz;
 
 /// Holds a loaded font alternative
 pub struct FreeTypeFontImpl {
@@ -18,7 +16,6 @@ pub struct FreeTypeFontImpl {
     cell_height: f64,
     /// nominal monospace cell width
     cell_width: f64,
-    glyph_cache: RefCell<HashMap<char, GlyphInfo>>,
 }
 
 impl FreeTypeFontImpl {
@@ -62,7 +59,7 @@ impl FreeTypeFontImpl {
                     }
                 }
                 face.select_size(best)?;
-                (cell_width as f64, cell_height as f64)
+                (f64::from(cell_width), f64::from(cell_height))
             }
         };
 
@@ -76,41 +73,11 @@ impl FreeTypeFontImpl {
             font: RefCell::new(font),
             cell_height,
             cell_width,
-            glyph_cache: RefCell::new(HashMap::new()),
         })
-    }
-
-    pub fn single_glyph_info(&self, codepoint: char) -> Result<GlyphInfo, Error> {
-        // Memoize this, as we are called frequently during shaping
-        {
-            let cache = self.glyph_cache.borrow_mut();
-            if let Some(info) = cache.get(&codepoint) {
-                return Ok(info.clone());
-            }
-        }
-        let (glyph_pos, metrics) = self.face.borrow_mut().load_codepoint(codepoint)?;
-        let info = GlyphInfo {
-            #[cfg(debug_assertions)]
-            text: codepoint.to_string(),
-            cluster: 0,
-            num_cells: unicode_width::UnicodeWidthChar::width(codepoint).unwrap_or(1) as u8,
-            font_idx: 0,
-            glyph_pos,
-            x_advance: (metrics.horiAdvance as f64 / 64.0).into(),
-            x_offset: 0.0, //(metrics.horiBearingX as f64 / 64.0).into(),
-            y_advance: 0.0,
-            y_offset: 0.0,
-        };
-
-        self.glyph_cache.borrow_mut().insert(codepoint, info.clone());
-
-        Ok(info)
     }
 }
 
 impl Font for FreeTypeFontImpl {
-    #[cfg(unix)]
-    #[allow(unused_variables)]
     fn harfbuzz_shape(
         &self,
         buf: &mut harfbuzz::Buffer,
@@ -121,17 +88,20 @@ impl Font for FreeTypeFontImpl {
     }
     fn has_color(&self) -> bool {
         let face = self.face.borrow();
-        unsafe { (i64::from((*face.face).face_flags) & i64::from(ftwrap::FT_FACE_FLAG_COLOR)) != 0 }
+        unsafe { (((*face.face).face_flags as u32) & (ftwrap::FT_FACE_FLAG_COLOR as u32)) != 0 }
     }
 
     fn metrics(&self) -> FontMetrics {
         let face = self.face.borrow();
+        let y_scale = unsafe { (*(*face.face).size).metrics.y_scale as f64 / 65536.0 };
         FontMetrics {
             cell_height: self.cell_height,
             cell_width: self.cell_width,
             // Note: face.face.descender is useless, we have to go through
             // face.face.size.metrics to get to the real descender!
-            descender: unsafe { (*(*face.face).size).metrics.descender as i16 },
+            descender: unsafe { (*(*face.face).size).metrics.descender as f64 } / 64.0,
+            underline_thickness: unsafe { (*face.face).underline_thickness as f64 } * y_scale / 64.,
+            underline_position: unsafe { (*face.face).underline_position as f64 } * y_scale / 64.,
         }
     }
 
@@ -157,6 +127,7 @@ impl Font for FreeTypeFontImpl {
         // single threaded and don't load any other glyphs in the body of
         // this load_glyph() function.
         let mut face = self.face.borrow_mut();
+        let descender = unsafe { (*(*face.face).size).metrics.descender as f64 / 64.0 };
         let ft_glyph = face.load_and_render_glyph(glyph_pos, load_flags, render_mode)?;
 
         let mode: ftwrap::FT_Pixel_Mode =
@@ -173,8 +144,7 @@ impl Font for FreeTypeFontImpl {
                 let width = ft_glyph.bitmap.width as usize / 3;
                 let height = ft_glyph.bitmap.rows as usize;
                 let size = (width * height * 4) as usize;
-                let mut rgba = Vec::with_capacity(size);
-                rgba.resize(size, 0u8);
+                let mut rgba = vec![0u8; size];
                 for y in 0..height {
                     let src_offset = y * pitch as usize;
                     let dest_offset = y * width * 4;
@@ -194,8 +164,8 @@ impl Font for FreeTypeFontImpl {
                     data: rgba,
                     height,
                     width,
-                    bearing_x: ft_glyph.bitmap_left,
-                    bearing_y: ft_glyph.bitmap_top,
+                    bearing_x: ft_glyph.bitmap_left as f64,
+                    bearing_y: ft_glyph.bitmap_top as f64,
                 }
             }
             ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
@@ -255,8 +225,7 @@ impl Font for FreeTypeFontImpl {
                 let dest_height = 1 + last_line - first_line;
 
                 let size = (dest_width * dest_height * 4) as usize;
-                let mut rgba = Vec::with_capacity(size);
-                rgba.resize(size, 0u8);
+                let mut rgba = vec![0u8; size];
 
                 for y in first_line..=last_line {
                     let src_offset = y * pitch as usize;
@@ -279,18 +248,22 @@ impl Font for FreeTypeFontImpl {
                     data: rgba,
                     height: dest_height,
                     width: dest_width,
-                    bearing_x: (ft_glyph.bitmap_left as f64 * (dest_width as f64 / width as f64))
-                        as i32,
-                    bearing_y: (ft_glyph.bitmap_top as f64 * (dest_height as f64 / height as f64))
-                        as i32,
+                    bearing_x: (f64::from(ft_glyph.bitmap_left)
+                        * (dest_width as f64 / width as f64)),
+
+                    // Fudge alert: this is font specific: I've found
+                    // that the emoji font on macOS doesn't account for the
+                    // descender in its metrics, so we're adding that offset
+                    // here to avoid rendering the glyph too high
+                    bearing_y: if cfg!(target_os = "macos") { descender } else { 0. }
+                        + (f64::from(ft_glyph.bitmap_top) * (dest_height as f64 / height as f64)),
                 }
             }
             ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_GRAY => {
                 let width = ft_glyph.bitmap.width as usize;
                 let height = ft_glyph.bitmap.rows as usize;
                 let size = (width * height * 4) as usize;
-                let mut rgba = Vec::with_capacity(size);
-                rgba.resize(size, 0u8);
+                let mut rgba = vec![0u8; size];
                 for y in 0..height {
                     let src_offset = y * pitch;
                     let dest_offset = y * width * 4;
@@ -307,16 +280,15 @@ impl Font for FreeTypeFontImpl {
                     data: rgba,
                     height,
                     width,
-                    bearing_x: ft_glyph.bitmap_left,
-                    bearing_y: ft_glyph.bitmap_top,
+                    bearing_x: ft_glyph.bitmap_left as f64,
+                    bearing_y: ft_glyph.bitmap_top as f64,
                 }
             }
             ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_MONO => {
                 let width = ft_glyph.bitmap.width as usize;
                 let height = ft_glyph.bitmap.rows as usize;
                 let size = (width * height * 4) as usize;
-                let mut rgba = Vec::with_capacity(size);
-                rgba.resize(size, 0u8);
+                let mut rgba = vec![0u8; size];
                 for y in 0..height {
                     let src_offset = y * pitch;
                     let dest_offset = y * width * 4;
@@ -344,8 +316,8 @@ impl Font for FreeTypeFontImpl {
                     data: rgba,
                     height,
                     width,
-                    bearing_x: ft_glyph.bitmap_left,
-                    bearing_y: ft_glyph.bitmap_top,
+                    bearing_x: ft_glyph.bitmap_left as f64,
+                    bearing_y: ft_glyph.bitmap_top as f64,
                 }
             }
             mode => bail!("unhandled pixel mode: {:?}", mode),

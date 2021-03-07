@@ -6,8 +6,6 @@ extern crate failure;
 extern crate serde_derive;
 #[macro_use]
 extern crate glium;
-#[macro_use]
-pub mod log;
 
 use crate::window::glium_window::TerminalWindow;
 use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};

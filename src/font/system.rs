@@ -1,7 +1,6 @@
 //! Abstracts over the font selection system for the system
 
 use super::super::config::{Config, TextStyle};
-#[cfg(unix)]
 use super::hbwrap as harfbuzz;
 use failure::Error;
 
@@ -11,8 +10,8 @@ pub struct RasterizedGlyph {
     pub data: Vec<u8>,
     pub height: usize,
     pub width: usize,
-    pub bearing_x: i32,
-    pub bearing_y: i32,
+    pub bearing_x: f64,
+    pub bearing_y: f64,
 }
 
 /// Holds information about a shaped glyph
@@ -41,15 +40,14 @@ pub struct GlyphInfo {
 
 impl GlyphInfo {
     #[allow(dead_code)]
-    #[cfg(unix)]
     pub fn new(
         text: &str,
         font_idx: usize,
         info: &harfbuzz::hb_glyph_info_t,
         pos: &harfbuzz::hb_glyph_position_t,
     ) -> GlyphInfo {
-        use unicode_width::UnicodeWidthStr;
-        let num_cells = UnicodeWidthStr::width(text) as u8;
+        use crate::term::cell::unicode_column_width;
+        let num_cells = unicode_column_width(text) as u8;
         GlyphInfo {
             #[cfg(debug_assertions)]
             text: text.into(),
@@ -75,7 +73,7 @@ pub type FallbackIdx = usize;
 /// zero as the best/most preferred font.
 pub trait NamedFont {
     /// Get a reference to a numbered fallback Font instance
-    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&Font, Error>;
+    fn get_fallback(&mut self, idx: FallbackIdx) -> Result<&dyn Font, Error>;
 
     /// Shape text and return a vector of GlyphInfo
     fn shape(&mut self, text: &str) -> Result<Vec<GlyphInfo>, Error>;
@@ -90,7 +88,7 @@ pub trait FontSystem {
         config: &Config,
         style: &TextStyle,
         font_scale: f64,
-    ) -> Result<Box<NamedFont>, Error>;
+    ) -> Result<Box<dyn NamedFont>, Error>;
 }
 
 /// Describes the key font metrics that we use in rendering
@@ -102,7 +100,14 @@ pub struct FontMetrics {
     pub cell_height: f64,
     /// Added to the bottom y coord to find the baseline.
     /// descender is typically negative.
-    pub descender: i16,
+    pub descender: f64,
+
+    /// Vertical size of underline/strikethrough in pixels
+    pub underline_thickness: f64,
+
+    /// Position of underline relative to descender. Negative
+    /// values are below the descender.
+    pub underline_position: f64,
 }
 
 /// Represents a concrete instance of a font.
@@ -121,7 +126,6 @@ pub trait Font {
     /// Perform shaping on the supplied harfbuzz buffer.
     /// This is really just a proxy for calling the harfbuzz::Font::shape()
     /// method on the contained harfbuzz font instance.
-    #[cfg(unix)]
     fn harfbuzz_shape(
         &self,
         buf: &mut harfbuzz::Buffer,

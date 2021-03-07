@@ -11,6 +11,7 @@ use clipboard::{ClipboardContext, ClipboardProvider};
 use failure::Error;
 use glium::glutin::event::ElementState;
 use glium::{self, glutin};
+use log::debug;
 use open::that;
 use std::io;
 use std::io::{Read, Write};

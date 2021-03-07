@@ -2,7 +2,7 @@ use failure::Error;
 mod ftfont;
 mod hbwrap;
 use self::hbwrap as harfbuzz;
-
+use log::debug;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -19,8 +19,6 @@ pub mod fcwrap;
 
 #[cfg(target_os = "macos")]
 pub mod core_text;
-
-pub mod font_loader;
 
 use super::config::{Config, TextStyle};
 use crate::term::CellAttributes;
