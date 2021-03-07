@@ -1,11 +1,11 @@
 //! Systems that use fontconfig and freetype
-
 pub use self::fcwrap::Pattern as FontPattern;
 use crate::config::{Config, TextStyle};
 use crate::font::ftfont::FreeTypeFontImpl;
 use crate::font::{fcwrap, ftwrap};
 use crate::font::{shape_with_harfbuzz, FallbackIdx, Font, FontSystem, GlyphInfo, NamedFont};
 use failure::{self, Error};
+use log::debug;
 
 pub type FontSystemImpl = FontConfigAndFreeType;
 

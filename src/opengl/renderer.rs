@@ -182,7 +182,7 @@ impl Renderer {
             let metrics = font.borrow_mut().get_fallback(0)?.metrics();
             (metrics.cell_height, metrics.cell_width, metrics.descender)
         };
-        let descender = if descender.is_positive() {
+        let descender = if descender.is_sign_positive() {
             ((descender as f64) / 64.0).ceil() as isize
         } else {
             ((descender as f64) / 64.0).floor() as isize
@@ -219,7 +219,7 @@ impl Renderer {
             let metrics = font.borrow_mut().get_fallback(0)?.metrics();
             (metrics.cell_height as usize, metrics.cell_width as usize, metrics.descender)
         };
-        let header_cell_descender = if header_cell_descender.is_positive() {
+        let header_cell_descender = if header_cell_descender.is_sign_positive() {
             ((header_cell_descender as f64) / 64.0).ceil() as isize
         } else {
             ((header_cell_descender as f64) / 64.0).floor() as isize
@@ -659,7 +659,7 @@ impl Renderer {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
-        let top_padding = ((banner_height - cell_height) / 2.0) + 6.0;
+        let top_padding = ((banner_height - cell_height) / 2.0) + 3.0;
         let y_pos = (height / -2.0) + top_padding;
         for x in 0..(left_num_cols + right_num_cols) {
             let x_pos = if x < left_num_cols {

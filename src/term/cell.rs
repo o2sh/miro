@@ -174,7 +174,6 @@ impl Cell {
         if self.len <= 1 {
             self.len as usize
         } else {
-            use unicode_width::UnicodeWidthStr;
             self.str().width()
         }
     }
