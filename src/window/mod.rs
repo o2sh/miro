@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-pub mod glium_window;
+pub mod terminal_window;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Point(pub euclid::Point2D<f32, f32>);

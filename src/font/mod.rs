@@ -1,8 +1,10 @@
-use failure::Error;
+use failure::{bail, format_err, Error};
+use log::{debug, error};
+use serde_derive::*;
 mod ftfont;
 mod hbwrap;
 use self::hbwrap as harfbuzz;
-use log::debug;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -12,9 +14,9 @@ pub use self::system::*;
 
 pub mod ftwrap;
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, any(feature = "fontconfig", not(target_os = "macos"))))]
 pub mod fcftwrap;
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, any(feature = "fontconfig", not(target_os = "macos"))))]
 pub mod fcwrap;
 
 #[cfg(target_os = "macos")]
@@ -23,13 +25,13 @@ pub mod core_text;
 use super::config::{Config, TextStyle};
 use crate::term::CellAttributes;
 
-type FontPtr = Rc<RefCell<Box<NamedFont>>>;
+type FontPtr = Rc<RefCell<Box<dyn NamedFont>>>;
 
 /// Matches and loads fonts for a given input style
 pub struct FontConfiguration {
     config: Rc<Config>,
     fonts: RefCell<HashMap<TextStyle, FontPtr>>,
-    system: Box<FontSystem>,
+    system: Rc<dyn FontSystem>,
     metrics: RefCell<Option<FontMetrics>>,
     dpi_scale: RefCell<f64>,
     font_scale: RefCell<f64>,
@@ -43,35 +45,37 @@ pub enum FontSystemSelection {
 
 impl Default for FontSystemSelection {
     fn default() -> Self {
-        if cfg!(all(unix, not(target_os = "macos"),)) {
-            FontSystemSelection::FontConfigAndFreeType
-        } else if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") {
             FontSystemSelection::CoreText
         } else {
-            panic!("")
+            FontSystemSelection::FontConfigAndFreeType
         }
     }
 }
 
+thread_local! {
+    static DEFAULT_FONT_SYSTEM: RefCell<FontSystemSelection> = RefCell::new(Default::default());
+}
+
 impl FontSystemSelection {
-    fn new_font_system(&self) -> Box<FontSystem> {
+    fn new_font_system(self) -> Rc<dyn FontSystem> {
         match self {
             FontSystemSelection::FontConfigAndFreeType => {
-                #[cfg(all(unix, not(target_os = "macos")))]
-                return Box::new(fcftwrap::FontSystemImpl::new());
-                #[cfg(target_os = "macos")]
-                panic!("coretext not compiled in");
+                #[cfg(all(unix, any(feature = "fontconfig", not(target_os = "macos"))))]
+                return Rc::new(fcftwrap::FontSystemImpl::new());
+                #[cfg(not(all(unix, any(feature = "fontconfig", not(target_os = "macos")))))]
+                panic!("fontconfig not compiled in");
             }
             FontSystemSelection::CoreText => {
                 #[cfg(target_os = "macos")]
-                return Box::new(core_text::FontSystemImpl::new());
+                return Rc::new(core_text::FontSystemImpl::new());
                 #[cfg(not(target_os = "macos"))]
                 panic!("coretext not compiled in");
             }
         }
     }
     pub fn variants() -> Vec<&'static str> {
-        vec!["FontConfigAndFreeType", "FontLoaderAndFreeType", "FontLoaderAndRustType", "CoreText"]
+        vec!["FontConfigAndFreeType", "CoreText"]
     }
 }
 
@@ -105,7 +109,7 @@ impl FontConfiguration {
 
     /// Given a text style, load (with caching) the font that best
     /// matches according to the fontconfig pattern.
-    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Box<NamedFont>>>, Error> {
+    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
         let mut fonts = self.fonts.borrow_mut();
 
         if let Some(entry) = fonts.get(style) {
@@ -118,10 +122,6 @@ impl FontConfiguration {
         Ok(font)
     }
 
-    pub fn get_dpi_scale(&self) -> f64 {
-        *self.dpi_scale.borrow()
-    }
-
     pub fn change_scaling(&self, font_scale: f64, dpi_scale: f64) {
         *self.dpi_scale.borrow_mut() = dpi_scale;
         *self.font_scale.borrow_mut() = font_scale;
@@ -130,12 +130,16 @@ impl FontConfiguration {
     }
 
     /// Returns the baseline font specified in the configuration
-    pub fn default_font(&self) -> Result<Rc<RefCell<Box<NamedFont>>>, Error> {
+    pub fn default_font(&self) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
         self.cached_font(&self.config.font)
     }
 
     pub fn get_font_scale(&self) -> f64 {
         *self.font_scale.borrow()
+    }
+
+    pub fn get_dpi_scale(&self) -> f64 {
+        *self.dpi_scale.borrow()
     }
 
     pub fn default_font_metrics(&self) -> Result<FontMetrics, Error> {
@@ -149,7 +153,7 @@ impl FontConfiguration {
         let font = self.default_font()?;
         let metrics = font.borrow_mut().get_fallback(0)?.metrics();
 
-        *self.metrics.borrow_mut() = Some(metrics.clone());
+        *self.metrics.borrow_mut() = Some(metrics);
 
         Ok(metrics)
     }
@@ -192,9 +196,8 @@ impl FontConfiguration {
 }
 
 #[allow(dead_code)]
-#[cfg(unix)]
 pub fn shape_with_harfbuzz(
-    font: &mut NamedFont,
+    font: &mut dyn NamedFont,
     font_idx: system::FallbackIdx,
     s: &str,
 ) -> Result<Vec<GlyphInfo>, Error> {
@@ -214,7 +217,10 @@ pub fn shape_with_harfbuzz(
     buf.add_str(s);
 
     {
-        let fallback = font.get_fallback(font_idx)?;
+        let fallback = font.get_fallback(font_idx).map_err(|e| {
+            let chars: Vec<u32> = s.chars().map(|c| c as u32).collect();
+            e.context(format!("while shaping {:x?}", chars))
+        })?;
         fallback.harfbuzz_shape(&mut buf, Some(features.as_slice()));
     }
 
@@ -280,7 +286,7 @@ pub fn shape_with_harfbuzz(
             let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
                 Ok(shape) => Ok(shape),
                 Err(e) => {
-                    eprintln!("{:?} for {:?}", e, substr);
+                    error!("{:?} for {:?}", e, substr);
                     if font_idx == 0 && s == "?" {
                         bail!("unable to find any usable glyphs for `?` in font_idx 0");
                     }
@@ -317,7 +323,7 @@ pub fn shape_with_harfbuzz(
         let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
             Ok(shape) => Ok(shape),
             Err(e) => {
-                eprintln!("{:?} for {:?}", e, substr);
+                error!("{:?} for {:?}", e, substr);
                 if font_idx == 0 && s == "?" {
                     bail!("unable to find any usable glyphs for `?` in font_idx 0");
                 }

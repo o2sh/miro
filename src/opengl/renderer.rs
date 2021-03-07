@@ -1249,6 +1249,14 @@ impl Renderer {
 
         Ok(())
     }
+
+    pub fn scaling_changed(&mut self, fonts: &Rc<FontConfiguration>) -> Result<(), Error> {
+        let metrics = fonts.default_font_metrics()?;
+        self.cell_height = metrics.cell_height;
+        self.cell_width = metrics.cell_width;
+        self.descender = metrics.descender;
+        Ok(())
+    }
 }
 
 pub fn get_spritesheet(path: &str) -> SpriteSheet {

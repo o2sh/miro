@@ -39,7 +39,6 @@ pub struct TerminalWindow {
     last_mouse_coords: (f64, f64),
     last_modifiers: KeyModifiers,
     wakeup_receiver: Receiver<WakeupMsg>,
-    have_pending_resize_check: bool,
 }
 
 impl TerminalWindow {
@@ -87,7 +86,7 @@ impl TerminalWindow {
         let renderer =
             Renderer::new(&host.display, width, height, fonts, palette, &config.theme, sys)?;
 
-        Ok(TerminalWindow {
+        let mut window = TerminalWindow {
             host,
             renderer,
             fonts: Rc::clone(fonts),
@@ -100,8 +99,11 @@ impl TerminalWindow {
             last_mouse_coords: (0.0, 0.0),
             last_modifiers: Default::default(),
             wakeup_receiver,
-            have_pending_resize_check: false,
-        })
+        };
+
+        window.check_for_resize()?;
+
+        Ok(window)
     }
 
     pub fn paint(&mut self, with_sprite: bool) -> Result<(), Error> {
@@ -135,7 +137,6 @@ impl TerminalWindow {
     }
 
     fn check_for_resize(&mut self) -> Result<(), Error> {
-        self.have_pending_resize_check = false;
         let old_dpi_scale = self.fonts.get_dpi_scale();
         let size = self.host.display.gl_window().window().inner_size();
         let dpi_scale = self.host.display.gl_window().window().scale_factor();
@@ -150,7 +151,18 @@ impl TerminalWindow {
             dpi_scale
         );
 
-        self.resize_surfaces(logical_size.width as u16, logical_size.height as u16)?;
+        if (old_dpi_scale - dpi_scale).abs() >= std::f64::EPSILON {
+            self.scaling_changed(dpi_scale)?;
+        } else {
+            self.resize_surfaces(logical_size.width as u16, logical_size.height as u16)?;
+        }
+
+        Ok(())
+    }
+
+    fn scaling_changed(&mut self, dpi_scale: f64) -> Result<(), Error> {
+        self.fonts.change_scaling(self.fonts.get_font_scale(), dpi_scale);
+        self.renderer.scaling_changed(&self.fonts)?;
         Ok(())
     }
 
@@ -398,10 +410,7 @@ impl TerminalWindow {
             Event::WindowEvent { event: WindowEvent::ScaleFactorChanged { .. }, .. }
             | Event::WindowEvent { event: WindowEvent::Resized(_), .. } => {
                 println!("scaling");
-                if !self.have_pending_resize_check {
-                    self.have_pending_resize_check = true;
-                    self.check_for_resize()?;
-                }
+                self.check_for_resize()?;
             }
             Event::WindowEvent { event: WindowEvent::ReceivedCharacter(c), .. } => {
                 self.terminal.key_down(KeyCode::Char(c), self.last_modifiers, &mut self.host)?;
