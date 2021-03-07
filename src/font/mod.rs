@@ -118,6 +118,10 @@ impl FontConfiguration {
         Ok(font)
     }
 
+    pub fn get_dpi_scale(&self) -> f64 {
+        *self.dpi_scale.borrow()
+    }
+
     pub fn change_scaling(&self, font_scale: f64, dpi_scale: f64) {
         *self.dpi_scale.borrow_mut() = dpi_scale;
         *self.font_scale.borrow_mut() = font_scale;

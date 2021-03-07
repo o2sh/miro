@@ -123,12 +123,12 @@ pub struct GlyphKey {
 #[derive(Debug)]
 pub struct CachedGlyph {
     has_color: bool,
-    x_offset: isize,
-    y_offset: isize,
-    bearing_x: isize,
-    bearing_y: isize,
+    x_offset: f64,
+    y_offset: f64,
+    bearing_x: f64,
+    bearing_y: f64,
     texture: Option<Sprite>,
-    scale: f32,
+    scale: f64,
 }
 
 pub struct Renderer {
@@ -140,9 +140,9 @@ pub struct Renderer {
     header_cell_height: usize,
     header_cell_width: usize,
     header_cell_descender: isize,
-    cell_height: usize,
-    cell_width: usize,
-    descender: isize,
+    cell_height: f64,
+    cell_width: f64,
+    descender: f64,
     glyph_cache: RefCell<HashMap<GlyphKey, Rc<CachedGlyph>>>,
     g_program: glium::Program,
     r_program: glium::Program,
@@ -176,36 +176,9 @@ impl Renderer {
         sys: System,
     ) -> Result<Self, Error> {
         let spritesheet = get_spritesheet(&theme.spritesheet_path);
-        let (cell_height, cell_width, descender) = {
-            // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
-            let font = fonts.default_font()?;
-            let metrics = font.borrow_mut().get_fallback(0)?.metrics();
-            (metrics.cell_height, metrics.cell_width, metrics.descender)
-        };
-        let descender = if descender.is_sign_positive() {
-            ((descender as f64) / 64.0).ceil() as isize
-        } else {
-            ((descender as f64) / 64.0).floor() as isize
-        };
-        debug!("METRICS: h={} w={} d={}", cell_height, cell_width, descender);
-
-        // The descender isn't always reliable.  If it looks implausible then we
-        // cook up something more reasonable.  For example, if the descender pulls
-        // the basline up into the top half of the cell then it is probably bad
-        // so we halve that distance, putting it closer to the bottom quarter instead.
-        let descender = if descender.abs() >= cell_height as isize / 2 {
-            let alt_desc = descender / 2;
-            eprintln!(
-                "descender {} is >=50% the cell height, using {} instead",
-                descender, alt_desc
-            );
-            alt_desc
-        } else {
-            descender
-        };
-
-        let cell_height = cell_height.ceil() as usize;
-        let cell_width = cell_width.ceil() as usize;
+        let metrics = fonts.default_font_metrics()?;
+        let (cell_height, cell_width, descender) =
+            (metrics.cell_height, metrics.cell_width, metrics.descender);
 
         let underline_tex = Self::compute_underlines(facade, cell_width, cell_height, descender)?;
 
@@ -355,13 +328,20 @@ impl Renderer {
     /// constants defined above.
     fn compute_underlines<F: Facade>(
         facade: &F,
-        cell_width: usize,
-        cell_height: usize,
-        descender: isize,
+        cell_width: f64,
+        cell_height: f64,
+        descender: f64,
     ) -> Result<SrgbTexture2d, glium::texture::TextureCreationError> {
+        let cell_width = cell_width.ceil() as usize;
+        let cell_height = cell_height.ceil() as usize;
+        let descender = if descender.is_sign_positive() {
+            (descender / 64.0).ceil() as isize
+        } else {
+            (descender / 64.0).floor() as isize
+        };
+
         let width = 5 * cell_width;
-        let mut underline_data = Vec::with_capacity(width * cell_height * 4);
-        underline_data.resize(width * cell_height * 4, 0u8);
+        let mut underline_data = vec![0u8; width * cell_height * 4];
 
         let descender_row = (cell_height as isize + descender) as usize;
         let descender_plus_one = (1 + descender_row).min(cell_height - 1);
@@ -517,13 +497,14 @@ impl Renderer {
             (has_color, glyph, metrics.cell_width, metrics.cell_height)
         };
 
-        let scale = if (info.x_advance / info.num_cells as f64).floor() > cell_width {
-            info.num_cells as f64 * (cell_width / info.x_advance)
+        let scale = if (info.x_advance / f64::from(info.num_cells)).floor() > cell_width {
+            f64::from(info.num_cells) * (cell_width / info.x_advance)
         } else if glyph.height as f64 > cell_height {
             cell_height / glyph.height as f64
         } else {
             1.0f64
         };
+        #[cfg_attr(feature = "cargo-clippy", allow(clippy::float_cmp))]
         let (x_offset, y_offset) = if scale != 1.0 {
             (info.x_offset * scale, info.y_offset * scale)
         } else {
@@ -535,11 +516,11 @@ impl Renderer {
             CachedGlyph {
                 texture: None,
                 has_color,
-                x_offset: x_offset as isize,
-                y_offset: y_offset as isize,
-                bearing_x: 0,
-                bearing_y: 0,
-                scale: scale as f32,
+                x_offset,
+                y_offset,
+                bearing_x: 0.0,
+                bearing_y: 0.0,
+                scale,
             }
         } else {
             let raw_im = glium::texture::RawImage2d::from_raw_rgba(
@@ -548,30 +529,19 @@ impl Renderer {
             );
 
             let tex =
-                match self.glyph_atlas.borrow_mut().allocate(raw_im.width, raw_im.height, raw_im) {
-                    Ok(tex) => tex,
-                    Err(size) => {
-                        // TODO: this is a little tricky.  We need to replace the texture
-                        // atlas with a larger one, blow the font cache (that's the more
-                        // tricky part) and arrange to re-render everything.
-                        bail!(
-                            "Ran out of space in the Atlas! Need to make another one of size {}",
-                            size
-                        );
-                    }
-                };
+                self.glyph_atlas.borrow_mut().allocate(raw_im.width, raw_im.height, raw_im)?;
 
-            let bearing_x = (glyph.bearing_x as f64 * scale) as isize;
-            let bearing_y = (glyph.bearing_y as f64 * scale) as isize;
+            let bearing_x = glyph.bearing_x * scale;
+            let bearing_y = glyph.bearing_y * scale;
 
             CachedGlyph {
                 texture: Some(tex),
                 has_color,
-                x_offset: x_offset as isize,
-                y_offset: y_offset as isize,
+                x_offset,
+                y_offset,
                 bearing_x,
                 bearing_y,
-                scale: scale as f32,
+                scale,
             }
         };
 
@@ -592,6 +562,8 @@ impl Renderer {
         width: f32,
         height: f32,
     ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>), Error> {
+        let cell_width = cell_width.ceil();
+        let cell_height = cell_height.ceil();
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
@@ -851,15 +823,13 @@ impl Renderer {
         let mut vb = self.glyph_vertex_buffer.borrow_mut();
         let mut vertices = {
             let per_line = num_cols * VERTICES_PER_CELL;
-            let start = line_idx * per_line;
-            vb.slice_mut(start..start + per_line)
+            let start_pos = line_idx * per_line;
+            vb.slice_mut(start_pos..start_pos + per_line)
                 .ok_or_else(|| format_err!("we're confused about the screen size"))?
                 .map()
         };
 
         let current_highlight = terminal.current_highlight();
-        let cell_width = self.cell_width as f32;
-        let cell_height = self.cell_height as f32;
 
         // Break the line into clusters of cells with the same attributes
         let cell_clusters = line.cluster();
@@ -872,58 +842,43 @@ impl Renderer {
             };
             let style = self.fonts.match_style(attrs);
 
+            let bg_color = self.palette.resolve(&attrs.background);
+            let fg_color = self.palette.resolve(&attrs.foreground);
+
             let (fg_color, bg_color) = {
-                let mut fg_color = &attrs.foreground;
-                let mut bg_color = &attrs.background;
+                let mut fg = fg_color;
+                let mut bg = bg_color;
 
                 if attrs.reverse() {
-                    mem::swap(&mut fg_color, &mut bg_color);
+                    mem::swap(&mut fg, &mut bg);
                 }
 
-                (fg_color, bg_color)
+                (fg, bg)
             };
 
-            let bg_color = self.palette.resolve(bg_color).to_linear_tuple_rgba();
+            let glyph_color = fg_color.to_linear_tuple_rgba();
+            let bg_color = bg_color.to_linear_tuple_rgba();
 
             // Shape the printable text from this cluster
             let glyph_info = {
-                let font = self.fonts.cached_font(&style)?;
+                let font = self.fonts.cached_font(style)?;
                 let mut font = font.borrow_mut();
                 font.shape(&cluster.text)?
             };
 
-            for info in glyph_info.iter() {
+            for info in &glyph_info {
                 let cell_idx = cluster.byte_to_cell_idx[info.cluster as usize];
-                let glyph = self.cached_glyph(info, &style)?;
+                let glyph = self.cached_glyph(info, style)?;
 
-                let glyph_color = match fg_color {
-                    &term::color::ColorAttribute::Foreground => {
-                        if let Some(fg) = style.foreground {
-                            fg
-                        } else {
-                            self.palette.resolve(fg_color)
-                        }
-                    }
-                    &term::color::ColorAttribute::PaletteIndex(idx) if idx < 8 => {
-                        // For compatibility purposes, switch to a brighter version
-                        // of one of the standard ANSI colors when Bold is enabled.
-                        // This lifts black to dark grey.
-                        let idx =
-                            if attrs.intensity() == term::Intensity::Bold { idx + 8 } else { idx };
-                        self.palette.resolve(&term::color::ColorAttribute::PaletteIndex(idx))
-                    }
-                    _ => self.palette.resolve(fg_color),
-                }
-                .to_linear_tuple_rgba();
-
-                let left: f32 = glyph.x_offset as f32 + glyph.bearing_x as f32;
-                let top = (self.cell_height as f32 + self.descender as f32)
-                    - (glyph.y_offset as f32 + glyph.bearing_y as f32);
+                let left = (glyph.x_offset + glyph.bearing_x) as f32;
+                let top = ((self.cell_height + self.descender) - (glyph.y_offset + glyph.bearing_y))
+                    as f32;
 
                 // underline and strikethrough
                 // Figure out what we're going to draw for the underline.
                 // If the current cell is part of the current URL highlight
                 // then we want to show the underline.
+                #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
                 let underline: f32 =
                     match (is_highlited_hyperlink, attrs.strikethrough(), attrs.underline()) {
                         (true, false, Underline::None) => U_ONE,
@@ -957,7 +912,7 @@ impl Renderer {
                     let (glyph_color, bg_color) = self.compute_cell_fg_bg(
                         line_idx,
                         cell_idx,
-                        &cursor,
+                        cursor,
                         &selection,
                         glyph_color,
                         bg_color,
@@ -981,24 +936,24 @@ impl Renderer {
                     vert[V_BOT_LEFT].underline = underline;
                     vert[V_BOT_RIGHT].underline = underline;
 
-                    match &glyph.texture {
-                        &Some(ref texture) => {
+                    match glyph.texture {
+                        Some(ref texture) => {
                             let slice = SpriteSlice {
                                 cell_idx: glyph_idx,
                                 num_cells: info.num_cells as usize,
-                                cell_width: self.cell_width,
-                                scale: glyph.scale,
-                                left_offset: left as i32,
+                                cell_width: self.cell_width.ceil() as usize,
+                                scale: glyph.scale as f32,
+                                left_offset: left,
                             };
 
                             // How much of the width of this glyph we can use here
                             let slice_width = texture.slice_width(&slice);
 
                             let left = if glyph_idx == 0 { left } else { 0.0 };
-                            let right = (slice_width as f32 + left) - cell_width;
+                            let right = (slice_width as f32 + left) - self.cell_width as f32;
 
-                            let bottom =
-                                ((texture.coords.height as f32) * glyph.scale + top) - cell_height;
+                            let bottom = (texture.coords.height as f32 * glyph.scale as f32 + top)
+                                - self.cell_height as f32;
 
                             vert[V_TOP_LEFT].tex = texture.top_left(&slice);
                             vert[V_TOP_LEFT].adjust = Point::new(left, top);
@@ -1018,10 +973,12 @@ impl Renderer {
                             vert[V_BOT_LEFT].has_color = has_color;
                             vert[V_BOT_RIGHT].has_color = has_color;
                         }
-                        &None => {
+                        None => {
                             // Whitespace; no texture to render
                             let zero = (0.0, 0.0f32);
 
+                            // Note: these 0 coords refer to the blank pixel
+                            // in the bottom left of the underline texture!
                             vert[V_TOP_LEFT].tex = zero;
                             vert[V_TOP_RIGHT].tex = zero;
                             vert[V_BOT_LEFT].tex = zero;
@@ -1059,7 +1016,7 @@ impl Renderer {
             let (glyph_color, bg_color) = self.compute_cell_fg_bg(
                 line_idx,
                 cell_idx,
-                &cursor,
+                cursor,
                 &selection,
                 self.palette.foreground.to_linear_tuple_rgba(),
                 self.palette.background.to_linear_tuple_rgba(),
@@ -1069,6 +1026,8 @@ impl Renderer {
                 vert.bg_color = bg_color;
                 vert.fg_color = glyph_color;
                 vert.underline = U_NONE;
+                // Note: these 0 coords refer to the blank pixel
+                // in the bottom left of the underline texture!
                 vert.tex = (0.0, 0.0);
                 vert.adjust = Default::default();
                 vert.has_color = 0.0;
@@ -1087,23 +1046,19 @@ impl Renderer {
         fg_color: RgbaTuple,
         bg_color: RgbaTuple,
     ) -> (RgbaTuple, RgbaTuple) {
-        let selected = term::in_range(cell_idx, &selection);
+        let selected = selection.contains(&cell_idx);
         let is_cursor = line_idx as i64 == cursor.y && cursor.x == cell_idx;
 
         let (fg_color, bg_color) = match (selected, is_cursor) {
             // Normally, render the cell as configured
             (false, false) => (fg_color, bg_color),
-            // Cursor cell always renders with background over cursor color
+            // Cursor cell overrides colors
             (_, true) => (
                 self.palette.background.to_linear_tuple_rgba(),
                 self.palette.cursor.to_linear_tuple_rgba(),
             ),
-            // Selection text colors the background
-            (true, false) => (
-                fg_color,
-                // TODO: configurable selection color
-                self.palette.cursor.to_linear_tuple_rgba(),
-            ),
+            // Selected text overrides colors
+            (true, false) => (fg_color, self.palette.cursor.to_linear_tuple_rgba()),
         };
 
         (fg_color, bg_color)
@@ -1164,15 +1119,16 @@ impl Renderer {
                         cell_idx: 0,
                         num_cells: info.num_cells as usize,
                         cell_width: self.header_cell_width,
-                        scale: glyph.scale,
-                        left_offset: left as i32,
+                        scale: glyph.scale as f32,
+                        left_offset: left,
                     };
 
                     // How much of the width of this glyph we can use here
                     let slice_width = texture.slice_width(&slice);
                     let right = (slice_width as f32 + left) - cell_width;
 
-                    let bottom = ((texture.coords.height as f32) * glyph.scale + top) - cell_height;
+                    let bottom =
+                        ((texture.coords.height as f32) * glyph.scale as f32 + top) - cell_height;
 
                     vert[V_TOP_LEFT].tex = texture.top_left(&slice);
                     vert[V_TOP_LEFT].adjust = Point::new(left, top);

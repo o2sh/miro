@@ -28,6 +28,7 @@ struct Host {
 
 pub struct TerminalWindow {
     host: Host,
+    fonts: Rc<FontConfiguration>,
     renderer: Renderer,
     width: u16,
     height: u16,
@@ -38,6 +39,7 @@ pub struct TerminalWindow {
     last_mouse_coords: (f64, f64),
     last_modifiers: KeyModifiers,
     wakeup_receiver: Receiver<WakeupMsg>,
+    have_pending_resize_check: bool,
 }
 
 impl TerminalWindow {
@@ -53,23 +55,26 @@ impl TerminalWindow {
     ) -> Result<TerminalWindow, Error> {
         let palette =
             config.colors.as_ref().map(|p| p.clone().into()).unwrap_or_else(ColorPalette::default);
-        let (cell_height, cell_width) = {
-            // Urgh, this is a bit repeaty, but we need to satisfy the borrow checker
-            let font = fonts.default_font()?;
-            let metrics = font.borrow_mut().get_fallback(0)?.metrics();
-            (metrics.cell_height, metrics.cell_width)
-        };
+
+        let metrics = fonts.default_font_metrics()?;
+        let (cell_height, cell_width) =
+            (metrics.cell_height.ceil() as usize, metrics.cell_width.ceil() as usize);
 
         let size = pty.get_size()?;
         let width = size.ws_xpixel;
         let height = size.ws_ypixel;
         let logical_size = glutin::dpi::LogicalSize::new(width as i32, height as i32);
+
         eprintln!("make window with {}x{}", width, height);
 
         let display = {
             let pref_context =
                 glutin::ContextBuilder::new().with_vsync(true).with_pixel_format(24, 8);
             let window = glutin::window::WindowBuilder::new()
+                .with_min_inner_size(glutin::dpi::LogicalSize::new(
+                    cell_width as f64,
+                    cell_height as f64,
+                ))
                 .with_inner_size(logical_size)
                 .with_title("miro");
 
@@ -81,12 +86,11 @@ impl TerminalWindow {
 
         let renderer =
             Renderer::new(&host.display, width, height, fonts, palette, &config.theme, sys)?;
-        let cell_height = cell_height.ceil() as usize;
-        let cell_width = cell_width.ceil() as usize;
 
         Ok(TerminalWindow {
             host,
             renderer,
+            fonts: Rc::clone(fonts),
             width,
             height,
             cell_height,
@@ -96,6 +100,7 @@ impl TerminalWindow {
             last_mouse_coords: (0.0, 0.0),
             last_modifiers: Default::default(),
             wakeup_receiver,
+            have_pending_resize_check: false,
         })
     }
 
@@ -126,6 +131,26 @@ impl TerminalWindow {
                 }
             }
         }
+        Ok(())
+    }
+
+    fn check_for_resize(&mut self) -> Result<(), Error> {
+        self.have_pending_resize_check = false;
+        let old_dpi_scale = self.fonts.get_dpi_scale();
+        let size = self.host.display.gl_window().window().inner_size();
+        let dpi_scale = self.host.display.gl_window().window().scale_factor();
+        let logical_size: glium::glutin::dpi::LogicalSize<u32> = size.to_logical(dpi_scale);
+        debug!(
+            "resize {}x{}@{} -> {}x{}@{}",
+            self.width,
+            self.height,
+            old_dpi_scale,
+            logical_size.width,
+            logical_size.height,
+            dpi_scale
+        );
+
+        self.resize_surfaces(logical_size.width as u16, logical_size.height as u16)?;
         Ok(())
     }
 
@@ -370,8 +395,13 @@ impl TerminalWindow {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 bail!("window close requested!");
             }
-            Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
-                self.resize_surfaces(size.width as u16, size.height as u16)?;
+            Event::WindowEvent { event: WindowEvent::ScaleFactorChanged { .. }, .. }
+            | Event::WindowEvent { event: WindowEvent::Resized(_), .. } => {
+                println!("scaling");
+                if !self.have_pending_resize_check {
+                    self.have_pending_resize_check = true;
+                    self.check_for_resize()?;
+                }
             }
             Event::WindowEvent { event: WindowEvent::ReceivedCharacter(c), .. } => {
                 self.terminal.key_down(KeyCode::Char(c), self.last_modifiers, &mut self.host)?;

@@ -19,7 +19,7 @@ use log::debug;
 use std::ptr;
 
 #[allow(non_upper_case_globals)]
-const kCTFontTraitColorGlyphs: u32 = 1 << 13;
+const kCTFontTraitColorGlyphs: u32 = (1 << 13);
 
 pub type FontSystemImpl = CoreTextSystem;
 
@@ -67,7 +67,7 @@ impl FontSystem for CoreTextSystem {
                         continue;
                     }
                     let has_color = (traits & kCTFontTraitColorGlyphs) == kCTFontTraitColorGlyphs;
-
+                    println!("font_size: {}, dpi: {}", config.font_size, config.dpi);
                     let d = d.clone();
                     let ct_font =
                         new_from_descriptor(&d, font_scale * config.font_size * config.dpi / 72.0);
@@ -137,8 +137,6 @@ fn metrics(codepoint: char, ct_font: &CTFont) -> Option<Metrics> {
             // render.rs divides this value by 64 because freetype returns
             // a scaled integer value, so compensate here
             descender: -descent,
-            underline_thickness: 1.0,
-            underline_position: 0.0,
         },
         ascent,
         descent,
