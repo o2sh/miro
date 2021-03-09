@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate failure;
 
+use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
 use failure::{Error, Fallible};
 use std::ffi::OsString;
 use std::fs::DirBuilder;
@@ -9,6 +10,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::config::Theme;
 use crate::font::{FontConfiguration, FontSystemSelection};
 use crate::frontend::FrontEndSelection;
 use crate::mux::domain::{Domain, LocalDomain};
@@ -16,6 +18,7 @@ use crate::mux::Mux;
 use crate::pty::cmdbuilder::CommandBuilder;
 use crate::pty::PtySize;
 use crate::server::domain::{ClientDomain, ClientDomainConfig};
+use crate::term::color::RgbColor;
 
 mod clipboard;
 mod config;
@@ -110,12 +113,48 @@ fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<
     gui.run_forever()
 }
 
-fn run() -> Result<(), Error> {
-    let config = Arc::new(config::Config::default_config());
+fn run(theme: Option<Theme>) -> Result<(), Error> {
+    let config = Arc::new(config::Config::default_config(theme));
+
     let start = StartCommand::default();
     run_terminal_gui(config, &start)
 }
 
 fn main() -> Result<(), Error> {
-    run()
+    let matches = App::new(crate_name!())
+        .version(crate_version!())
+        .about(crate_description!())
+        .setting(AppSettings::ColoredHelp)
+        .setting(AppSettings::DeriveDisplayOrder)
+        .setting(AppSettings::UnifiedHelpMessage)
+        .arg(
+            Arg::with_name("theme")
+                .short("t")
+                .long("theme")
+                .help("Which theme to use.")
+                .possible_values(&["mario", "sonic", "pika", "mega", "kirby"]),
+        )
+        .get_matches();
+
+    let theme = match matches.value_of("theme") {
+        Some("sonic") => Some(Theme {
+            spritesheet_path: String::from("assets/gfx/sonic.json"),
+            header_color: RgbColor { red: 8, green: 129, blue: 0 },
+        }),
+        Some("pika") => Some(Theme {
+            spritesheet_path: String::from("assets/gfx/pika.json"),
+            header_color: RgbColor { red: 176, green: 139, blue: 24 },
+        }),
+        Some("mega") => Some(Theme {
+            spritesheet_path: String::from("assets/gfx/mega.json"),
+            header_color: RgbColor { red: 1, green: 135, blue: 147 },
+        }),
+        Some("kirby") => Some(Theme {
+            spritesheet_path: String::from("assets/gfx/kirby.json"),
+            header_color: RgbColor { red: 242, green: 120, blue: 141 },
+        }),
+        _ => None,
+    };
+
+    run(theme)
 }

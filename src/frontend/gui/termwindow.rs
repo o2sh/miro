@@ -36,6 +36,7 @@ pub struct TermWindow {
     render_state: RenderState,
     clipboard: Arc<dyn term::Clipboard>,
     keys: KeyMap,
+    frame_count: u32,
 }
 
 struct Host<'a> {
@@ -440,6 +441,7 @@ impl TermWindow {
                 render_state,
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
+                frame_count: 0,
             }),
         )?;
 
@@ -462,7 +464,6 @@ impl TermWindow {
         if super::is_opengl_enabled() {
             window.enable_opengl(|any, window, maybe_ctx| {
                 let mut termwindow = any.downcast_mut::<TermWindow>().expect("to be TermWindow");
-
                 match maybe_ctx {
                     Ok(ctx) => {
                         match OpenGLRenderState::new(
@@ -472,6 +473,7 @@ impl TermWindow {
                             ATLAS_SIZE,
                             termwindow.dimensions.pixel_width,
                             termwindow.dimensions.pixel_height,
+                            &termwindow.config.theme,
                         ) {
                             Ok(gl) => {
                                 log::error!(
@@ -786,6 +788,7 @@ impl TermWindow {
     }
 
     fn paint_tab_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+        self.frame_count += 1;
         let palette = tab.palette();
 
         let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
@@ -824,7 +827,7 @@ impl TermWindow {
         frame.draw(
             &*gl_state.glyph_vertex_buffer.borrow(),
             &gl_state.glyph_index_buffer,
-            &gl_state.program,
+            &gl_state.glyph_program,
             &uniform! {
                 projection: projection,
                 glyph_tex: &*tex,
@@ -837,7 +840,7 @@ impl TermWindow {
         frame.draw(
             &*gl_state.glyph_vertex_buffer.borrow(),
             &gl_state.glyph_index_buffer,
-            &gl_state.program,
+            &gl_state.glyph_program,
             &uniform! {
                 projection: projection,
                 glyph_tex: &*tex,
@@ -848,6 +851,58 @@ impl TermWindow {
 
         term.clean_dirty_lines();
 
+        // Draw top banner rectangle
+        frame.draw(
+            &*gl_state.header_vertex_buffer.borrow(),
+            &gl_state.header_index_buffer,
+            &gl_state.header_program,
+            &uniform! {
+                projection: projection,
+            },
+            &draw_params,
+        )?;
+
+        self.paint_sprite(frame)
+    }
+
+    pub fn paint_sprite(&mut self, frame: &mut glium::Frame) -> Fallible<()> {
+        let gl_state = self.render_state.opengl();
+        let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
+            -(self.dimensions.pixel_width as f32) / 2.0,
+            self.dimensions.pixel_width as f32 / 2.0,
+            self.dimensions.pixel_height as f32 / 2.0,
+            -(self.dimensions.pixel_height as f32) / 2.0,
+            -1.0,
+            1.0,
+        )
+        .to_arrays();
+
+        let draw_params =
+            glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
+
+        let number_of_sprites = gl_state.spritesheet.sprites.len();
+
+        let sprite =
+            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
+
+        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
+
+        // Draw mario
+        frame.draw(
+            &*gl_state.sprite_vertex_buffer.borrow(),
+            &gl_state.sprite_index_buffer,
+            &gl_state.sprite_program,
+            &uniform! {
+                projection: projection,
+                tex: &gl_state.player_texture.tex,
+                source_dimensions: sprite.size,
+                source_position: sprite.position,
+                source_texture_dimensions: [gl_state.player_texture.width, gl_state.player_texture.height]
+            },
+            &draw_params,
+        )?;
+
+        gl_state.slide_sprite(w);
         Ok(())
     }
 

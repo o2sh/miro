@@ -63,7 +63,6 @@ impl CommandBuilder {
     pub(crate) fn as_command(&self) -> Fallible<std::process::Command> {
         let mut cmd = if self.is_default_prog() {
             let mut cmd = std::process::Command::new(&Self::get_shell()?);
-            cmd.current_dir(Self::get_home_dir()?);
             cmd
         } else {
             let mut cmd = std::process::Command::new(&self.args[0]);

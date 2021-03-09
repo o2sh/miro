@@ -26,6 +26,22 @@ pub struct Vertex {
 }
 glium::implement_vertex!(Vertex, position, adjust, tex, underline, bg_color, fg_color, has_color);
 
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SpriteVertex {
+    pub position: (f32, f32),
+    pub tex_coords: (f32, f32),
+}
+
+glium::implement_vertex!(SpriteVertex, position, tex_coords);
+
+#[derive(Copy, Clone)]
+pub struct RectVertex {
+    pub position: (f32, f32),
+    pub color: (f32, f32, f32, f32),
+}
+
+glium::implement_vertex!(RectVertex, position, color);
+
 /// A helper for updating the 4 vertices that compose a glyph cell
 pub struct Quad<'a> {
     vert: &'a mut [Vertex],

@@ -9,9 +9,12 @@ use crate::term;
 use crate::term::color::RgbColor;
 use failure::{err_msg, Error, Fallible};
 use lazy_static::lazy_static;
+use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_derive::*;
+use serde_json::Value;
 use std;
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
@@ -26,6 +29,21 @@ fn compute_runtime_dir() -> Result<PathBuf, Error> {
 
 lazy_static! {
     static ref RUNTIME_DIR: PathBuf = compute_runtime_dir().unwrap();
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Theme {
+    pub spritesheet_path: String,
+    pub header_color: RgbColor,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self {
+            spritesheet_path: String::from("assets/gfx/mario.json"),
+            header_color: RgbColor { red: 99, green: 137, blue: 250 },
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -121,6 +139,8 @@ pub struct Config {
     /// encoded as ESC followed by the key).
     #[serde(default)]
     pub send_composed_key_when_alt_is_pressed: bool,
+
+    pub theme: Theme,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -333,6 +353,7 @@ impl Default for Config {
             term: default_term(),
             keys: vec![],
             send_composed_key_when_alt_is_pressed: false,
+            theme: Theme::default(),
         }
     }
 }
@@ -496,15 +517,17 @@ pub struct StyleRule {
 }
 
 impl Config {
-    pub fn default_config() -> Self {
-        Self::default().compute_extra_defaults()
+    pub fn default_config(theme: Option<Theme>) -> Self {
+        Self::default().compute_extra_defaults(theme)
     }
 
     /// In some cases we need to compute expanded values based
     /// on those provided by the user.  This is where we do that.
-    fn compute_extra_defaults(&self) -> Self {
+    fn compute_extra_defaults(&self, theme: Option<Theme>) -> Self {
         let mut cfg = self.clone();
-
+        if theme.is_some() {
+            cfg.theme = theme.unwrap();
+        }
         if cfg.font_rules.is_empty() {
             // Expand out some reasonable default font rules
             let bold = self.font.make_bold();
@@ -669,4 +692,69 @@ impl From<Palette> for term::color::ColorPalette {
         }
         p
     }
+}
+
+#[derive(Clone)]
+pub struct SpriteSheetConfig {
+    pub image_path: String,
+    pub sheets: HashMap<String, SpriteConfig>,
+}
+
+#[derive(Clone)]
+pub struct SpriteConfig {
+    pub frame: Rect,
+}
+
+#[derive(Clone)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+#[derive(Clone)]
+pub struct Size {
+    pub w: u32,
+    pub h: u32,
+}
+
+impl SpriteSheetConfig {
+    pub fn load(path: &str) -> Option<Self> {
+        let text = std::fs::read_to_string(path).expect("load sprite sheet failed");
+        let deserialized_opt = serde_json::from_str(&text);
+        if let Err(_err) = deserialized_opt {
+            return None;
+        }
+        let deserialized: Value = deserialized_opt.unwrap();
+
+        let image_path = get_mainname(deserialized["meta"]["image"].as_str()?);
+
+        let mut sheets = HashMap::new();
+        for (key, frame) in deserialized["frames"].as_object()? {
+            let sheet = convert_sheet(frame)?;
+            sheets.insert(get_mainname(key), sheet);
+        }
+        Some(Self { image_path, sheets })
+    }
+}
+
+fn convert_sheet(sheet: &Value) -> Option<SpriteConfig> {
+    let frame = convert_rect(&sheet["frame"])?;
+    Some(SpriteConfig { frame })
+}
+
+fn convert_rect(value: &Value) -> Option<Rect> {
+    Some(Rect {
+        x: value["x"].as_i64()? as i32,
+        y: value["y"].as_i64()? as i32,
+        w: value["w"].as_i64()? as u32,
+        h: value["h"].as_i64()? as u32,
+    })
+}
+
+fn get_mainname(filename: &str) -> String {
+    let re = Regex::new(r"^(.*)").unwrap();
+    re.captures(filename)
+        .map_or_else(|| filename.to_string(), |caps| caps.get(1).unwrap().as_str().to_string())
 }
