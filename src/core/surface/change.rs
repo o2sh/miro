@@ -86,13 +86,6 @@ impl Change {
             _ => false,
         }
     }
-
-    pub fn text(&self) -> &str {
-        match self {
-            Change::Text(text) => text,
-            _ => panic!("you must use Change::is_text() to guard calls to Change::text()"),
-        }
-    }
 }
 
 impl<S: Into<String>> From<S> for Change {

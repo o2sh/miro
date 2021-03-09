@@ -1,13 +1,7 @@
 #[macro_use]
-extern crate bitflags;
-#[macro_use]
 extern crate failure;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate glium;
 
-use failure::{err_msg, format_err, Error, Fallible};
+use failure::{Error, Fallible};
 use std::ffi::OsString;
 use std::fs::DirBuilder;
 use std::os::unix::fs::DirBuilderExt;
@@ -16,12 +10,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::font::{FontConfiguration, FontSystemSelection};
-use crate::frontend::{executor, front_end, FrontEndSelection};
+use crate::frontend::FrontEndSelection;
 use crate::mux::domain::{Domain, LocalDomain};
 use crate::mux::Mux;
 use crate::pty::cmdbuilder::CommandBuilder;
 use crate::pty::PtySize;
-use crate::server::client::{unix_connect_with_retry, Client};
 use crate::server::domain::{ClientDomain, ClientDomainConfig};
 
 mod clipboard;

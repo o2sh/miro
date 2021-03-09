@@ -1,4 +1,3 @@
-use crate::mux::domain::DomainId;
 use crate::term::{KeyCode, KeyModifiers};
 use std::collections::HashMap;
 
@@ -10,10 +9,6 @@ pub enum SpawnTabDomain {
     DefaultDomain,
     /// Use the domain from the current tab in the associated window
     CurrentTabDomain,
-    /// Use a specific domain by id
-    Domain(DomainId),
-    /// Use a specific domain by name
-    DomainName(String),
 }
 
 #[derive(Debug, Clone)]
@@ -28,10 +23,7 @@ pub enum KeyAssignment {
     DecreaseFontSize,
     ResetFontSize,
     ActivateTab(usize),
-    SendString(String),
-    Nop,
     Hide,
-    Show,
     CloseCurrentTab,
 }
 

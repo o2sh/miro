@@ -86,8 +86,3 @@ pub mod color;
 /// TODO: Consider VT220 extended response which can advertise
 /// certain feature sets.
 pub const DEVICE_IDENT: &[u8] = b"\x1b[?6c";
-
-pub const CSI: &[u8] = b"\x1b[";
-pub const OSC: &[u8] = b"\x1b]";
-pub const ST: &[u8] = b"\x1b\\";
-pub const DCS: &[u8] = b"\x1bP";

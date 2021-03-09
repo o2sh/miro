@@ -7,18 +7,13 @@ use crate::frontend::FrontEndSelection;
 use crate::pty::{CommandBuilder, PtySystemSelection};
 use crate::term;
 use crate::term::color::RgbColor;
-use failure::{bail, err_msg, format_err, Error, Fallible};
+use failure::{err_msg, Error, Fallible};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Deserializer};
 use serde_derive::*;
 use std;
-use std::collections::HashMap;
-use std::convert::TryInto;
 use std::ffi::{OsStr, OsString};
-use std::fs;
-use std::io::prelude::*;
 use std::path::PathBuf;
-use toml;
 
 fn compute_runtime_dir() -> Result<PathBuf, Error> {
     if let Some(runtime) = dirs::runtime_dir() {
@@ -501,15 +496,6 @@ pub struct StyleRule {
 }
 
 impl Config {
-    pub fn load() -> Result<Self, Error> {
-        // Note that the directories crate has methods for locating project
-        // specific config directories, but only returns one of them, not
-        // multiple.  In addition, it spawns a lot of subprocesses,
-        // so we do this bit "by-hand"
-
-        Ok(Self::default().compute_extra_defaults())
-    }
-
     pub fn default_config() -> Self {
         Self::default().compute_extra_defaults()
     }

@@ -98,14 +98,6 @@ impl<T> Promise<T> {
         self.future.take()
     }
 
-    pub fn ok(&mut self, value: T) {
-        self.result(Ok(value));
-    }
-
-    pub fn err(&mut self, err: Error) {
-        self.result(Err(err));
-    }
-
     pub fn result(&mut self, result: Result<T, Error>) {
         match std::mem::replace(&mut self.state, PromiseState::Fulfilled) {
             PromiseState::Waiting(core) => {
@@ -231,59 +223,6 @@ impl<T: Send + 'static> Future<T> {
         }));
         future
     }
-
-    /// When this future resolves successfully, map the result via
-    /// the supplied lambda, which returns something that is convertible
-    /// to a Future.
-    /// When this future resolves with an error, the error is propagated
-    /// along as the error value of the returned future.
-    pub fn map<U, F, IF>(self, f: F) -> Future<U>
-    where
-        F: FnOnce(T) -> IF + Send + 'static,
-        IF: Into<Future<U>> + 'static,
-        U: Send + 'static,
-    {
-        let mut promise = Promise::new();
-        let future = promise.get_future().unwrap();
-        let func = Box::new(f);
-
-        let promise_chain = Box::new(move |result| promise.result(result));
-
-        self.chain(Box::new(move |result| {
-            let future = match result {
-                Ok(value) => func(value).into(),
-                Err(err) => Err(err).into(),
-            };
-            future.chain(promise_chain);
-        }));
-        future
-    }
-
-    /// When this future resolves with an error, map the error result
-    /// via the supplied lambda, with returns something that is convertible
-    /// to a Future.
-    /// When this future resolves successfully, the value is propagated
-    /// along as the Ok value of the returned future.
-    pub fn map_err<F, IF>(self, f: F) -> Future<T>
-    where
-        F: FnOnce(Error) -> IF + Send + 'static,
-        IF: Into<Future<T>> + 'static,
-    {
-        let mut promise = Promise::new();
-        let future = promise.get_future().unwrap();
-        let func = Box::new(f);
-
-        let promise_chain = Box::new(move |result| promise.result(result));
-
-        self.chain(Box::new(move |result| {
-            let future = match result {
-                Ok(value) => Ok(value).into(),
-                Err(err) => func(err).into(),
-            };
-            future.chain(promise_chain);
-        }));
-        future
-    }
 }
 
 impl<T: Send + 'static> std::future::Future for Future<T> {
@@ -309,101 +248,5 @@ impl<T: Send + 'static> std::future::Future for Future<T> {
             FutureState::Ready(result) => Poll::Ready(result),
             FutureState::Resolved => panic!("polling a Resolved Future"),
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use failure::{err_msg, format_err};
-    #[test]
-    fn basic_promise() {
-        let mut p = Promise::new();
-        p.ok(true);
-        assert_eq!(p.get_future().unwrap().wait().unwrap(), true);
-    }
-
-    #[test]
-    fn basic_promise_future_first() {
-        let mut p = Promise::new();
-        let f = p.get_future().unwrap();
-        p.ok(true);
-        assert_eq!(f.wait().unwrap(), true);
-    }
-
-    #[test]
-    fn promise_chain() {
-        let mut p = Promise::new();
-        let f = p
-            .get_future()
-            .unwrap()
-            .then(|result| Ok(result.unwrap() + 1))
-            .then(|result| Ok(result.unwrap() + 3));
-        p.ok(1);
-        assert_eq!(f.wait().unwrap(), 5);
-    }
-
-    #[test]
-    fn promise_map() {
-        let mut p = Promise::new();
-        let f = p.get_future().unwrap().map(|value| Ok(value + 1));
-        p.ok(1);
-        assert_eq!(f.wait().unwrap(), 2);
-    }
-
-    #[test]
-    fn promise_map_err() {
-        let mut p = Promise::new();
-        let f: Future<usize> = p
-            .get_future()
-            .unwrap()
-            .map(|_value| Err(err_msg("boo")))
-            .map_err(|err| Err(format_err!("whoops: {}", err)));
-        p.ok(1);
-        assert_eq!(format!("{}", f.wait().unwrap_err()), "whoops: boo");
-    }
-
-    #[test]
-    fn promise_chain_future() {
-        let mut p = Promise::new();
-        let f = p
-            .get_future()
-            .unwrap()
-            .then(|result| Future::ok(result.unwrap() + 1))
-            .then(|result| Ok(result.unwrap() + 3));
-        p.ok(1);
-        assert_eq!(f.wait().unwrap(), 5);
-    }
-
-    #[test]
-    fn promise_thread() {
-        let mut p = Promise::new();
-        let f = p.get_future().unwrap();
-
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::new(0, 500));
-            p.ok(123);
-        });
-
-        let f2 = f.then(move |result| Ok(result.unwrap() * 2));
-
-        assert_eq!(f2.wait().unwrap(), 246);
-    }
-
-    #[test]
-    fn promise_thread_slow_chain() {
-        let mut p = Promise::new();
-        let f = p.get_future().unwrap();
-
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::new(0, 500));
-            p.ok(123);
-        });
-
-        std::thread::sleep(std::time::Duration::new(1, 0));
-
-        let f2 = f.then(move |result| Ok(result.unwrap() * 2));
-
-        assert_eq!(f2.wait().unwrap(), 246);
     }
 }

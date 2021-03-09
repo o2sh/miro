@@ -58,12 +58,6 @@ impl Line {
         Line { cells, bits: LineBits::DIRTY }
     }
 
-    pub fn from_text_with_wrapped_last_col(s: &str, attrs: &CellAttributes) -> Line {
-        let mut line = Self::from_text(s, attrs);
-        line.cells.last_mut().map(|cell| cell.attrs_mut().set_wrapped(true));
-        line
-    }
-
     pub fn resize_and_clear(&mut self, width: usize) {
         let blank = Cell::default();
         self.cells.clear();

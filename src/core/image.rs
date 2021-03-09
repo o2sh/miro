@@ -44,12 +44,6 @@ impl TextureCoordinate {
     pub fn new(x: NotNan<f32>, y: NotNan<f32>) -> Self {
         Self { x, y }
     }
-
-    pub fn new_f32(x: f32, y: f32) -> Self {
-        let x = NotNan::new(x).unwrap();
-        let y = NotNan::new(y).unwrap();
-        Self::new(x, y)
-    }
 }
 
 /// Tracks data for displaying an image in the place of the normal cell

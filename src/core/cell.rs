@@ -143,13 +143,6 @@ impl CellAttributes {
     bitfield!(invisible, set_invisible, 9);
     bitfield!(wrapped, set_wrapped, 10);
 
-    /// Returns true if the attribute bits in both objects are equal.
-    /// This can be used to cheaply test whether the styles of the two
-    /// cells are the same, and is used by some `Renderer` implementations.
-    pub fn attribute_bits_equal(&self, other: &Self) -> bool {
-        self.attributes == other.attributes
-    }
-
     /// Set the foreground color for the cell to that specified
     pub fn set_foreground<C: Into<ColorAttribute>>(&mut self, foreground: C) -> &mut Self {
         self.foreground = foreground.into();
@@ -285,10 +278,6 @@ impl Cell {
     /// Returns the attributes of the cell
     pub fn attrs(&self) -> &CellAttributes {
         &self.attrs
-    }
-
-    pub fn attrs_mut(&mut self) -> &mut CellAttributes {
-        &mut self.attrs
     }
 }
 

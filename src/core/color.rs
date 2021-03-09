@@ -4,7 +4,7 @@
 
 use num_derive::*;
 use palette;
-use palette::{LinSrgba, Srgb, Srgba};
+use palette::{Srgb, Srgba};
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::*;
 use std::result::Result;
@@ -72,16 +72,8 @@ impl RgbColor {
         Self { red, green, blue }
     }
 
-    pub fn to_linear(self) -> LinSrgba {
-        Srgba::<u8>::new(self.red, self.green, self.blue, 0xff).into_format().into_linear()
-    }
-
     pub fn to_tuple_rgba(self) -> RgbaTuple {
         Srgba::<u8>::new(self.red, self.green, self.blue, 0xff).into_format().into_components()
-    }
-
-    pub fn to_linear_tuple_rgba(self) -> RgbaTuple {
-        self.to_linear().into_components()
     }
 
     /// Construct a color from an SVG/CSS3 color name.

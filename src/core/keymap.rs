@@ -29,66 +29,6 @@ impl<Value: Debug> Node<Value> {
             }
         }
     }
-
-    fn lookup(&self, key: &[u8], depth: usize) -> NodeFind<&Value> {
-        if key.is_empty() {
-            // We've matched the maximum extent of the input key.
-            if self.children.is_empty() {
-                match self.value.as_ref() {
-                    Some(value) => {
-                        // An unambiguous match for the entire input
-                        return NodeFind::Exact(depth, value);
-                    }
-                    None => panic!("Node has no children and no value!?"),
-                }
-            }
-            return match self.value.as_ref() {
-                Some(value) => NodeFind::AmbiguousMatch(depth, value),
-                None => NodeFind::AmbiguousBackTrack,
-            };
-        }
-
-        match self.children.binary_search_by(|node| node.label.cmp(&key[0])) {
-            Ok(idx) => {
-                match self.children[idx].lookup(&key[1..], depth + 1) {
-                    NodeFind::AmbiguousBackTrack => {
-                        // The child didn't have an exact match, so check
-                        // whether we do
-                        match self.value.as_ref() {
-                            Some(value) => NodeFind::AmbiguousMatch(depth, value),
-                            None => NodeFind::AmbiguousBackTrack,
-                        }
-                    }
-                    result => result,
-                }
-            }
-            Err(_) => {
-                if depth == 0 {
-                    NodeFind::None
-                } else {
-                    match self.value.as_ref() {
-                        Some(value) => NodeFind::Exact(depth, value),
-                        None => NodeFind::AmbiguousBackTrack,
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Internal lookup disposition
-enum NodeFind<Value> {
-    /// No possible matches
-    None,
-    /// Found an exact match. (match-len, value)
-    Exact(usize, Value),
-    /// Didn't find an exact match at the full extent of the key,
-    /// so ask the upper layer to back track to find a partial.
-    AmbiguousBackTrack,
-    /// After backtracking, found a prefix match, but we know that
-    /// there might be a more specific match given more data. (match-len,
-    /// value).
-    AmbiguousMatch(usize, Value),
 }
 
 /// Holds the result of a lookup operation
@@ -133,42 +73,5 @@ impl<Value: Debug + Clone> KeyMap<Value> {
     /// Insert a value into the keymap
     pub fn insert<K: AsRef<[u8]>>(&mut self, key: K, value: Value) {
         self.root.insert(key.as_ref(), value)
-    }
-
-    /// Perform a lookup for `key`.
-    /// `key` can be a string consisting of a sequence of bytes.
-    /// The `lookup` operation considers the prefix of `key` and searches
-    /// for a match.
-    ///
-    /// If `Found::None` is returned then the prefix for key has no matching
-    /// keymap entry.
-    ///
-    /// If `Found::Exact` is returned then the returned value informs the caller
-    /// of the length of the key that was matched; the remainder of the key
-    /// was not considered and is something that should be considered again
-    /// in a subsequent lookup operation.
-    ///
-    /// If `Found::Ambiguous` is returned then the key matched a valid
-    /// entry (which is returned as the value), but there is at least one
-    /// other entry that could match if more data were available.  If the caller
-    /// knows that no more data is available immediately then it may be valid
-    /// to treat this result as equivalent to `Found::Exact`.  The intended
-    /// use for this variant is to handle the case where a sequence straddles
-    /// a buffer boundary (eg: fixed size buffer receives a partial sequence,
-    /// and the remainder is immediately available on the next read) without
-    /// misinterpreting the read data.
-    ///
-    /// If `Found::NeedData` is returned it indicates that `key` is too short
-    /// to determine a match.  The purpose is similar to the `Found::Ambiguous`
-    /// case; if the caller knows that no more data is available this can be
-    /// treated as `Found::None`, but otherwise it would be best to read more
-    /// data from the stream and retry with a longer input.
-    pub fn lookup<S: AsRef<[u8]>>(&self, key: S) -> Found<Value> {
-        match self.root.lookup(key.as_ref(), 0) {
-            NodeFind::None => Found::None,
-            NodeFind::AmbiguousBackTrack => Found::NeedData,
-            NodeFind::Exact(depth, value) => Found::Exact(depth, value.clone()),
-            NodeFind::AmbiguousMatch(depth, value) => Found::Ambiguous(depth, value.clone()),
-        }
     }
 }

@@ -27,14 +27,6 @@ impl Hyperlink {
         &self.uri
     }
 
-    pub fn params(&self) -> &HashMap<String, String> {
-        &self.params
-    }
-
-    pub fn new<S: Into<String>>(uri: S) -> Self {
-        Self { uri: uri.into(), params: HashMap::new(), implicit: false }
-    }
-
     #[inline]
     pub fn is_implicit(&self) -> bool {
         self.implicit
@@ -42,12 +34,6 @@ impl Hyperlink {
 
     pub fn new_implicit<S: Into<String>>(uri: S) -> Self {
         Self { uri: uri.into(), params: HashMap::new(), implicit: true }
-    }
-
-    pub fn new_with_id<S: Into<String>, S2: Into<String>>(uri: S, id: S2) -> Self {
-        let mut params = HashMap::new();
-        params.insert("id".into(), id.into());
-        Self { uri: uri.into(), params, implicit: false }
     }
 
     pub fn new_with_params<S: Into<String>>(uri: S, params: HashMap<String, String>) -> Self {

@@ -17,8 +17,7 @@ use libc::{mode_t, umask};
 use log::{debug, error};
 use std::collections::{HashMap, HashSet};
 use std::fs::remove_file;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -56,15 +55,6 @@ impl LocalListener {
 pub enum IdentitySource {
     Pkcs12File { path: PathBuf, password: String },
     PemFiles { key: PathBuf, cert: Option<PathBuf>, chain: Option<PathBuf> },
-}
-
-pub fn read_bytes<T: AsRef<Path>>(path: T) -> Fallible<Vec<u8>> {
-    let path = path.as_ref();
-    let mut f = std::fs::File::open(path)
-        .map_err(|e| format_err!("opening file {}: {}", path.display(), e))?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)?;
-    Ok(buf)
 }
 
 pub struct ClientSession<S: ReadAndWrite> {

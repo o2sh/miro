@@ -1,4 +1,3 @@
-pub mod base91;
 pub mod cell;
 pub mod cellcluster;
 pub mod color;

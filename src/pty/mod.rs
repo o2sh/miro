@@ -42,7 +42,7 @@
 //! `ssh::SshSession` type that can wrap an established ssh
 //! session with an implementation of `PtySystem`, allowing
 //! you to use the same pty interface with remote ptys.
-use failure::{bail, format_err, Error, Fallible};
+use failure::{Error, Fallible};
 use serde_derive::*;
 use std::io::Result as IoResult;
 
@@ -116,11 +116,6 @@ pub struct ExitStatus {
 }
 
 impl ExitStatus {
-    /// Construct an ExitStatus from a process return code
-    pub fn with_exit_code(code: u32) -> Self {
-        Self { successful: code == 0 }
-    }
-
     pub fn success(&self) -> bool {
         self.successful
     }
@@ -181,7 +176,6 @@ impl PtySystemSelection {
     pub fn get(self) -> Fallible<Box<dyn PtySystem>> {
         match self {
             PtySystemSelection::Unix => Ok(Box::new(unix::UnixPtySystem {})),
-            _ => bail!("{:?} not available on unix", self),
         }
     }
 

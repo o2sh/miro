@@ -3,7 +3,6 @@ use crate::core::image::ImageData;
 use crate::font::{FontConfiguration, GlyphInfo};
 use crate::window::bitmaps::atlas::{Atlas, Sprite};
 use crate::window::bitmaps::{Image, ImageTexture, Texture2d};
-use crate::window::*;
 use failure::Fallible;
 use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;

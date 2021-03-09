@@ -162,16 +162,8 @@ impl Mux {
         self.default_domain.borrow().as_ref().map(Arc::clone).unwrap()
     }
 
-    pub fn set_default_domain(&self, domain: &Arc<dyn Domain>) {
-        *self.default_domain.borrow_mut() = Some(Arc::clone(domain));
-    }
-
     pub fn get_domain(&self, id: DomainId) -> Option<Arc<dyn Domain>> {
         self.domains.borrow().get(&id).cloned()
-    }
-
-    pub fn get_domain_by_name(&self, name: &str) -> Option<Arc<dyn Domain>> {
-        self.domains_by_name.borrow().get(name).cloned()
     }
 
     pub fn add_domain(&self, domain: &Arc<dyn Domain>) {
@@ -297,10 +289,6 @@ impl Mux {
 
     pub fn iter_windows(&self) -> Vec<WindowId> {
         self.windows.borrow().keys().cloned().collect()
-    }
-
-    pub fn iter_domains(&self) -> Vec<Arc<dyn Domain>> {
-        self.domains.borrow().values().cloned().collect()
     }
 
     pub fn domain_was_detached(&self, domain: DomainId) {

@@ -604,12 +604,6 @@ impl TermWindow {
                     failure::format_err!("current tab has unresolvable domain id!?")
                 })?
             }
-            SpawnTabDomain::Domain(id) => mux.get_domain(*id).ok_or_else(|| {
-                failure::format_err!("spawn_tab called with unresolvable domain id!?")
-            })?,
-            SpawnTabDomain::DomainName(name) => mux.get_domain_by_name(&name).ok_or_else(|| {
-                failure::format_err!("spawn_tab called with unresolvable domain name {}", name)
-            })?,
         };
         let tab = domain.spawn(size, None, self.mux_window_id)?;
         let tab_id = tab.tab_id();
@@ -655,7 +649,6 @@ impl TermWindow {
             ActivateTab(n) => {
                 self.activate_tab(*n)?;
             }
-            SendString(s) => tab.writer().write_all(s.as_bytes())?,
             Hide => {
                 if let Some(w) = self.window.as_ref() {
                     w.hide();

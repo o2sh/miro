@@ -1,7 +1,6 @@
 use crate::core::escape::{Action, DeviceControlMode, Esc, OperatingSystemCommand, CSI};
 use log::error;
 use num;
-use std::cell::RefCell;
 use vtparse::{VTActor, VTParser};
 
 /// The `Parser` struct holds the state machine that is used to decode
@@ -28,67 +27,6 @@ impl Parser {
     pub fn parse<F: FnMut(Action)>(&mut self, bytes: &[u8], mut callback: F) {
         let mut perform = Performer { callback: &mut callback };
         self.state_machine.parse(bytes, &mut perform);
-    }
-
-    /// A specialized version of the parser that halts after recognizing the
-    /// first action from the stream of bytes.  The return value is the action
-    /// that was recognized and the length of the byte stream that was fed in
-    /// to the parser to yield it.
-    pub fn parse_first(&mut self, bytes: &[u8]) -> Option<(Action, usize)> {
-        // holds the first action.  We need to use RefCell to deal with
-        // the Performer holding a reference to this via the closure we set up.
-        let first = RefCell::new(None);
-        // will hold the iterator index when we emit an action
-        let mut first_idx = None;
-        {
-            let mut perform = Performer {
-                callback: &mut |action| {
-                    // capture the action, but only if it is the first one
-                    // we've seen.  Preserve an existing one if any.
-                    if first.borrow().is_some() {
-                        return;
-                    }
-                    *first.borrow_mut() = Some(action);
-                },
-            };
-            for (idx, b) in bytes.iter().enumerate() {
-                self.state_machine.parse_byte(*b, &mut perform);
-                if first.borrow().is_some() {
-                    // if we recognized an action, record the iterator index
-                    first_idx = Some(idx);
-                    break;
-                }
-            }
-        }
-
-        match (first.into_inner(), first_idx) {
-            // if we matched an action, transform the iterator index to
-            // the length of the string that was consumed (+1)
-            (Some(action), Some(idx)) => Some((action, idx + 1)),
-            _ => None,
-        }
-    }
-
-    pub fn parse_as_vec(&mut self, bytes: &[u8]) -> Vec<Action> {
-        let mut result = Vec::new();
-        self.parse(bytes, |action| result.push(action));
-        result
-    }
-
-    /// Similar to `parse_first` but collects all actions from the first sequence.
-    pub fn parse_first_as_vec(&mut self, bytes: &[u8]) -> Option<(Vec<Action>, usize)> {
-        let mut actions = Vec::new();
-        let mut first_idx = None;
-        for (idx, b) in bytes.iter().enumerate() {
-            self.state_machine
-                .parse_byte(*b, &mut Performer { callback: &mut |action| actions.push(action) });
-            if !actions.is_empty() {
-                // if we recognized any actions, record the iterator index
-                first_idx = Some(idx);
-                break;
-            }
-        }
-        first_idx.map(|idx| (actions, idx + 1))
     }
 }
 

@@ -448,33 +448,6 @@ impl Surface {
         self.ypos = compute_position_change(self.ypos, y, self.height);
     }
 
-    /// Returns the entire contents of the screen as a string.
-    /// Only the character data is returned.  The end of each line is
-    /// returned as a \n character.
-    /// This function exists primarily for testing purposes.
-    pub fn screen_chars_to_string(&self) -> String {
-        let mut s = String::new();
-
-        for line in &self.lines {
-            for (_, cell) in line.visible_cells() {
-                s.push_str(cell.str());
-            }
-            s.push('\n');
-        }
-
-        s
-    }
-
-    /// Returns the cell data for the screen.
-    /// This is intended to be used for testing purposes.
-    pub fn screen_cells(&self) -> Vec<&[Cell]> {
-        let mut lines = Vec::new();
-        for line in &self.lines {
-            lines.push(line.cells());
-        }
-        lines
-    }
-
     pub fn screen_lines(&self) -> Vec<Cow<Line>> {
         self.lines.iter().map(|line| Cow::Borrowed(line)).collect()
     }
@@ -680,69 +653,6 @@ impl Surface {
         result
     }
 
-    /// Computes the change stream required to make the region within `self`
-    /// at coordinates `x`, `y` and size `width`, `height` look like the
-    /// same sized region within `other` at coordinates `other_x`, `other_y`.
-    ///
-    /// `other` and `self` may be the same, causing regions within the same
-    /// `Surface` to be differenced; this is used by the `copy_region` method.
-    ///
-    /// The returned list of `Change`s can be passed to the `add_changes` method
-    /// to make the region within self match the region within other.
-    /// # Panics
-    /// Will panic if the regions of interest are not within the bounds of
-    /// their respective `Surface`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn diff_region(
-        &self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
-        other: &Surface,
-        other_x: usize,
-        other_y: usize,
-    ) -> Vec<Change> {
-        assert!(x + width <= self.width);
-        assert!(y + height <= self.height);
-        assert!(other_x + width <= other.width);
-        assert!(other_y + height <= other.height);
-
-        let mut diff_state = DiffState::default();
-
-        for ((row_num, line), other_line) in self
-            .lines
-            .iter()
-            .enumerate()
-            .skip(y)
-            .take_while(|(row_num, _)| *row_num < y + height)
-            .zip(other.lines.iter().skip(other_y))
-        {
-            for ((col_num, cell), (_, other_cell)) in line
-                .visible_cells()
-                .skip(x)
-                .take_while(|(col_num, _)| *col_num < x + width)
-                .zip(other_line.visible_cells().skip(other_x))
-            {
-                diff_state.diff_cells(col_num, row_num, cell, other_cell);
-            }
-        }
-
-        diff_state.changes
-    }
-
-    pub fn diff_lines(&self, other_lines: Vec<&Line>) -> Vec<Change> {
-        let mut diff_state = DiffState::default();
-        for ((row_num, line), other_line) in self.lines.iter().enumerate().zip(other_lines.iter()) {
-            for ((col_num, cell), (_, other_cell)) in
-                line.visible_cells().zip(other_line.visible_cells())
-            {
-                diff_state.diff_cells(col_num, row_num, cell, other_cell);
-            }
-        }
-        diff_state.changes
-    }
-
     pub fn diff_against_numbered_line(&self, row_num: usize, other_line: &Line) -> Vec<Change> {
         let mut diff_state = DiffState::default();
         if let Some(line) = self.lines.get(row_num) {
@@ -753,50 +663,6 @@ impl Surface {
             }
         }
         diff_state.changes
-    }
-
-    /// Computes the change stream required to make `self` have the same
-    /// screen contents as `other`.
-    pub fn diff_screens(&self, other: &Surface) -> Vec<Change> {
-        self.diff_region(0, 0, self.width, self.height, other, 0, 0)
-    }
-
-    /// Draw the contents of `other` into self at the specified coordinates.
-    /// The required updates are recorded as Change entries as well as stored
-    /// in the screen line/cell data.
-    /// Saves the cursor position and attributes that were in effect prior to
-    /// calling `draw_from_screen` and restores them after applying the changes
-    /// from the other surface.
-    pub fn draw_from_screen(&mut self, other: &Surface, x: usize, y: usize) -> SequenceNo {
-        let attrs = self.attributes.clone();
-        let cursor = (self.xpos, self.ypos);
-        let changes = self.diff_region(x, y, other.width, other.height, other, 0, 0);
-        let seq = self.add_changes(changes);
-        self.xpos = cursor.0;
-        self.ypos = cursor.1;
-        self.attributes = attrs;
-        seq
-    }
-
-    /// Copy the contents of the specified region to the same sized
-    /// region elsewhere in the screen display.
-    /// The regions may overlap.
-    /// # Panics
-    /// The destination region must be the same size as the source
-    /// (which is implied by the function parameters) and must fit
-    /// within the width and height of the Surface or this operation
-    /// will panic.
-    pub fn copy_region(
-        &mut self,
-        src_x: usize,
-        src_y: usize,
-        width: usize,
-        height: usize,
-        dest_x: usize,
-        dest_y: usize,
-    ) -> SequenceNo {
-        let changes = self.diff_region(dest_x, dest_y, width, height, self, src_x, src_y);
-        self.add_changes(changes)
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::config::{Config, UnixDomain};
 use crate::core::promise::{Future, Promise};
 use crate::frontend::executor;
-use crate::mux::domain::alloc_domain_id;
 use crate::mux::domain::DomainId;
 use crate::mux::Mux;
 use crate::server::codec::*;
@@ -10,7 +9,7 @@ use crate::server::pollable::*;
 use crate::server::tab::ClientTab;
 use crate::server::UnixStream;
 use crossbeam_channel::TryRecvError;
-use failure::{bail, err_msg, format_err, Fallible};
+use failure::{bail, format_err, Fallible};
 use log::info;
 use std::collections::HashMap;
 use std::io::Write;
@@ -319,14 +318,6 @@ impl Client {
     #[allow(dead_code)]
     pub fn local_domain_id(&self) -> DomainId {
         self.local_domain_id
-    }
-
-    pub fn new_default_unix_domain(config: &Arc<Config>, initial: bool) -> Fallible<Self> {
-        let unix_dom = config
-            .unix_domains
-            .first()
-            .ok_or_else(|| err_msg("no default unix domain is configured"))?;
-        Self::new_unix_domain(alloc_domain_id(), config, unix_dom, initial)
     }
 
     pub fn new_unix_domain(
