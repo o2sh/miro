@@ -90,7 +90,7 @@ impl OpenGLRenderState {
             failure::format_err!("Failed to compile shaders: {}", glyph_errors.join("\n"))
         })?;
 
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
+        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &context,
             spritesheet.sprite_height + 1.0,
             metrics,
@@ -215,7 +215,8 @@ impl OpenGLRenderState {
         pixel_width: usize,
         pixel_height: usize,
     ) -> Fallible<()> {
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_vertices(
+        //glyph
+        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
             self.spritesheet.sprite_height + 1.0,
             metrics,
@@ -226,6 +227,7 @@ impl OpenGLRenderState {
         *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
         self.glyph_index_buffer = glyph_index_buffer;
 
+        //header
         let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
             &self.context,
             self.header_color,
@@ -237,7 +239,20 @@ impl OpenGLRenderState {
         *self.header_vertex_buffer.borrow_mut() = header_vertex_buffer;
         self.header_index_buffer = header_index_buffer;
 
+        //sprite
+        self.reset_sprite_pos(pixel_height as f32 / 2.0);
+
         Ok(())
+    }
+
+    pub fn reset_sprite_pos(&mut self, top: f32) {
+        let mut vb = self.sprite_vertex_buffer.borrow_mut();
+        let mut vert = { vb.slice_mut(0..4).unwrap().map() };
+
+        vert[V_TOP_LEFT].position.1 = -top;
+        vert[V_TOP_RIGHT].position.1 = -top;
+        vert[V_BOT_LEFT].position.1 = -top + self.spritesheet.sprite_height;
+        vert[V_BOT_RIGHT].position.1 = -top + self.spritesheet.sprite_height;
     }
 
     fn glyph_vertex_shader(version: &str) -> String {
@@ -270,7 +285,7 @@ impl OpenGLRenderState {
     /// and instead just poke some attributes into the offset that corresponds
     /// to a changed cell when we need to repaint the screen, and then just
     /// let the GPU figure out the rest.
-    fn compute_vertices(
+    fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
         top_padding: f32,
         metrics: &RenderMetrics,
