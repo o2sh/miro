@@ -2,16 +2,16 @@
 #![allow(clippy::let_unit_value)]
 
 use super::window::WindowInner;
-use crate::connection::ConnectionOps;
-use crate::spawn::*;
-use crate::tasks::{Task, Tasks};
+use crate::core::promise::BasicExecutor;
+use crate::window::connection::ConnectionOps;
+use crate::window::spawn::*;
+use crate::window::tasks::{Task, Tasks};
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
 use cocoa::base::{id, nil};
 use core_foundation::date::CFAbsoluteTimeGetCurrent;
 use core_foundation::runloop::*;
 use failure::Fallible;
 use objc::*;
-use promise::BasicExecutor;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

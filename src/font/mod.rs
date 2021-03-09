@@ -21,7 +21,7 @@ pub mod fcftwrap;
 pub mod fcwrap;
 
 #[cfg(target_os = "macos")]
-pub mod core_text;
+pub mod coretext;
 
 use crate::config::{Config, TextStyle};
 use crate::term::CellAttributes;

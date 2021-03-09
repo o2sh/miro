@@ -1,4 +1,4 @@
-use crate::bitmaps::BitmapImage;
+use crate::window::bitmaps::BitmapImage;
 use core_graphics::base::{
     kCGBitmapByteOrder32Little, kCGImageAlphaPremultipliedFirst, kCGRenderingIntentDefault,
 };

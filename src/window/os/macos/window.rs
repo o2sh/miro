@@ -2,10 +2,10 @@
 #![allow(clippy::let_unit_value)]
 
 use super::{nsstring, nsstring_to_str};
-use crate::bitmaps::Image;
-use crate::connection::ConnectionOps;
-use crate::os::macos::bitmap::BitmapRef;
-use crate::{
+use crate::window::bitmaps::Image;
+use crate::window::connection::ConnectionOps;
+use crate::window::os::macos::bitmap::BitmapRef;
+use crate::window::{
     BitmapImage, Color, Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons,
     MouseCursor, MouseEvent, MouseEventKind, MousePress, Operator, PaintContext, Point, Rect, Size,
     WindowCallbacks, WindowOps, WindowOpsMut,
@@ -67,7 +67,6 @@ impl NSRange {
     }
 }
 
-#[cfg(feature = "opengl")]
 mod opengl {
     use super::*;
     use cocoa::appkit::{self, NSOpenGLContext, NSOpenGLPixelFormat};
@@ -270,7 +269,6 @@ impl Window {
                 callbacks,
                 view_id: None,
                 window_id,
-                #[cfg(feature = "opengl")]
                 gl_context_pair: None,
                 text_cursor_position: Rect::new(Point::new(0, 0), Size::new(0, 0)),
             }));
@@ -367,7 +365,6 @@ impl WindowOps for Window {
         });
     }
 
-    #[cfg(feature = "opengl")]
     fn enable_opengl<
         F: Send
             + 'static
@@ -472,7 +469,6 @@ struct Inner {
     callbacks: Box<dyn WindowCallbacks>,
     view_id: Option<WeakPtr>,
     window_id: usize,
-    #[cfg(feature = "opengl")]
     gl_context_pair: Option<opengl::GlContextPair>,
     text_cursor_position: Rect,
 }
@@ -974,14 +970,11 @@ impl WindowView {
     */
 
     extern "C" fn did_resize(this: &mut Object, _sel: Sel, _notification: id) {
-        #[cfg(feature = "opengl")]
-        {
-            if let Some(this) = Self::get_this(this) {
-                let inner = this.inner.borrow_mut();
+        if let Some(this) = Self::get_this(this) {
+            let inner = this.inner.borrow_mut();
 
-                if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
-                    gl_context_pair.backend.update();
-                }
+            if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
+                gl_context_pair.backend.update();
             }
         }
 
@@ -1009,18 +1002,15 @@ impl WindowView {
             let mut inner = this.inner.borrow_mut();
             let mut buffer = this.buffer.borrow_mut();
 
-            #[cfg(feature = "opengl")]
-            {
-                if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
-                    let mut frame = glium::Frame::new(
-                        Rc::clone(&gl_context_pair.context),
-                        (width as u32, height as u32),
-                    );
+            if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
+                let mut frame = glium::Frame::new(
+                    Rc::clone(&gl_context_pair.context),
+                    (width as u32, height as u32),
+                );
 
-                    inner.callbacks.paint_opengl(&mut frame);
-                    frame.finish().expect("frame.finish failed and we don't know how to recover");
-                    return;
-                }
+                inner.callbacks.paint_opengl(&mut frame);
+                frame.finish().expect("frame.finish failed and we don't know how to recover");
+                return;
             }
 
             let (pixel_width, pixel_height) = buffer.image_dimensions();
