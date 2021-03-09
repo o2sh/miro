@@ -4,7 +4,6 @@ use super::spritesheet::*;
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::config::{TextStyle, Theme};
 use crate::font::{FontConfiguration, GlyphInfo};
-use crate::term::color::RgbColor;
 use crate::window::bitmaps::ImageTexture;
 use crate::window::color::Color;
 use failure::Fallible;

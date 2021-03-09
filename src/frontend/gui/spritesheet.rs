@@ -30,8 +30,8 @@ impl SpriteSheet {
             });
         }
 
-        let sprite_height = sprites[0].size.0;
-        let sprite_width = sprites[0].size.1;
+        let sprite_width = sprites[0].size.0;
+        let sprite_height = sprites[0].size.1;
         SpriteSheet {
             image_path: String::from(&config.image_path),
             sprites,

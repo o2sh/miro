@@ -1,7 +1,6 @@
 {
   "meta": {
-    "app": "http://www.aseprite.org/",
-    "image": "assets/gfx/mario.png",
+    "image": "assets/mario.png",
     "size": {
       "w": 96,
       "h": 32

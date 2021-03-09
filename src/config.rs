@@ -40,7 +40,7 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            spritesheet_path: String::from("assets/gfx/mario.json"),
+            spritesheet_path: String::from("assets/mario.json"),
             header_color: RgbColor { red: 99, green: 137, blue: 250 },
         }
     }

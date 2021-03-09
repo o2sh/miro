@@ -236,7 +236,7 @@ impl ConnectionOps for Connection {
         poll.register(self, tok_xcb, Ready::readable(), PollOpt::level())?;
         poll.register(&*SPAWN_QUEUE, tok_spawn, Ready::readable(), PollOpt::level())?;
 
-        let paint_interval = Duration::from_millis(25);
+        let paint_interval = Duration::from_millis(100);
         let mut last_interval = Instant::now();
 
         while !*self.should_terminate.borrow() {

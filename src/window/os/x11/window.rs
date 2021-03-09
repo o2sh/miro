@@ -84,8 +84,6 @@ impl WindowInner {
             self.paint_all = false;
             self.expose.clear();
             self.expose.push_back(window_dimensions);
-        } else if self.expose.is_empty() {
-            return Ok(());
         }
 
         if let Some(gl_context) = self.gl_state.as_ref() {
