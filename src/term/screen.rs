@@ -1,4 +1,5 @@
 use super::*;
+use log::debug;
 use std::collections::VecDeque;
 
 /// Holds the model of a screen.  This can either be the primary screen
@@ -31,9 +32,12 @@ impl Screen {
     /// The Cells in the viewable portion of the screen are set to the
     /// default cell attributes.
     pub fn new(physical_rows: usize, physical_cols: usize, scrollback_size: usize) -> Screen {
+        let physical_rows = physical_rows.max(1);
+        let physical_cols = physical_cols.max(1);
+
         let mut lines = VecDeque::with_capacity(physical_rows + scrollback_size);
         for _ in 0..physical_rows {
-            lines.push_back(Line::new(physical_cols));
+            lines.push_back(Line::with_width(physical_cols));
         }
 
         Screen { lines, scrollback_size, physical_rows, physical_cols }
@@ -41,6 +45,9 @@ impl Screen {
 
     /// Resize the physical, viewable portion of the screen
     pub fn resize(&mut self, physical_rows: usize, physical_cols: usize) {
+        let physical_rows = physical_rows.max(1);
+        let physical_cols = physical_cols.max(1);
+
         let capacity = physical_rows + self.scrollback_size;
         let current_capacity = self.lines.capacity();
         if capacity > current_capacity {
@@ -50,7 +57,7 @@ impl Screen {
         if physical_rows > self.physical_rows {
             // Enlarging the viewable portion?  Add more lines at the bottom
             for _ in self.physical_rows..physical_rows {
-                self.lines.push_back(Line::new(physical_cols));
+                self.lines.push_back(Line::with_width(physical_cols));
             }
         }
         self.physical_rows = physical_rows;
@@ -58,12 +65,9 @@ impl Screen {
     }
 
     /// Get mutable reference to a line, relative to start of scrollback.
-    /// Sets the line dirty.
     #[inline]
     pub fn line_mut(&mut self, idx: PhysRowIndex) -> &mut Line {
-        let line = &mut self.lines[idx];
-        line.set_dirty();
-        line
+        &mut self.lines[idx]
     }
 
     /// Sets a line dirty.  The line is relative to the visible origin.
@@ -75,62 +79,71 @@ impl Screen {
         }
     }
 
+    /// Returns a copy of the visible lines in the screen (no scrollback)
+    #[cfg(test)]
+    pub fn visible_lines(&self) -> Vec<Line> {
+        let line_idx = self.lines.len() - self.physical_rows;
+        let mut lines = Vec::new();
+        for line in self.lines.iter().skip(line_idx) {
+            if lines.len() >= self.physical_rows {
+                break;
+            }
+            lines.push(line.clone());
+        }
+        lines
+    }
+
+    /// Returns a copy of the lines in the screen (including scrollback)
+    #[cfg(test)]
+    pub fn all_lines(&self) -> Vec<Line> {
+        self.lines.iter().map(|l| l.clone()).collect()
+    }
+
+    pub fn insert_cell(&mut self, x: usize, y: VisibleRowIndex) {
+        let phys_cols = self.physical_cols;
+
+        let line_idx = self.phys_row(y);
+        let line = self.line_mut(line_idx);
+        line.insert_cell(x, Cell::default());
+        if line.cells().len() > phys_cols {
+            line.resize(phys_cols);
+        }
+    }
+
     pub fn erase_cell(&mut self, x: usize, y: VisibleRowIndex) {
         let line_idx = self.phys_row(y);
         let line = self.line_mut(line_idx);
-        line.cells.remove(x);
-        line.cells.push(Cell::default());
+        line.erase_cell(x);
     }
 
     /// Set a cell.  the x and y coordinates are relative to the visible screeen
     /// origin.  0,0 is the top left.
-    pub fn set_cell(
-        &mut self,
-        x: usize,
-        y: VisibleRowIndex,
-        c: char,
-        attr: &CellAttributes,
-    ) -> &Cell {
+    pub fn set_cell(&mut self, x: usize, y: VisibleRowIndex, cell: &Cell) -> &Cell {
         let line_idx = self.phys_row(y);
-        debug!("set_cell {} x={} y={} phys={} {:?}", c, x, y, line_idx, attr);
+        //debug!("set_cell x={} y={} phys={} {:?}", x, y, line_idx, cell);
 
         let line = self.line_mut(line_idx);
-
-        if attr.hyperlink.is_some() {
-            line.set_has_hyperlink(true);
-        }
-
-        let width = line.cells.len();
-        let cell = Cell::from_char(c, attr);
-        if x == width {
-            line.cells.push(cell);
-        } else if x > width {
-            // if the line isn't wide enough, pad it out with the default attributes
-            line.cells.resize(x, Cell::default());
-            line.cells.push(cell);
-        } else {
-            line.cells[x] = cell;
-        }
-        &line.cells[x]
+        line.set_cell(x, cell.clone())
     }
 
-    pub fn clear_line(&mut self, y: VisibleRowIndex, cols: std::ops::Range<usize>) {
+    pub fn clear_line(
+        &mut self,
+        y: VisibleRowIndex,
+        cols: impl Iterator<Item = usize>,
+        attr: &CellAttributes,
+    ) {
+        let physical_cols = self.physical_cols;
         let line_idx = self.phys_row(y);
         let line = self.line_mut(line_idx);
-        let max_col = line.cells.len();
-        for x in cols {
-            if x >= max_col {
-                break;
-            }
-            line.cells[x].reset();
-        }
+        line.resize(physical_cols);
+        line.fill_range(cols, &Cell::new(' ', attr.clone()));
     }
 
     /// Translate a VisibleRowIndex into a PhysRowIndex.  The resultant index
     /// will be invalidated by inserting or removing rows!
     #[inline]
     pub fn phys_row(&self, row: VisibleRowIndex) -> PhysRowIndex {
-        assert!(row >= 0);
+        assert!(row >= 0, "phys_row called with negative row {}", row);
         (self.lines.len() - self.physical_rows) + row as usize
     }
 
@@ -171,10 +184,10 @@ impl Screen {
     /// If the top of the region is the top of the visible display, rather than
     /// removing the lines we let them go into the scrollback.
     pub fn scroll_up(&mut self, scroll_region: &Range<VisibleRowIndex>, num_rows: usize) {
-        debug!("scroll_up {:?} {}", scroll_region, num_rows);
-        let phys_scroll = self.phys_range(&scroll_region);
-        debug_assert!(num_rows <= phys_scroll.end - phys_scroll.start);
+        let phys_scroll = self.phys_range(scroll_region);
+        let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);
 
+        debug!("scroll_up {:?} num_rows={} phys_scroll={:?}", scroll_region, num_rows, phys_scroll);
         // Invalidate the lines that will move before they move so that
         // the indices of the lines are stable (we may remove lines below)
         for y in phys_scroll.clone() {
@@ -205,7 +218,7 @@ impl Screen {
             for _ in 0..to_move {
                 let mut line = self.lines.remove(remove_idx).unwrap();
                 // Make the line like a new one of the appropriate width
-                line.reset(self.physical_cols);
+                line.resize_and_clear(self.physical_cols);
                 if scroll_region.end as usize == self.physical_rows {
                     self.lines.push_back(line);
                 } else {
@@ -225,11 +238,11 @@ impl Screen {
         if scroll_region.end as usize == self.physical_rows {
             // It's cheaper to push() than it is insert() at the end
             for _ in 0..to_add {
-                self.lines.push_back(Line::new(self.physical_cols));
+                self.lines.push_back(Line::with_width(self.physical_cols));
             }
         } else {
             for _ in 0..to_add {
-                self.lines.insert(phys_scroll.end - 1, Line::new(self.physical_cols));
+                self.lines.insert(phys_scroll.end, Line::with_width(self.physical_cols));
             }
         }
     }
@@ -242,12 +255,12 @@ impl Screen {
     ///
     /// scroll the region down by num_rows.  Any rows that would be scrolled
     /// beyond the bottom get removed from the screen.
-    /// In other words, we remove (bottom-num_rows..bottom) and then insert num_rows
-    /// at scroll_top.
+    /// In other words, we remove (bottom-num_rows..bottom) and then insert
+    /// num_rows at scroll_top.
     pub fn scroll_down(&mut self, scroll_region: &Range<VisibleRowIndex>, num_rows: usize) {
         debug!("scroll_down {:?} {}", scroll_region, num_rows);
-        let phys_scroll = self.phys_range(&scroll_region);
-        assert!(num_rows <= phys_scroll.end - phys_scroll.start);
+        let phys_scroll = self.phys_range(scroll_region);
+        let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);
 
         let middle = phys_scroll.end - num_rows;
 
@@ -261,7 +274,7 @@ impl Screen {
         }
 
         for _ in 0..num_rows {
-            self.lines.insert(phys_scroll.start, Line::new(self.physical_cols));
+            self.lines.insert(phys_scroll.start, Line::with_width(self.physical_cols));
         }
     }
 }

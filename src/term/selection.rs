@@ -1,8 +1,12 @@
-use super::ScrollbackOrVisibleRowIndex;
+// The range_plus_one lint can't see when the LHS is not compatible with
+// and inclusive range
+#![cfg_attr(feature = "cargo-clippy", allow(clippy::range_plus_one))]
+use super::{ScrollbackOrVisibleRowIndex, VisibleRowIndex};
+use serde_derive::*;
 use std::ops::Range;
 
 /// The x,y coordinates of either the start or end of a selection region
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SelectionCoordinate {
     pub x: usize,
     pub y: ScrollbackOrVisibleRowIndex,
@@ -10,7 +14,7 @@ pub struct SelectionCoordinate {
 
 /// Represents the selected text range.
 /// The end coordinates are inclusive.
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SelectionRange {
     pub start: SelectionCoordinate,
     pub end: SelectionCoordinate,
@@ -19,22 +23,41 @@ pub struct SelectionRange {
 impl SelectionRange {
     /// Create a new range that starts at the specified location
     pub fn start(start: SelectionCoordinate) -> Self {
-        let end = start.clone();
+        let end = start;
         Self { start, end }
+    }
+
+    /// Returns a modified version of the selection that is adjusted
+    /// for a Surface that holds only the visible viewport.
+    /// The y values are adjusted such that 0 indicates the top of
+    /// the viewport.
+    pub fn clip_to_viewport(
+        &self,
+        viewport_offset: VisibleRowIndex,
+        height: usize,
+    ) -> SelectionRange {
+        let offset = -viewport_offset as ScrollbackOrVisibleRowIndex;
+        SelectionRange {
+            start: SelectionCoordinate { x: self.start.x, y: self.start.y.max(offset) - offset },
+            end: SelectionCoordinate {
+                x: self.end.x,
+                y: self.end.y.min(offset + height as ScrollbackOrVisibleRowIndex) - offset,
+            },
+        }
     }
 
     /// Returns an extended selection that it ends at the specified location
     pub fn extend(&self, end: SelectionCoordinate) -> Self {
-        Self { start: self.start.clone(), end }
+        Self { start: self.start, end }
     }
 
     /// Return a normalized selection such that the starting y coord
     /// is <= the ending y coord.
     pub fn normalize(&self) -> Self {
         if self.start.y <= self.end.y {
-            self.clone()
+            *self
         } else {
-            Self { start: self.end.clone(), end: self.start.clone() }
+            Self { start: self.end, end: self.start }
         }
     }
 

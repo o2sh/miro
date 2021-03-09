@@ -39,3 +39,7 @@ sudo pacman -S libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
 Miro only runs on Linux with XCB and OpenGL ES 2.
 
 Please feel free to suggest any kind of improvements, refactorings or just more funny themes! ❤️
+
+## Acknowledgement
+
+This project is based on another great terminal: [WezTerm](https://github.com/wez/wezterm/)

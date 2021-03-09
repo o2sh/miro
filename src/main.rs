@@ -7,168 +7,122 @@ extern crate serde_derive;
 #[macro_use]
 extern crate glium;
 
-use crate::window::terminal_window::TerminalWindow;
-use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
-use config::{get_shell, Config, Theme};
-use failure::Error;
-use font::{FontConfiguration, FontSystemSelection};
-use glium::glutin;
-use mio::unix::EventedFd;
-use mio::Events;
-use mio::{Poll, PollOpt, Ready, Token};
-use pty::openpty;
-use std::env;
-use std::os::unix::io::AsRawFd;
-use std::process::Command;
+use failure::{err_msg, format_err, Error, Fallible};
+use std::ffi::OsString;
+use std::fs::DirBuilder;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::Path;
 use std::rc::Rc;
-use std::thread;
-use std::time::{Duration, Instant};
-use sysinfo::{System, SystemExt};
-use term::color::RgbColor;
-use wakeup::{Wakeup, WakeupMsg};
+use std::sync::Arc;
 
+use crate::font::{FontConfiguration, FontSystemSelection};
+use crate::frontend::{executor, front_end, FrontEndSelection};
+use crate::mux::domain::{Domain, LocalDomain};
+use crate::mux::Mux;
+use crate::pty::cmdbuilder::CommandBuilder;
+use crate::pty::PtySize;
+use crate::server::client::{unix_connect_with_retry, Client};
+use crate::server::domain::{ClientDomain, ClientDomainConfig};
+
+mod clipboard;
 mod config;
+mod core;
 mod font;
-mod opengl;
+mod frontend;
+mod keyassignment;
+mod localtab;
+mod mux;
 mod pty;
-mod sigchld;
+mod ratelim;
+mod server;
 mod term;
-mod wakeup;
 mod window;
 
-fn run(theme: Theme) -> Result<(), Error> {
-    let config = Rc::new(Config::new(theme));
-    let font_system = FontSystemSelection::default();
-    let fontconfig = Rc::new(FontConfiguration::new(Rc::clone(&config), font_system));
-    let event_loop = glutin::event_loop::EventLoop::<WakeupMsg>::with_user_event();
-    let sys = System::new();
+#[derive(Debug, Default, Clone)]
+struct StartCommand {
+    front_end: Option<FrontEndSelection>,
 
-    let (wakeup_receiver, wakeup) = Wakeup::new(event_loop.create_proxy());
-    sigchld::activate(wakeup.clone())?;
+    font_system: Option<FontSystemSelection>,
 
-    let cmd = Command::new(get_shell()?);
-    let font = fontconfig.default_font()?;
-    let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+    /// If true, do not connect to domains marked as connect_automatically
+    /// in your miro.toml configuration file.
+    no_auto_connect: bool,
 
-    let initial_cols = 80u16;
-    let initial_rows = 24u16;
-    let initial_pixel_width = initial_cols * metrics.cell_width.ceil() as u16;
-    let initial_pixel_height = initial_rows * metrics.cell_height.ceil() as u16;
+    /// Detach from the foreground and become a background process
+    daemonize: bool,
 
-    let (master, slave) =
-        openpty(initial_rows, initial_cols, initial_pixel_width, initial_pixel_height)?;
+    /// Instead of executing your shell, run PROG.
+    /// For example: `miro start -- bash -l` will spawn bash
+    /// as if it were a login shell.
+    prog: Vec<OsString>,
+}
 
-    let child = slave.spawn_command(cmd)?;
-
-    let terminal = term::Terminal::new(
-        initial_rows as usize,
-        initial_cols as usize,
-        config.scrollback_lines.unwrap_or(3500),
-    );
-
-    let master_fd = master.as_raw_fd();
-    let mut window = TerminalWindow::new(
-        &event_loop,
-        wakeup_receiver,
-        terminal,
-        master,
-        child,
-        &fontconfig,
-        &config,
-        sys,
-    )?;
-    {
-        let mut wakeup = wakeup.clone();
-        thread::spawn(move || {
-            let poll = Poll::new().expect("mio Poll failed to init");
-            poll.register(&EventedFd(&master_fd), Token(0), Ready::readable(), PollOpt::edge())
-                .expect("failed to register pty");
-            let mut events = Events::with_capacity(8);
-            let mut last_paint = Instant::now();
-            let refresh = Duration::from_millis(100);
-
-            loop {
-                let now = Instant::now();
-                let diff = now - last_paint;
-                let period = if diff >= refresh {
-                    // Tick and wakeup the gui thread to ask it to render
-                    // if needed.  Without this we'd only repaint when
-                    // the window system decides that we were damaged.
-                    // We don't want to paint after every state change
-                    // as that would be too frequent.
-                    wakeup.send(WakeupMsg::Paint).expect("failed to wakeup gui thread");
-                    last_paint = now;
-                    refresh
-                } else {
-                    refresh - diff
-                };
-
-                match poll.poll(&mut events, Some(period)) {
-                    Ok(_) => {
-                        for event in &events {
-                            if event.token() == Token(0) && event.readiness().is_readable() {
-                                wakeup
-                                    .send(WakeupMsg::PtyReadable)
-                                    .expect("failed to wakeup gui thread");
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        });
+fn client_domains(config: &Arc<config::Config>) -> Vec<ClientDomainConfig> {
+    let mut domains = vec![];
+    for unix_dom in &config.unix_domains {
+        domains.push(ClientDomainConfig::Unix(unix_dom.clone()));
     }
 
-    event_loop.run(move |event, _, control_flow| match window.dispatch_event(event) {
-        Ok(_) => return,
-        Err(err) => {
-            eprintln!("{:?}", err);
-            *control_flow = glutin::event_loop::ControlFlow::Exit;
-            return;
+    domains
+}
+
+pub fn create_user_owned_dirs(p: &Path) -> Fallible<()> {
+    let mut builder = DirBuilder::new();
+    builder.recursive(true);
+
+    builder.mode(0o700);
+
+    builder.create(p)?;
+    Ok(())
+}
+
+fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<(), Error> {
+    let font_system = config.font_system;
+    font_system.set_default();
+
+    let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config), font_system));
+
+    let cmd = Some(CommandBuilder::new_default_prog());
+
+    let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local", &config)?);
+    let mux = Rc::new(mux::Mux::new(&config, Some(domain.clone())));
+    Mux::set_mux(&mux);
+
+    let front_end = opts.front_end.unwrap_or(config.front_end);
+    let gui = front_end.try_new()?;
+    domain.attach()?;
+
+    fn record_domain(mux: &Rc<Mux>, client: ClientDomain) -> Fallible<Arc<dyn Domain>> {
+        let domain: Arc<dyn Domain> = Arc::new(client);
+        mux.add_domain(&domain);
+        Ok(domain)
+    }
+
+    if front_end != FrontEndSelection::MuxServer && !opts.no_auto_connect {
+        for client_config in client_domains(&config) {
+            let connect_automatically = client_config.connect_automatically();
+            let dom = record_domain(&mux, ClientDomain::new(client_config))?;
+            if connect_automatically {
+                dom.attach()?;
+            }
         }
-    });
+    }
+
+    if mux.is_empty() {
+        let window_id = mux.new_empty_window();
+        let tab = mux.default_domain().spawn(PtySize::default(), cmd, window_id)?;
+        gui.spawn_new_window(mux.config(), &fontconfig, &tab, window_id)?;
+    }
+
+    gui.run_forever()
+}
+
+fn run() -> Result<(), Error> {
+    let config = Arc::new(config::Config::default_config());
+    let start = StartCommand::default();
+    run_terminal_gui(config, &start)
 }
 
 fn main() -> Result<(), Error> {
-    let matches = App::new(crate_name!())
-        .version(crate_version!())
-        .about(crate_description!())
-        .setting(AppSettings::ColoredHelp)
-        .setting(AppSettings::DeriveDisplayOrder)
-        .setting(AppSettings::UnifiedHelpMessage)
-        .arg(
-            Arg::with_name("theme")
-                .short("t")
-                .long("theme")
-                .help("Which theme to use.")
-                .possible_values(&["mario", "sonic", "pika", "mega", "kirby"])
-                .default_value("mario"),
-        )
-        .get_matches();
-
-    let theme = match matches.value_of("theme") {
-        Some("mario") => Theme {
-            spritesheet_path: String::from("assets/gfx/mario.json"),
-            header_color: RgbColor { red: 99, green: 137, blue: 250 },
-        },
-        Some("sonic") => Theme {
-            spritesheet_path: String::from("assets/gfx/sonic.json"),
-            header_color: RgbColor { red: 8, green: 129, blue: 0 },
-        },
-        Some("pika") => Theme {
-            spritesheet_path: String::from("assets/gfx/pika.json"),
-            header_color: RgbColor { red: 176, green: 139, blue: 24 },
-        },
-        Some("mega") => Theme {
-            spritesheet_path: String::from("assets/gfx/mega.json"),
-            header_color: RgbColor { red: 1, green: 135, blue: 147 },
-        },
-        Some("kirby") => Theme {
-            spritesheet_path: String::from("assets/gfx/kirby.json"),
-            header_color: RgbColor { red: 242, green: 120, blue: 141 },
-        },
-        _ => unreachable!("other values are not allowed"),
-    };
-
-    run(theme)
+    run()
 }

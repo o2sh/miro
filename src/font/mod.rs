@@ -8,6 +8,7 @@ use self::hbwrap as harfbuzz;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub mod system;
 pub use self::system::*;
@@ -22,14 +23,14 @@ pub mod fcwrap;
 #[cfg(target_os = "macos")]
 pub mod core_text;
 
-use super::config::{Config, TextStyle};
+use crate::config::{Config, TextStyle};
 use crate::term::CellAttributes;
 
 type FontPtr = Rc<RefCell<Box<dyn NamedFont>>>;
 
 /// Matches and loads fonts for a given input style
 pub struct FontConfiguration {
-    config: Rc<Config>,
+    config: Arc<Config>,
     fonts: RefCell<HashMap<TextStyle, FontPtr>>,
     system: Rc<dyn FontSystem>,
     metrics: RefCell<Option<FontMetrics>>,
@@ -66,9 +67,10 @@ impl FontSystemSelection {
                 #[cfg(not(all(unix, any(feature = "fontconfig", not(target_os = "macos")))))]
                 panic!("fontconfig not compiled in");
             }
+
             FontSystemSelection::CoreText => {
                 #[cfg(target_os = "macos")]
-                return Rc::new(core_text::FontSystemImpl::new());
+                return Rc::new(coretext::FontSystemImpl::new());
                 #[cfg(not(target_os = "macos"))]
                 panic!("coretext not compiled in");
             }
@@ -76,6 +78,16 @@ impl FontSystemSelection {
     }
     pub fn variants() -> Vec<&'static str> {
         vec!["FontConfigAndFreeType", "CoreText"]
+    }
+
+    pub fn set_default(self) {
+        DEFAULT_FONT_SYSTEM.with(|def| {
+            *def.borrow_mut() = self;
+        });
+    }
+
+    pub fn get_default() -> Self {
+        DEFAULT_FONT_SYSTEM.with(|def| *def.borrow())
     }
 }
 
@@ -96,7 +108,7 @@ impl std::str::FromStr for FontSystemSelection {
 
 impl FontConfiguration {
     /// Create a new empty configuration
-    pub fn new(config: Rc<Config>, system: FontSystemSelection) -> Self {
+    pub fn new(config: Arc<Config>, system: FontSystemSelection) -> Self {
         Self {
             config,
             fonts: RefCell::new(HashMap::new()),
@@ -136,10 +148,6 @@ impl FontConfiguration {
 
     pub fn get_font_scale(&self) -> f64 {
         *self.font_scale.borrow()
-    }
-
-    pub fn get_dpi_scale(&self) -> f64 {
-        *self.dpi_scale.borrow()
     }
 
     pub fn default_font_metrics(&self) -> Result<FontMetrics, Error> {

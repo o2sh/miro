@@ -1,57 +1,34 @@
-use std::time::{Duration, Instant};
+// clippy hates bitflags
+#![cfg_attr(
+    feature = "cargo-clippy",
+    allow(clippy::suspicious_arithmetic_impl, clippy::redundant_field_names)
+)]
 
 use super::VisibleRowIndex;
+use serde_derive::*;
+use std::time::{Duration, Instant};
 
-bitflags! {
-    #[derive(Default)]
-    pub struct KeyModifiers :u8{
-        const CTRL = 1;
-        const ALT = 2;
-        const META = 4;
-        const SUPER = 8;
-        const SHIFT = 16;
-    }
-}
+pub use crate::core::input::KeyCode;
+pub use crate::core::input::Modifiers as KeyModifiers;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum KeyCode {
-    Char(char),
-    Unknown,
-    Control,
-    Alt,
-    Meta,
-    Super,
-    Hyper,
-    Shift,
-    Left,
-    Up,
-    Right,
-    Down,
-    PageUp,
-    PageDown,
-    Home,
-    End,
-    Insert,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MouseButton {
     Left,
     Middle,
     Right,
-    WheelUp,
-    WheelDown,
+    WheelUp(usize),
+    WheelDown(usize),
     None,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MouseEventKind {
     Press,
     Release,
     Move,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MouseEvent {
     pub kind: MouseEventKind,
     pub x: usize,
@@ -62,9 +39,9 @@ pub struct MouseEvent {
 
 /// This is a little helper that keeps track of the "click streak",
 /// which is the number of successive clicks of the same mouse button
-/// within the CLICK_INTERVAL.  The streak is reset to 1 each time
+/// within the `CLICK_INTERVAL`.  The streak is reset to 1 each time
 /// the mouse button differs from the last click, or when the elapsed
-/// time exceeds CLICK_INTERVAL.
+/// time exceeds `CLICK_INTERVAL`.
 #[derive(Debug)]
 pub struct LastMouseClick {
     button: MouseButton,
