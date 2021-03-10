@@ -365,6 +365,12 @@ impl Window {
     }
 }
 
+/// The X protocol allows referencing a number of drawable
+/// objects.  This trait marks those objects here in code.
+pub trait Drawable {
+    fn as_drawable(&self) -> xcb::xproto::Drawable;
+}
+
 impl Drawable for Window {
     fn as_drawable(&self) -> xcb::xproto::Drawable {
         self.0
