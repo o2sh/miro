@@ -3,8 +3,6 @@ use crate::window::{Point, Rect, Size};
 use failure::{ensure, Fallible};
 use std::rc::Rc;
 
-pub const TEX_SIZE: u32 = 4096;
-
 #[derive(Debug, Fail)]
 #[fail(display = "Texture Size exceeded, need {}", size)]
 pub struct OutOfTextureSpace {

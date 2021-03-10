@@ -1,9 +1,9 @@
-use super::glyphcache::{CachedGlyph, GlyphCache};
+use super::glyphcache::GlyphCache;
 use super::quad::*;
 use super::spritesheet::*;
 use super::utilsprites::{RenderMetrics, UtilSprites};
-use crate::config::{TextStyle, Theme};
-use crate::font::{FontConfiguration, GlyphInfo};
+use crate::config::Theme;
+use crate::font::FontConfiguration;
 use crate::window::bitmaps::ImageTexture;
 use crate::window::color::Color;
 use failure::Fallible;
@@ -478,25 +478,6 @@ impl RenderState {
             gl.advise_of_window_size_change(metrics, pixel_width, pixel_height)?;
         }
         Ok(())
-    }
-
-    pub fn cached_software_glyph(
-        &self,
-        info: &GlyphInfo,
-        style: &TextStyle,
-    ) -> Fallible<Rc<CachedGlyph<ImageTexture>>> {
-        if let RenderState::Software(software) = self {
-            software.glyph_cache.borrow_mut().cached_glyph(info, style)
-        } else {
-            failure::bail!("attempted to call cached_software_glyph when in gl mode")
-        }
-    }
-
-    pub fn software(&self) -> &SoftwareRenderState {
-        match self {
-            RenderState::Software(software) => software,
-            _ => panic!("only valid for software render mode"),
-        }
     }
 
     pub fn opengl(&self) -> &OpenGLRenderState {

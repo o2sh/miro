@@ -388,50 +388,6 @@ impl Image {
     }
 
     /// Create a new bgra32 image buffer with the specified dimensions.
-    /// The buffer is populated with the source data in bgr24 format.
-    pub fn with_bgr24(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
-        let mut image = Image::new(width, height);
-        for y in 0..height {
-            let src_offset = y * stride;
-            let dest_offset = y * width * 4;
-            #[allow(clippy::identity_op)]
-            for x in 0..width {
-                let blue = data[src_offset + (x * 3) + 0];
-                let green = data[src_offset + (x * 3) + 1];
-                let red = data[src_offset + (x * 3) + 2];
-                let alpha = red | green | blue;
-                image.data[dest_offset + (x * 4) + 0] = blue;
-                image.data[dest_offset + (x * 4) + 1] = green;
-                image.data[dest_offset + (x * 4) + 2] = red;
-                image.data[dest_offset + (x * 4) + 3] = alpha;
-            }
-        }
-        image
-    }
-
-    /// Create a new bgra32 image buffer with the specified dimensions.
-    /// The buffer is populated with the source data in argb32 format.
-    pub fn with_bgra32(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
-        let mut image = Image::new(width, height);
-        for y in 0..height {
-            let src_offset = y * stride;
-            let dest_offset = y * width * 4;
-            #[allow(clippy::identity_op)]
-            for x in 0..width {
-                let blue = data[src_offset + (x * 4) + 0];
-                let green = data[src_offset + (x * 4) + 1];
-                let red = data[src_offset + (x * 4) + 2];
-                let alpha = data[src_offset + (x * 4) + 3];
-                image.data[dest_offset + (x * 4) + 0] = blue;
-                image.data[dest_offset + (x * 4) + 1] = green;
-                image.data[dest_offset + (x * 4) + 2] = red;
-                image.data[dest_offset + (x * 4) + 3] = alpha;
-            }
-        }
-        image
-    }
-
-    /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is populated with the source data in rgba32 format.
     pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
         let mut image = Image::new(width, height);
@@ -448,23 +404,6 @@ impl Image {
                 image.data[dest_offset + (x * 4) + 1] = green;
                 image.data[dest_offset + (x * 4) + 2] = red;
                 image.data[dest_offset + (x * 4) + 3] = alpha;
-            }
-        }
-        image
-    }
-
-    pub fn with_8bpp(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
-        let mut image = Image::new(width, height);
-        for y in 0..height {
-            let src_offset = y * stride;
-            let dest_offset = y * width * 4;
-            #[allow(clippy::identity_op)]
-            for x in 0..width {
-                let gray = data[src_offset + x];
-                image.data[dest_offset + (x * 4) + 0] = gray;
-                image.data[dest_offset + (x * 4) + 1] = gray;
-                image.data[dest_offset + (x * 4) + 2] = gray;
-                image.data[dest_offset + (x * 4) + 3] = gray;
             }
         }
         image

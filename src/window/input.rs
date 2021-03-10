@@ -5,29 +5,11 @@ use bitflags::*;
 pub enum KeyCode {
     /// The decoded unicode character
     Char(char),
-    Composed(String),
-
-    Hyper,
     Super,
-    Meta,
-
-    /// Ctrl-break on windows
-    Cancel,
-    // There is no `Backspace`; use `Char('\u{8}') instead
-
-    // There is no `Tab`; use `Char('\t')` instead
     Clear,
-    // There is no `Enter`; use `Char('\r')` instead
     Shift,
-    // There is no `Escape`; use `Char('\u{1b}') instead
-    LeftShift,
-    RightShift,
     Control,
-    LeftControl,
-    RightControl,
     Alt,
-    LeftAlt,
-    RightAlt,
     Pause,
     CapsLock,
     PageUp,
@@ -38,18 +20,10 @@ pub enum KeyCode {
     RightArrow,
     UpArrow,
     DownArrow,
-    Select,
     Print,
-    Execute,
-    PrintScreen,
     Insert,
-    // There is no `Delete`; use `Char('\u{7f}')` instead
     Help,
-    LeftWindows,
-    RightWindows,
     Applications,
-    Sleep,
-    /// Numeric keypad digits 0-9
     Numpad(u8),
     Multiply,
     Add,
@@ -65,20 +39,12 @@ pub enum KeyCode {
     BrowserForward,
     BrowserRefresh,
     BrowserStop,
-    BrowserSearch,
+
     BrowserFavorites,
     BrowserHome,
     VolumeMute,
     VolumeDown,
     VolumeUp,
-    MediaNextTrack,
-    MediaPrevTrack,
-    MediaStop,
-    MediaPlayPause,
-    ApplicationLeftArrow,
-    ApplicationRightArrow,
-    ApplicationUpArrow,
-    ApplicationDownArrow,
 }
 
 bitflags! {
@@ -116,10 +82,7 @@ pub enum MouseEventKind {
     Move,
     Press(MousePress),
     Release(MousePress),
-    /// Note: DoubleClick is never generated on X11!
-    DoubleClick(MousePress),
     VertWheel(i16),
-    HorzWheel(i16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

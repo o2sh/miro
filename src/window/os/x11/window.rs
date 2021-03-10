@@ -16,12 +16,10 @@ pub(crate) struct WindowInner {
     window_id: xcb::xproto::Window,
     conn: Rc<Connection>,
     callbacks: Box<dyn WindowCallbacks>,
-    window_context: Context,
     width: u16,
     height: u16,
     expose: VecDeque<Rect>,
     paint_all: bool,
-    buffer_image: BufferImage,
     cursor: Option<MouseCursor>,
     gl_state: Option<Rc<glium::backend::Context>>,
 }
@@ -80,83 +78,26 @@ impl WindowInner {
         let window_dimensions =
             Rect::from_size(Size::new(self.width as isize, self.height as isize));
 
-        if self.paint_all {
-            self.paint_all = false;
-            self.expose.clear();
-            self.expose.push_back(window_dimensions);
-        }
-
         if let Some(gl_context) = self.gl_state.as_ref() {
             self.expose.clear();
-
             let mut frame = glium::Frame::new(
                 Rc::clone(&gl_context),
                 (u32::from(self.width), u32::from(self.height)),
             );
+            self.callbacks.paint_header(&mut frame);
+
+            if self.paint_all {
+                self.paint_all = false;
+                self.expose.clear();
+                self.expose.push_back(window_dimensions);
+            } else if self.expose.is_empty() {
+                frame.finish()?;
+                return Ok(());
+            }
 
             self.callbacks.paint_opengl(&mut frame);
             frame.finish()?;
             return Ok(());
-        }
-
-        let (buf_width, buf_height) = self.buffer_image.image_dimensions();
-        if buf_width != self.width as usize || buf_height != self.height as usize {
-            // Window was resized, so we need to update our buffer
-            self.buffer_image = BufferImage::new(
-                &self.conn,
-                self.window_id,
-                self.width as usize,
-                self.height as usize,
-            );
-        }
-
-        for rect in self.expose.drain(..) {
-            // Clip the rectangle to the current window size.
-            // It can be larger than the window size in the case where we are working
-            // through a series of resize exposures during a live resize, and we're
-            // now sized smaller then when we queued the exposure.
-            let rect = Rect::new(
-                rect.origin,
-                Size::new(
-                    rect.size.width.min(self.width as isize),
-                    rect.size.height.min(self.height as isize),
-                ),
-            );
-
-            let mut context = X11GraphicsContext { buffer: &mut self.buffer_image };
-
-            self.callbacks.paint(&mut context);
-
-            match &self.buffer_image {
-                BufferImage::Shared(ref im) => {
-                    self.window_context.copy_area(
-                        im,
-                        rect.origin.x as i16,
-                        rect.origin.y as i16,
-                        &self.window_id,
-                        rect.origin.x as i16,
-                        rect.origin.y as i16,
-                        rect.size.width as u16,
-                        rect.size.height as u16,
-                    );
-                }
-                BufferImage::Image(ref buffer) => {
-                    if rect == window_dimensions {
-                        self.window_context.put_image(0, 0, buffer);
-                    } else {
-                        let mut im =
-                            Image::new(rect.size.width as usize, rect.size.height as usize);
-
-                        im.draw_image(Point::new(0, 0), Some(rect), buffer, Operator::Source);
-
-                        self.window_context.put_image(
-                            rect.origin.x as i16,
-                            rect.origin.y as i16,
-                            &im,
-                        );
-                    }
-                }
-            }
         }
 
         Ok(())
@@ -388,20 +329,14 @@ impl Window {
             )
             .request_check()?;
 
-            let window_context = Context::new(&conn, &window_id);
-
-            let buffer_image = BufferImage::new(&conn, window_id, width, height);
-
             Arc::new(Mutex::new(WindowInner {
                 window_id,
                 conn: Rc::clone(&conn),
                 callbacks,
-                window_context,
                 width: width.try_into()?,
                 height: height.try_into()?,
                 expose: VecDeque::new(),
                 paint_all: true,
-                buffer_image,
                 cursor: None,
                 gl_state: None,
             }))

@@ -62,7 +62,7 @@ impl CommandBuilder {
     /// Convert the CommandBuilder to a `std::process::Command` instance.
     pub(crate) fn as_command(&self) -> Fallible<std::process::Command> {
         let mut cmd = if self.is_default_prog() {
-            let mut cmd = std::process::Command::new(&Self::get_shell()?);
+            let cmd = std::process::Command::new(&Self::get_shell()?);
             cmd
         } else {
             let mut cmd = std::process::Command::new(&self.args[0]);
@@ -94,23 +94,6 @@ impl CommandBuilder {
                     .to_str()
                     .map(str::to_owned)
                     .map_err(|e| format_err!("failed to resolve shell: {:?}", e))
-            }
-        })
-    }
-
-    fn get_home_dir() -> Fallible<String> {
-        std::env::var("HOME").or_else(|_| {
-            let ent = unsafe { libc::getpwuid(libc::getuid()) };
-
-            if ent.is_null() {
-                Ok("/".into())
-            } else {
-                use std::ffi::CStr;
-                use std::str;
-                let home = unsafe { CStr::from_ptr((*ent).pw_dir) };
-                home.to_str()
-                    .map(str::to_owned)
-                    .map_err(|e| format_err!("failed to resolve home dir: {:?}", e))
             }
         })
     }

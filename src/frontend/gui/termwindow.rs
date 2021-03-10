@@ -14,7 +14,7 @@ use crate::mux::window::WindowId as MuxWindowId;
 use crate::mux::Mux;
 use crate::term;
 use crate::term::color::ColorPalette;
-use crate::term::{CursorPosition, Line, Underline};
+use crate::term::{CursorPosition, Line};
 use crate::window;
 use crate::window::bitmaps::atlas::{OutOfTextureSpace, SpriteSlice};
 use crate::window::bitmaps::Texture2d;
@@ -114,16 +114,11 @@ impl WindowCallbacks for TermWindow {
             term::MouseEvent {
                 kind: match event.kind {
                     WMEK::Move => TMEK::Move,
-                    WMEK::VertWheel(_)
-                    | WMEK::HorzWheel(_)
-                    | WMEK::DoubleClick(_)
-                    | WMEK::Press(_) => TMEK::Press,
+                    WMEK::VertWheel(_) | WMEK::Press(_) => TMEK::Press,
                     WMEK::Release(_) => TMEK::Release,
                 },
                 button: match event.kind {
-                    WMEK::Release(ref press)
-                    | WMEK::Press(ref press)
-                    | WMEK::DoubleClick(ref press) => match press {
+                    WMEK::Release(ref press) | WMEK::Press(ref press) => match press {
                         MousePress::Left => TMB::Left,
                         MousePress::Middle => TMB::Middle,
                         MousePress::Right => TMB::Right,
@@ -146,7 +141,6 @@ impl WindowCallbacks for TermWindow {
                             TMB::WheelDown((-amount) as usize)
                         }
                     }
-                    WMEK::HorzWheel(_) => TMB::None,
                 },
                 x: (event.x as isize / self.render_metrics.cell_size.width) as usize,
                 y: (event.y as isize / self.render_metrics.cell_size.height) as i64,
@@ -188,7 +182,6 @@ impl WindowCallbacks for TermWindow {
 
         enum Key {
             Code(crate::core::input::KeyCode),
-            Composed(String),
             None,
         }
 
@@ -203,11 +196,7 @@ impl WindowCallbacks for TermWindow {
                 WK::Char('\u{08}') => KC::Backspace,
                 WK::Char('\u{1b}') => KC::Escape,
                 WK::Char('\u{7f}') => KC::Delete,
-
                 WK::Char(c) => KC::Char(*c),
-                WK::Composed(ref s) => {
-                    return Key::Composed(s.to_owned());
-                }
                 WK::Function(f) => KC::Function(*f),
                 WK::LeftArrow => KC::LeftArrow,
                 WK::RightArrow => KC::RightArrow,
@@ -218,30 +207,15 @@ impl WindowCallbacks for TermWindow {
                 WK::PageUp => KC::PageUp,
                 WK::PageDown => KC::PageDown,
                 WK::Insert => KC::Insert,
-                WK::Hyper => KC::Hyper,
                 WK::Super => KC::Super,
-                WK::Meta => KC::Meta,
-                WK::Cancel => KC::Cancel,
                 WK::Clear => KC::Clear,
                 WK::Shift => KC::Shift,
-                WK::LeftShift => KC::LeftShift,
-                WK::RightShift => KC::RightShift,
                 WK::Control => KC::Control,
-                WK::LeftControl => KC::LeftControl,
-                WK::RightControl => KC::RightControl,
                 WK::Alt => KC::Alt,
-                WK::LeftAlt => KC::LeftAlt,
-                WK::RightAlt => KC::RightAlt,
                 WK::Pause => KC::Pause,
                 WK::CapsLock => KC::CapsLock,
-                WK::Select => KC::Select,
                 WK::Print => KC::Print,
-                WK::Execute => KC::Execute,
-                WK::PrintScreen => KC::PrintScreen,
                 WK::Help => KC::Help,
-                WK::LeftWindows => KC::LeftWindows,
-                WK::RightWindows => KC::RightWindows,
-                WK::Sleep => KC::Sleep,
                 WK::Multiply => KC::Multiply,
                 WK::Applications => KC::Applications,
                 WK::Add => KC::Add,
@@ -266,20 +240,11 @@ impl WindowCallbacks for TermWindow {
                 WK::BrowserForward => KC::BrowserForward,
                 WK::BrowserRefresh => KC::BrowserRefresh,
                 WK::BrowserStop => KC::BrowserStop,
-                WK::BrowserSearch => KC::BrowserSearch,
                 WK::BrowserFavorites => KC::BrowserFavorites,
                 WK::BrowserHome => KC::BrowserHome,
                 WK::VolumeMute => KC::VolumeMute,
                 WK::VolumeDown => KC::VolumeDown,
                 WK::VolumeUp => KC::VolumeUp,
-                WK::MediaNextTrack => KC::MediaNextTrack,
-                WK::MediaPrevTrack => KC::MediaPrevTrack,
-                WK::MediaStop => KC::MediaStop,
-                WK::MediaPlayPause => KC::MediaPlayPause,
-                WK::ApplicationLeftArrow => KC::ApplicationLeftArrow,
-                WK::ApplicationRightArrow => KC::ApplicationRightArrow,
-                WK::ApplicationUpArrow => KC::ApplicationUpArrow,
-                WK::ApplicationDownArrow => KC::ApplicationDownArrow,
             };
             Key::Code(code)
         }
@@ -317,10 +282,6 @@ impl WindowCallbacks for TermWindow {
                         return true;
                     }
                 }
-                Key::Composed(s) => {
-                    tab.writer().write_all(s.as_bytes()).ok();
-                    return true;
-                }
                 Key::None => {}
             }
         }
@@ -328,39 +289,16 @@ impl WindowCallbacks for TermWindow {
         false
     }
 
-    fn paint(&mut self, ctx: &mut dyn PaintContext) {
+    fn paint_header(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
             Some(tab) => tab,
             None => {
-                ctx.clear(Color::rgb(0, 0, 0));
+                frame.clear_color(0., 0., 0., 1.);
                 return;
             }
         };
-
-        self.update_text_cursor(&tab);
-
-        let start = std::time::Instant::now();
-        if let Err(err) = self.paint_tab(&tab, ctx) {
-            if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
-                log::error!("out of texture space, allocating {}", size);
-                if let Err(err) = self.recreate_texture_atlas(Some(size)) {
-                    log::error!("failed recreate atlas with size {}: {}", size, err);
-                    // Failed to increase the size.
-                    // This might happen if a lot of images have been displayed in the
-                    // terminal over time and we've hit a texture size limit.
-                    // Let's just try recreating at the current size.
-                    self.recreate_texture_atlas(None)
-                        .expect("OutOfTextureSpace and failed to recreate atlas");
-                }
-                tab.renderer().make_all_lines_dirty();
-                // Recursively initiate a new paint
-                return self.paint(ctx);
-            }
-            log::error!("paint failed: {}", err);
-        }
-        log::debug!("paint_tab elapsed={:?}", start.elapsed());
-        self.update_title();
+        self.paint_header_opengl(&tab, frame).expect("error while painting sprite");
     }
 
     fn paint_opengl(&mut self, frame: &mut glium::Frame) {
@@ -755,45 +693,83 @@ impl TermWindow {
         self.activate_tab_relative(0).ok();
     }
 
-    fn paint_tab(&mut self, tab: &Rc<dyn Tab>, ctx: &mut dyn PaintContext) -> Fallible<()> {
-        let palette = tab.palette();
-
-        let mut term = tab.renderer();
-        let cursor = term.get_cursor_position();
-
-        {
-            let dirty_lines = term.get_dirty_lines();
-
-            for (line_idx, line, selrange) in dirty_lines {
-                self.render_screen_line(ctx, line_idx, &line, selrange, &cursor, &*term, &palette)?;
-            }
-        }
-
-        term.clean_dirty_lines();
-
-        // Fill any marginal area below the last row
-        let (num_rows, _num_cols) = term.physical_dimensions();
-        let pixel_height_of_cells = num_rows * self.render_metrics.cell_size.height as usize;
-        ctx.clear_rect(
-            Rect::new(
-                Point::new(0, pixel_height_of_cells as isize),
-                Size::new(
-                    self.dimensions.pixel_width as isize,
-                    (self.dimensions.pixel_height - pixel_height_of_cells) as isize,
-                ),
-            ),
-            rgbcolor_to_window_color(palette.background),
-        );
-        Ok(())
-    }
-
-    fn paint_tab_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.frame_count += 1;
+
         let palette = tab.palette();
 
         let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
         let (r, g, b, a) = background_color.to_tuple_rgba();
-        frame.clear_color(r, g, b, a);
+        let gl_state = self.render_state.opengl();
+
+        //clear header portion of frame
+        frame.clear(
+            Some(&glium::Rect {
+                left: 0,
+                bottom: 0,
+                width: self.dimensions.pixel_width as u32,
+                height: (&gl_state.spritesheet.sprite_height + 1.0) as u32,
+            }),
+            Some((r, g, b, a)),
+            false,
+            None,
+            None,
+        );
+
+        let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
+            -(self.dimensions.pixel_width as f32) / 2.0,
+            self.dimensions.pixel_width as f32 / 2.0,
+            self.dimensions.pixel_height as f32 / 2.0,
+            -(self.dimensions.pixel_height as f32) / 2.0,
+            -1.0,
+            1.0,
+        )
+        .to_arrays();
+
+        let draw_params =
+            glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
+
+        // Draw top banner rectangle
+        frame.draw(
+            &*gl_state.header_vertex_buffer.borrow(),
+            &gl_state.header_index_buffer,
+            &gl_state.header_program,
+            &uniform! {
+                projection: projection,
+            },
+            &draw_params,
+        )?;
+
+        let number_of_sprites = gl_state.spritesheet.sprites.len();
+
+        let sprite =
+            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
+
+        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
+
+        // Draw mario
+        frame.draw(
+            &*gl_state.sprite_vertex_buffer.borrow(),
+            &gl_state.sprite_index_buffer,
+            &gl_state.sprite_program,
+            &uniform! {
+                projection: projection,
+                tex: &gl_state.player_texture.tex,
+                source_dimensions: sprite.size,
+                source_position: sprite.position,
+                source_texture_dimensions: [gl_state.player_texture.width, gl_state.player_texture.height]
+            },
+            &draw_params,
+        )?;
+
+        gl_state.slide_sprite(w);
+        Ok(())
+    }
+
+    fn paint_tab_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+        let palette = tab.palette();
+
+        let gl_state = self.render_state.opengl();
 
         let mut term = tab.renderer();
         let cursor = term.get_cursor_position();
@@ -808,7 +784,6 @@ impl TermWindow {
             }
         }
 
-        let gl_state = self.render_state.opengl();
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
@@ -851,58 +826,6 @@ impl TermWindow {
 
         term.clean_dirty_lines();
 
-        // Draw top banner rectangle
-        frame.draw(
-            &*gl_state.header_vertex_buffer.borrow(),
-            &gl_state.header_index_buffer,
-            &gl_state.header_program,
-            &uniform! {
-                projection: projection,
-            },
-            &draw_params,
-        )?;
-
-        self.paint_sprite(frame)
-    }
-
-    pub fn paint_sprite(&mut self, frame: &mut glium::Frame) -> Fallible<()> {
-        let gl_state = self.render_state.opengl();
-        let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
-            -(self.dimensions.pixel_width as f32) / 2.0,
-            self.dimensions.pixel_width as f32 / 2.0,
-            self.dimensions.pixel_height as f32 / 2.0,
-            -(self.dimensions.pixel_height as f32) / 2.0,
-            -1.0,
-            1.0,
-        )
-        .to_arrays();
-
-        let draw_params =
-            glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
-
-        let number_of_sprites = gl_state.spritesheet.sprites.len();
-
-        let sprite =
-            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
-
-        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
-
-        // Draw mario
-        frame.draw(
-            &*gl_state.sprite_vertex_buffer.borrow(),
-            &gl_state.sprite_index_buffer,
-            &gl_state.sprite_program,
-            &uniform! {
-                projection: projection,
-                tex: &gl_state.player_texture.tex,
-                source_dimensions: sprite.size,
-                source_position: sprite.position,
-                source_texture_dimensions: [gl_state.player_texture.width, gl_state.player_texture.height]
-            },
-            &draw_params,
-        )?;
-
-        gl_state.slide_sprite(w);
         Ok(())
     }
 
@@ -1127,269 +1050,6 @@ impl TermWindow {
             quad.set_underline(white_space);
             quad.set_has_color(false);
         }
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_screen_line(
-        &self,
-        ctx: &mut dyn PaintContext,
-        line_idx: usize,
-        line: &Line,
-        selection: Range<usize>,
-        cursor: &CursorPosition,
-        terminal: &dyn Renderable,
-        palette: &ColorPalette,
-    ) -> Fallible<()> {
-        let (_num_rows, num_cols) = terminal.physical_dimensions();
-        let current_highlight = terminal.current_highlight();
-
-        // Break the line into clusters of cells with the same attributes
-        let cell_clusters = line.cluster();
-        let mut last_cell_idx = 0;
-        for cluster in cell_clusters {
-            let attrs = &cluster.attrs;
-            let is_highlited_hyperlink = match (&attrs.hyperlink, &current_highlight) {
-                (&Some(ref this), &Some(ref highlight)) => this == highlight,
-                _ => false,
-            };
-            let style = self.fonts.match_style(attrs);
-
-            let bg_color = palette.resolve_bg(attrs.background);
-            let fg_color = match attrs.foreground {
-                term::color::ColorAttribute::Default => {
-                    if let Some(fg) = style.foreground {
-                        fg
-                    } else {
-                        palette.resolve_fg(attrs.foreground)
-                    }
-                }
-                term::color::ColorAttribute::PaletteIndex(idx) if idx < 8 => {
-                    // For compatibility purposes, switch to a brighter version
-                    // of one of the standard ANSI colors when Bold is enabled.
-                    // This lifts black to dark grey.
-                    let idx =
-                        if attrs.intensity() == term::Intensity::Bold { idx + 8 } else { idx };
-                    palette.resolve_fg(term::color::ColorAttribute::PaletteIndex(idx))
-                }
-                _ => palette.resolve_fg(attrs.foreground),
-            };
-
-            let (fg_color, bg_color) = {
-                let mut fg = fg_color;
-                let mut bg = bg_color;
-
-                if attrs.reverse() {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-
-                (fg, bg)
-            };
-
-            let glyph_color = rgbcolor_to_window_color(fg_color);
-            let bg_color = rgbcolor_to_window_color(bg_color);
-
-            // Shape the printable text from this cluster
-            let glyph_info = {
-                let font = self.fonts.cached_font(style)?;
-                let mut font = font.borrow_mut();
-                font.shape(&cluster.text)?
-            };
-
-            for info in &glyph_info {
-                let cell_idx = cluster.byte_to_cell_idx[info.cluster as usize];
-                let glyph = self.render_state.cached_software_glyph(info, style)?;
-
-                let left = (glyph.x_offset + glyph.bearing_x) as f32;
-                let top = ((self.render_metrics.cell_size.height as f64
-                    + self.render_metrics.descender)
-                    - (glyph.y_offset + glyph.bearing_y)) as f32;
-
-                // underline and strikethrough
-                // Figure out what we're going to draw for the underline.
-                // If the current cell is part of the current URL highlight
-                // then we want to show the underline.
-                let underline = match (is_highlited_hyperlink, attrs.underline()) {
-                    (true, Underline::None) => Underline::Single,
-                    (_, underline) => underline,
-                };
-
-                // Iterate each cell that comprises this glyph.  There is usually
-                // a single cell per glyph but combining characters, ligatures
-                // and emoji can be 2 or more cells wide.
-                for glyph_idx in 0..info.num_cells as usize {
-                    let cell_idx = cell_idx + glyph_idx;
-
-                    if cell_idx >= num_cols {
-                        // terminal line data is wider than the window.
-                        // This happens for example while live resizing the window
-                        // smaller than the terminal.
-                        break;
-                    }
-                    last_cell_idx = cell_idx;
-
-                    let (glyph_color, bg_color) = self.compute_cell_fg_bg(
-                        line_idx,
-                        cell_idx,
-                        cursor,
-                        &selection,
-                        glyph_color,
-                        bg_color,
-                        palette,
-                    );
-
-                    let cell_rect = Rect::new(
-                        Point::new(
-                            cell_idx as isize * self.render_metrics.cell_size.width,
-                            self.render_metrics.cell_size.height * line_idx as isize,
-                        ),
-                        self.render_metrics.cell_size,
-                    );
-                    ctx.clear_rect(cell_rect, bg_color);
-
-                    match underline {
-                        Underline::Single => {
-                            let software = self.render_state.software();
-                            let sprite = &software.util_sprites.single_underline;
-                            ctx.draw_image(
-                                cell_rect.origin,
-                                Some(sprite.coords),
-                                &*sprite.texture.image.borrow(),
-                                Operator::MultiplyThenOver(glyph_color),
-                            );
-                        }
-                        Underline::Double => {
-                            let software = self.render_state.software();
-                            let sprite = &software.util_sprites.double_underline;
-                            ctx.draw_image(
-                                cell_rect.origin,
-                                Some(sprite.coords),
-                                &*sprite.texture.image.borrow(),
-                                Operator::MultiplyThenOver(glyph_color),
-                            );
-                        }
-                        Underline::None => {}
-                    }
-                    if attrs.strikethrough() {
-                        let software = self.render_state.software();
-                        let sprite = &software.util_sprites.strike_through;
-                        ctx.draw_image(
-                            cell_rect.origin,
-                            Some(sprite.coords),
-                            &*sprite.texture.image.borrow(),
-                            Operator::MultiplyThenOver(glyph_color),
-                        );
-                    }
-
-                    if let Some(ref texture) = glyph.texture {
-                        let slice = SpriteSlice {
-                            cell_idx: glyph_idx,
-                            num_cells: info.num_cells as usize,
-                            cell_width: self.render_metrics.cell_size.width as usize,
-                            scale: glyph.scale as f32,
-                            left_offset: left,
-                        };
-                        let left = if glyph_idx == 0 { left } else { 0.0 };
-
-                        ctx.draw_image(
-                            Point::new(
-                                (cell_rect.origin.x as f32 + left) as isize,
-                                (cell_rect.origin.y as f32 + top) as isize,
-                            ),
-                            Some(slice.pixel_rect(texture)),
-                            &*texture.texture.image.borrow(),
-                            if glyph.has_color {
-                                // For full color glyphs, always use their color.
-                                // This avoids rendering a black mask when the text
-                                // selection moves over the glyph
-                                Operator::Over
-                            } else {
-                                Operator::MultiplyThenOver(glyph_color)
-                            },
-                        );
-                    } else if let Some(image) = attrs.image.as_ref() {
-                        // Render iTerm2 style image attributes
-                        let software = self.render_state.software();
-                        if let Ok(sprite) =
-                            software.glyph_cache.borrow_mut().cached_image(image.image_data())
-                        {
-                            let width = sprite.coords.size.width;
-                            let height = sprite.coords.size.height;
-
-                            let top_left = image.top_left();
-                            let bottom_right = image.bottom_right();
-                            let origin = Point::new(
-                                sprite.coords.origin.x + (*top_left.x * width as f32) as isize,
-                                sprite.coords.origin.y + (*top_left.y * height as f32) as isize,
-                            );
-
-                            let coords = Rect::new(
-                                origin,
-                                Size::new(
-                                    ((*bottom_right.x - *top_left.x) * width as f32) as isize,
-                                    ((*bottom_right.y - *top_left.y) * height as f32) as isize,
-                                ),
-                            );
-
-                            ctx.draw_image(
-                                cell_rect.origin,
-                                Some(coords),
-                                &*sprite.texture.image.borrow(),
-                                Operator::Over,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Clear any remaining cells to the right of the clusters we
-        // found above, otherwise we leave artifacts behind.  The easiest
-        // reproduction for the artifacts is to maximize the window and
-        // open a vim split horizontally.  Backgrounding vim would leave
-        // the right pane with its prior contents instead of showing the
-        // cleared lines from the shell in the main screen.
-
-        for cell_idx in last_cell_idx + 1..num_cols {
-            // Even though we don't have a cell for these, they still
-            // hold the cursor or the selection so we need to compute
-            // the colors in the usual way.
-            let (_glyph_color, bg_color) = self.compute_cell_fg_bg(
-                line_idx,
-                cell_idx,
-                cursor,
-                &selection,
-                rgbcolor_to_window_color(palette.foreground),
-                rgbcolor_to_window_color(palette.background),
-                palette,
-            );
-
-            let cell_rect = Rect::new(
-                Point::new(
-                    cell_idx as isize * self.render_metrics.cell_size.width,
-                    self.render_metrics.cell_size.height * line_idx as isize,
-                ),
-                self.render_metrics.cell_size,
-            );
-            ctx.clear_rect(cell_rect, bg_color);
-        }
-
-        // Fill any marginal area to the right of the last cell
-        let pixel_width_of_cells = num_cols * self.render_metrics.cell_size.width as usize;
-        ctx.clear_rect(
-            Rect::new(
-                Point::new(
-                    pixel_width_of_cells as isize,
-                    self.render_metrics.cell_size.height * line_idx as isize,
-                ),
-                Size::new(
-                    (self.dimensions.pixel_width - pixel_width_of_cells) as isize,
-                    self.render_metrics.cell_size.height,
-                ),
-            ),
-            rgbcolor_to_window_color(palette.background),
-        );
 
         Ok(())
     }

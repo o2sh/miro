@@ -99,21 +99,11 @@ pub trait WindowCallbacks: Any {
     /// Called when the window is resized, or when the dpi has changed
     fn resize(&mut self, dimensions: Dimensions) {}
 
-    /// Called when the window contents need painting.
-    /// This is used only when the software renderer is enabled (which
-    /// is the default).  When the window is set to opengl mode, the
-    /// `paint_opengl` function is called instead.
-    fn paint(&mut self, context: &mut dyn PaintContext) {
-        context.clear(Color::rgb(0x20, 0x40, 0x60));
-    }
-
     /// Called when the window has opengl mode enabled and the window
     /// contents need painting.
-    fn paint_opengl(&mut self, frame: &mut glium::Frame) {
-        use glium::Surface;
-        frame.clear_color(0.25, 0.125, 0.375, 1.0);
-    }
+    fn paint_opengl(&mut self, frame: &mut glium::Frame) {}
 
+    fn paint_header(&mut self, frame: &mut glium::Frame) {}
     /// Called to handle a key event.
     /// If your window didn't handle the event, you must return false.
     /// This is particularly important for eg: ALT keys on windows,
