@@ -101,7 +101,7 @@ pub trait WindowCallbacks: Any {
 
     /// Called when the window has opengl mode enabled and the window
     /// contents need painting.
-    fn paint_opengl(&mut self, frame: &mut glium::Frame) {}
+    fn paint_tab(&mut self, frame: &mut glium::Frame) {}
 
     fn paint_header(&mut self, frame: &mut glium::Frame) {}
     /// Called to handle a key event.

@@ -78,5 +78,3 @@ objc = "0.2"
 core-text = "~13.1"
 core-graphics = "0.17"
 core-foundation = "0.6"
-font-loader = "0.11.0"
-cgl = { version = "0.3", optional = true }

@@ -312,7 +312,7 @@ impl WindowCallbacks for TermWindow {
         self.paint_header_opengl(&tab, frame).expect("error while painting sprite");
     }
 
-    fn paint_opengl(&mut self, frame: &mut glium::Frame) {
+    fn paint_tab(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
             Some(tab) => tab,
@@ -337,7 +337,7 @@ impl WindowCallbacks for TermWindow {
                 }
                 tab.renderer().make_all_lines_dirty();
                 // Recursively initiate a new paint
-                return self.paint_opengl(frame);
+                return self.paint_tab(frame);
             }
             log::error!("paint_tab_opengl failed: {}", err);
         }
@@ -643,9 +643,9 @@ impl TermWindow {
                 dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
 
             if scale_changed {
+                println!("font_scale:{}, dpi_scale:{}", font_scale, dimensions.dpi as f64 / 96.);
                 self.fonts.change_scaling(font_scale, dimensions.dpi as f64 / 96.);
                 self.render_metrics = RenderMetrics::new(&self.fonts);
-
                 self.recreate_texture_atlas(None).expect("failed to recreate atlas");
             }
 
@@ -714,14 +714,12 @@ impl TermWindow {
         let gl_state = self.render_state.opengl();
 
         //clear header portion of frame
-        let header_height = (&gl_state.spritesheet.sprite_height + 1.0) as u32;
-
         frame.clear(
             Some(&glium::Rect {
                 left: 0,
-                bottom: self.dimensions.pixel_height as u32 - header_height,
+                bottom: self.dimensions.pixel_height as u32 - gl_state.header_height as u32,
                 width: self.dimensions.pixel_width as u32,
-                height: header_height,
+                height: gl_state.header_height as u32,
             }),
             Some((r, g, b, a)),
             false,

@@ -95,7 +95,7 @@ impl WindowInner {
                 return Ok(());
             }
 
-            self.callbacks.paint_opengl(&mut frame);
+            self.callbacks.paint_tab(&mut frame);
             frame.finish()?;
             return Ok(());
         }

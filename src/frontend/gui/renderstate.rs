@@ -13,6 +13,8 @@ use glium::{IndexBuffer, VertexBuffer};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+const SPRITE_SPEED: f32 = 10.0;
+
 pub struct SoftwareRenderState {
     pub glyph_cache: RefCell<GlyphCache<ImageTexture>>,
     pub util_sprites: UtilSprites<ImageTexture>,
@@ -43,9 +45,12 @@ pub struct OpenGLRenderState {
     pub sprite_index_buffer: IndexBuffer<u32>,
     pub header_vertex_buffer: RefCell<VertexBuffer<RectVertex>>,
     pub header_index_buffer: IndexBuffer<u32>,
-    pub spritesheet: SpriteSheet,
     pub player_texture: SpriteSheetTexture,
     pub header_color: (f32, f32, f32, f32),
+    pub header_height: f32,
+    pub sprite_size: (f32, f32),
+    pub sprite_speed: f32,
+    pub spritesheet: SpriteSheet,
 }
 
 impl OpenGLRenderState {
@@ -61,6 +66,8 @@ impl OpenGLRenderState {
         let glyph_cache = RefCell::new(GlyphCache::new_gl(&context, fonts, size)?);
         let util_sprites = UtilSprites::new(&mut *glyph_cache.borrow_mut(), metrics)?;
         let spritesheet = get_spritesheet(&theme.spritesheet_path);
+        let sprite_size = (spritesheet.sprite_width, spritesheet.sprite_height);
+        let header_height = spritesheet.sprite_height;
 
         //glyph
         let mut glyph_errors = vec![];
@@ -92,7 +99,7 @@ impl OpenGLRenderState {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &context,
-            spritesheet.sprite_height + 1.0,
+            header_height + 1.0,
             metrics,
             pixel_width as f32,
             pixel_height as f32,
@@ -138,7 +145,7 @@ impl OpenGLRenderState {
         let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
             &context,
             header_color,
-            spritesheet.sprite_height,
+            header_height,
             pixel_width as f32,
             pixel_height as f32,
         )?;
@@ -173,8 +180,8 @@ impl OpenGLRenderState {
 
         let (sprite_vertex_buffer, sprite_index_buffer) = Self::compute_sprite_vertices(
             &context,
-            spritesheet.sprite_width,
-            spritesheet.sprite_height,
+            sprite_size.0,
+            sprite_size.1,
             pixel_width as f32,
             pixel_height as f32,
         )?;
@@ -203,10 +210,21 @@ impl OpenGLRenderState {
             sprite_index_buffer,
             header_vertex_buffer: RefCell::new(header_vertex_buffer),
             header_index_buffer,
-            spritesheet,
             player_texture,
             header_color,
+            sprite_size,
+            header_height,
+            sprite_speed: SPRITE_SPEED,
+            spritesheet,
         })
+    }
+
+    pub fn change_scaling(&mut self, dpi: f32) -> Fallible<()> {
+        println!("change_scaling");
+        self.sprite_size = (self.sprite_size.0 * dpi, self.sprite_size.1 * dpi);
+        self.header_height = self.header_height * dpi;
+        self.sprite_speed = self.sprite_speed * dpi;
+        Ok(())
     }
 
     pub fn advise_of_window_size_change(
@@ -218,7 +236,7 @@ impl OpenGLRenderState {
         //glyph
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
-            self.spritesheet.sprite_height + 1.0,
+            self.header_height + 1.0,
             metrics,
             pixel_width as f32,
             pixel_height as f32,
@@ -231,7 +249,7 @@ impl OpenGLRenderState {
         let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
             &self.context,
             self.header_color,
-            self.spritesheet.sprite_height,
+            self.header_height,
             pixel_width as f32,
             pixel_height as f32,
         )?;
@@ -251,8 +269,8 @@ impl OpenGLRenderState {
 
         vert[V_TOP_LEFT].position.1 = -top;
         vert[V_TOP_RIGHT].position.1 = -top;
-        vert[V_BOT_LEFT].position.1 = -top + self.spritesheet.sprite_height;
-        vert[V_BOT_RIGHT].position.1 = -top + self.spritesheet.sprite_height;
+        vert[V_BOT_LEFT].position.1 = -top + self.sprite_size.1;
+        vert[V_BOT_RIGHT].position.1 = -top + self.sprite_size.1;
     }
 
     fn glyph_vertex_shader(version: &str) -> String {
@@ -420,9 +438,8 @@ impl OpenGLRenderState {
         let mut vb = self.sprite_vertex_buffer.borrow_mut();
         let mut vert = { vb.slice_mut(0..4).unwrap().map() };
 
-        let delta = 10.0;
-
-        let sprite_width = self.spritesheet.sprite_width;
+        let delta = self.sprite_speed;
+        let sprite_width = self.sprite_size.0;
 
         if vert[V_TOP_LEFT].position.0 > width {
             vert[V_TOP_LEFT].position.0 = -width;
