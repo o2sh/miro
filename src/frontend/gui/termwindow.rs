@@ -714,12 +714,14 @@ impl TermWindow {
         let gl_state = self.render_state.opengl();
 
         //clear header portion of frame
+        let header_height = (&gl_state.spritesheet.sprite_height + 1.0) as u32;
+
         frame.clear(
             Some(&glium::Rect {
                 left: 0,
-                bottom: 0,
+                bottom: self.dimensions.pixel_height as u32 - header_height,
                 width: self.dimensions.pixel_width as u32,
-                height: (&gl_state.spritesheet.sprite_height + 1.0) as u32,
+                height: header_height,
             }),
             Some((r, g, b, a)),
             false,
