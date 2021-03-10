@@ -2,9 +2,7 @@
 #![allow(clippy::let_unit_value)]
 
 use super::{nsstring, nsstring_to_str};
-use crate::window::bitmaps::Image;
 use crate::window::connection::ConnectionOps;
-use crate::window::os::macos::bitmap::BitmapRef;
 use crate::window::{
     BitmapImage, Color, Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons,
     MouseCursor, MouseEvent, MouseEventKind, MousePress, Operator, PaintContext, Point, Rect, Size,
@@ -17,7 +15,6 @@ use cocoa::appkit::{
 };
 use cocoa::base::*;
 use cocoa::foundation::{NSArray, NSNotFound, NSPoint, NSRect, NSSize, NSUInteger};
-use core_graphics::image::CGImageRef;
 use failure::Fallible;
 use objc::declare::ClassDecl;
 use objc::rc::{StrongPtr, WeakPtr};
@@ -287,8 +284,7 @@ impl Window {
             window.setTitle_(*nsstring(&name));
             window.setAcceptsMouseMovedEvents_(YES);
 
-            let buffer = Image::new(width, height);
-            let view = WindowView::alloc(&inner, buffer)?;
+            let view = WindowView::alloc(&inner)?;
             view.initWithFrame_(rect);
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
 
@@ -477,7 +473,6 @@ const CLS_NAME: &str = "WezTermWindowView";
 
 struct WindowView {
     inner: Rc<RefCell<Inner>>,
-    buffer: RefCell<Image>,
 }
 
 pub fn superclass(this: &Object) -> &'static Class {
@@ -1000,7 +995,6 @@ impl WindowView {
 
         if let Some(this) = Self::get_this(this) {
             let mut inner = this.inner.borrow_mut();
-            let mut buffer = this.buffer.borrow_mut();
 
             if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
                 let mut frame = glium::Frame::new(
@@ -1011,33 +1005,6 @@ impl WindowView {
                 inner.callbacks.paint_opengl(&mut frame);
                 frame.finish().expect("frame.finish failed and we don't know how to recover");
                 return;
-            }
-
-            let (pixel_width, pixel_height) = buffer.image_dimensions();
-            if width as usize != pixel_width || height as usize != pixel_height {
-                *buffer = Image::new(width as usize, height as usize);
-            }
-
-            let mut ctx = MacGraphicsContext {
-                buffer: &mut *buffer,
-                dpi: (96.0 * backing_frame.size.width / frame.size.width) as usize,
-            };
-
-            inner.callbacks.paint(&mut ctx);
-
-            let cg_image = BitmapRef::with_image(&*buffer);
-
-            fn nsimage_from_cgimage(cg: &CGImageRef, size: NSSize) -> StrongPtr {
-                unsafe {
-                    let ns_image: id = msg_send![class!(NSImage), alloc];
-                    StrongPtr::new(msg_send![ns_image, initWithCGImage: cg size:size])
-                }
-            }
-
-            let ns_image = nsimage_from_cgimage(cg_image.as_ref(), NSSize::new(0., 0.));
-
-            unsafe {
-                let () = msg_send![*ns_image, drawInRect: frame];
             }
         }
     }
@@ -1053,17 +1020,14 @@ impl WindowView {
         }
     }
 
-    fn alloc(inner: &Rc<RefCell<Inner>>, buffer: Image) -> Fallible<StrongPtr> {
+    fn alloc(inner: &Rc<RefCell<Inner>>) -> Fallible<StrongPtr> {
         let cls = Self::get_class();
 
         let view_id: StrongPtr = unsafe { StrongPtr::new(msg_send![cls, new]) };
 
         inner.borrow_mut().view_id.replace(view_id.weak());
 
-        let view = Box::into_raw(Box::new(Self {
-            inner: Rc::clone(&inner),
-            buffer: RefCell::new(buffer),
-        }));
+        let view = Box::into_raw(Box::new(Self { inner: Rc::clone(&inner) }));
 
         unsafe {
             (**view_id).set_ivar(CLS_NAME, view as *mut c_void);

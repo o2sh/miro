@@ -114,7 +114,7 @@ impl WindowCallbacks for TermWindow {
             term::MouseEvent {
                 kind: match event.kind {
                     WMEK::Move => TMEK::Move,
-                    WMEK::VertWheel(_) | WMEK::Press(_) => TMEK::Press,
+                    WMEK::VertWheel(_) | WMEK::HorzWheel(_) | WMEK::Press(_) => TMEK::Press,
                     WMEK::Release(_) => TMEK::Release,
                 },
                 button: match event.kind {
@@ -141,6 +141,7 @@ impl WindowCallbacks for TermWindow {
                             TMB::WheelDown((-amount) as usize)
                         }
                     }
+                    WMEK::HorzWheel(_) => TMB::None,
                 },
                 x: (event.x as isize / self.render_metrics.cell_size.width) as usize,
                 y: (event.y as isize / self.render_metrics.cell_size.height) as i64,
@@ -182,6 +183,7 @@ impl WindowCallbacks for TermWindow {
 
         enum Key {
             Code(crate::core::input::KeyCode),
+            Composed(String),
             None,
         }
 
@@ -245,6 +247,11 @@ impl WindowCallbacks for TermWindow {
                 WK::VolumeMute => KC::VolumeMute,
                 WK::VolumeDown => KC::VolumeDown,
                 WK::VolumeUp => KC::VolumeUp,
+                WK::Cancel => KC::Cancel,
+                WK::Composed(ref s) => {
+                    return Key::Composed(s.to_owned());
+                }
+                WK::PrintScreen => KC::PrintScreen,
             };
             Key::Code(code)
         }
@@ -281,6 +288,10 @@ impl WindowCallbacks for TermWindow {
                     } else if tab.key_down(key, modifiers).is_ok() {
                         return true;
                     }
+                }
+                Key::Composed(s) => {
+                    tab.writer().write_all(s.as_bytes()).ok();
+                    return true;
                 }
                 Key::None => {}
             }

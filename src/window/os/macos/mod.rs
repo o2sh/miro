@@ -3,14 +3,12 @@ use cocoa::foundation::NSString;
 use objc::rc::StrongPtr;
 use objc::runtime::Object;
 
-pub mod bitmap;
 pub mod connection;
 pub mod window;
 
 mod keycodes;
 
 pub use self::window::*;
-pub use bitmap::*;
 pub use connection::*;
 
 /// Convert a rust string to a cocoa string

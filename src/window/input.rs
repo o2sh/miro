@@ -1,6 +1,7 @@
 use bitflags::*;
 
 /// Which key is pressed.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyCode {
     /// The decoded unicode character
@@ -9,6 +10,7 @@ pub enum KeyCode {
     Clear,
     Shift,
     Control,
+    Composed(String),
     Alt,
     Pause,
     CapsLock,
@@ -39,12 +41,13 @@ pub enum KeyCode {
     BrowserForward,
     BrowserRefresh,
     BrowserStop,
-
     BrowserFavorites,
     BrowserHome,
     VolumeMute,
     VolumeDown,
     VolumeUp,
+    PrintScreen,
+    Cancel,
 }
 
 bitflags! {
@@ -70,6 +73,7 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MousePress {
     Left,
@@ -83,6 +87,7 @@ pub enum MouseEventKind {
     Press(MousePress),
     Release(MousePress),
     VertWheel(i16),
+    HorzWheel(i16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
