@@ -51,6 +51,7 @@ pub struct OpenGLRenderState {
     pub sprite_size: (f32, f32),
     pub sprite_speed: f32,
     pub spritesheet: SpriteSheet,
+    pub dpi: f32,
 }
 
 impl OpenGLRenderState {
@@ -216,14 +217,59 @@ impl OpenGLRenderState {
             header_height,
             sprite_speed: SPRITE_SPEED,
             spritesheet,
+            dpi: 1.0,
         })
     }
 
-    pub fn change_scaling(&mut self, dpi: f32) -> Fallible<()> {
-        println!("change_scaling");
+    pub fn change_header_scaling(
+        &mut self,
+        dpi: f32,
+        metrics: &RenderMetrics,
+        pixel_width: usize,
+        pixel_height: usize,
+    ) -> Fallible<()> {
+        self.dpi = dpi;
+        let dpi = dpi / 96.;
         self.sprite_size = (self.sprite_size.0 * dpi, self.sprite_size.1 * dpi);
         self.header_height = self.header_height * dpi;
         self.sprite_speed = self.sprite_speed * dpi;
+
+        //header
+        let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
+            &self.context,
+            self.header_color,
+            self.header_height,
+            pixel_width as f32,
+            pixel_height as f32,
+        )?;
+
+        *self.header_vertex_buffer.borrow_mut() = header_vertex_buffer;
+        self.header_index_buffer = header_index_buffer;
+
+        //recompute glyph vertices to account for new top padding
+        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
+            &self.context,
+            self.header_height + 1.0,
+            metrics,
+            pixel_width as f32,
+            pixel_height as f32,
+        )?;
+
+        *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
+        self.glyph_index_buffer = glyph_index_buffer;
+
+        //sprite
+        let (sprite_vertex_buffer, sprite_index_buffer) = Self::compute_sprite_vertices(
+            &self.context,
+            self.sprite_size.0,
+            self.sprite_size.1,
+            pixel_width as f32,
+            pixel_height as f32,
+        )?;
+
+        *self.sprite_vertex_buffer.borrow_mut() = sprite_vertex_buffer;
+        self.sprite_index_buffer = sprite_index_buffer;
+
         Ok(())
     }
 
@@ -493,6 +539,19 @@ impl RenderState {
     ) -> Fallible<()> {
         if let RenderState::GL(gl) = self {
             gl.advise_of_window_size_change(metrics, pixel_width, pixel_height)?;
+        }
+        Ok(())
+    }
+
+    pub fn change_header_scaling(
+        &mut self,
+        dpi: f32,
+        metrics: &RenderMetrics,
+        pixel_width: usize,
+        pixel_height: usize,
+    ) -> Fallible<()> {
+        if let RenderState::GL(gl) = self {
+            gl.change_header_scaling(dpi, metrics, pixel_width, pixel_height)?;
         }
         Ok(())
     }

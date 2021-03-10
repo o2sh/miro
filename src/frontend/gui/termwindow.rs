@@ -643,8 +643,8 @@ impl TermWindow {
                 dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
 
             if scale_changed {
-                println!("font_scale:{}, dpi_scale:{}", font_scale, dimensions.dpi as f64 / 96.);
-                self.fonts.change_scaling(font_scale, dimensions.dpi as f64 / 96.);
+                let new_dpi = dimensions.dpi as f64 / 96.;
+                self.fonts.change_scaling(font_scale, new_dpi);
                 self.render_metrics = RenderMetrics::new(&self.fonts);
                 self.recreate_texture_atlas(None).expect("failed to recreate atlas");
             }
@@ -711,6 +711,17 @@ impl TermWindow {
 
         let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
         let (r, g, b, a) = background_color.to_tuple_rgba();
+
+        let dpi = self.render_state.opengl().dpi;
+
+        if self.dimensions.dpi as f32 != dpi {
+            self.render_state.change_header_scaling(
+                self.dimensions.dpi as f32,
+                &self.render_metrics,
+                self.dimensions.pixel_width,
+                self.dimensions.pixel_height,
+            )?;
+        }
         let gl_state = self.render_state.opengl();
 
         //clear header portion of frame
