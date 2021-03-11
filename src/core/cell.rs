@@ -1,7 +1,6 @@
 //! Model a cell in the terminal display
 use super::color::ColorAttribute;
 pub use super::escape::osc::Hyperlink;
-use super::image::ImageCell;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::*;
 use smallvec::SmallVec;
@@ -24,8 +23,6 @@ pub struct CellAttributes {
     pub background: ColorAttribute,
     /// The hyperlink content, if any
     pub hyperlink: Option<Arc<Hyperlink>>,
-    /// The image data, if any
-    pub image: Option<Box<ImageCell>>,
 }
 
 /// Define getter and setter for the attributes bitfield.
@@ -159,11 +156,6 @@ impl CellAttributes {
         self
     }
 
-    pub fn set_image(&mut self, image: Option<Box<ImageCell>>) -> &mut Self {
-        self.image = image;
-        self
-    }
-
     /// Clone the attributes, but exclude fancy extras such
     /// as hyperlinks or future sprite things
     pub fn clone_sgr_only(&self) -> Self {
@@ -172,7 +164,6 @@ impl CellAttributes {
             foreground: self.foreground,
             background: self.background,
             hyperlink: None,
-            image: None,
         }
     }
 }

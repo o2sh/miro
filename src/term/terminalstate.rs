@@ -6,17 +6,14 @@ use crate::core::escape::csi::{
     Cursor, DecPrivateMode, DecPrivateModeCode, Device, Edit, EraseInDisplay, EraseInLine, Mode,
     Sgr, TerminalMode, TerminalModeCode, Window,
 };
-use crate::core::escape::osc::{ChangeColorPair, ColorOrQuery, ITermFileData, ITermProprietary};
+use crate::core::escape::osc::{ChangeColorPair, ColorOrQuery};
 use crate::core::escape::{
     Action, ControlCode, Esc, EscCode, OneBased, OperatingSystemCommand, CSI,
 };
 use crate::core::hyperlink::Rule as HyperlinkRule;
-use crate::core::image::{ImageCell, ImageData, TextureCoordinate};
 use crate::term::color::ColorPalette;
 use failure::bail;
-use image::{self, GenericImageView};
 use log::{debug, error};
-use ordered_float::NotNan;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -1214,127 +1211,6 @@ impl TerminalState {
         }
     }
 
-    fn set_image(&mut self, image: ITermFileData) {
-        if !image.inline {
-            error!(
-                "Ignoring file download request name={:?} size={}",
-                image.name,
-                image.data.len()
-            );
-            return;
-        }
-
-        // Decode the image data
-        let decoded_image = match image::load_from_memory(&image.data) {
-            Ok(im) => im,
-            Err(e) => {
-                error!("Unable to decode image: {}: size={} {:?}", e, image.data.len(), image);
-                return;
-            }
-        };
-
-        // Figure out the dimensions.
-        let physical_cols = self.screen().physical_cols;
-        let physical_rows = self.screen().physical_rows;
-        let cell_pixel_width = self.pixel_width / physical_cols;
-        let cell_pixel_height = self.pixel_height / physical_rows;
-
-        let width = image.width.to_pixels(cell_pixel_width, physical_cols);
-        let height = image.height.to_pixels(cell_pixel_height, physical_rows);
-
-        // Compute any Automatic dimensions
-        let (width, height) = match (width, height) {
-            (None, None) => (decoded_image.width() as usize, decoded_image.height() as usize),
-            (Some(w), None) => {
-                let scale = decoded_image.width() as f32 / w as f32;
-                let h = decoded_image.height() as f32 * scale;
-                (w, h as usize)
-            }
-            (None, Some(h)) => {
-                let scale = decoded_image.height() as f32 / h as f32;
-                let w = decoded_image.width() as f32 * scale;
-                (w as usize, h)
-            }
-            (Some(w), Some(h)) => (w, h),
-        };
-
-        let width_in_cells = width / cell_pixel_width;
-        let height_in_cells = height / cell_pixel_height;
-
-        // TODO: defer this to the actual renderer
-        /*
-        let available_pixel_width = width_in_cells * cell_pixel_width;
-        let available_pixel_height = height_in_cells * cell_pixel_height;
-
-        let resized_image = if image.preserve_aspect_ratio {
-            let resized = decoded_image.resize(
-                available_pixel_width as u32,
-                available_pixel_height as u32,
-                image::FilterType::Lanczos3,
-            );
-            // Pad with black bars to preserve aspect ratio
-            // Assumption: new_rgba8 returns black/transparent pixels by default.
-            let dest = DynamicImage::new_rgba8(available_pixel_width, available_pixel_height);
-            dest.copy_from(resized, 0, 0);
-            dest
-        } else {
-            decoded_image.resize_exact(
-                available_pixel_width as u32,
-                available_pixel_height as u32,
-                image::FilterType::Lanczos3,
-            )
-        };
-        */
-
-        let image_data = Arc::new(ImageData::with_raw_data(image.data));
-
-        let mut ypos = NotNan::new(0.0).unwrap();
-        let cursor_x = self.cursor.x;
-        let x_delta = 1.0 / (width as f32 / (self.pixel_width as f32 / physical_cols as f32));
-        let y_delta = 1.0 / (height as f32 / (self.pixel_height as f32 / physical_rows as f32));
-        debug!(
-            "image is {}x{} cells, {}x{} pixels",
-            width_in_cells, height_in_cells, width, height
-        );
-        for _ in 0..height_in_cells {
-            let mut xpos = NotNan::new(0.0).unwrap();
-            let cursor_y = self.cursor.y;
-            debug!(
-                "setting cells for y={} x=[{}..{}]",
-                cursor_y,
-                cursor_x,
-                cursor_x + width_in_cells
-            );
-            for x in 0..width_in_cells {
-                self.screen_mut().set_cell(
-                    cursor_x + x,
-                    cursor_y, // + y as VisibleRowIndex,
-                    &Cell::new(
-                        ' ',
-                        CellAttributes::default()
-                            .set_image(Some(Box::new(ImageCell::new(
-                                TextureCoordinate::new(xpos, ypos),
-                                TextureCoordinate::new(xpos + x_delta, ypos + y_delta),
-                                image_data.clone(),
-                            ))))
-                            .clone(),
-                    ),
-                );
-                xpos += x_delta;
-            }
-            ypos += y_delta;
-            self.new_line(false);
-        }
-
-        // FIXME: check cursor positioning in iterm
-        /*
-        self.set_cursor_pos(
-            &Position::Relative(width_in_cells as i64),
-            &Position::Relative(-(height_in_cells as i64)),
-        );
-        */
-    }
-
     fn perform_device(&mut self, dev: Device, host: &mut dyn TerminalHost) {
         match dev {
             Device::DeviceAttributes(a) => error!("unhandled: {:?}", a),
@@ -2040,10 +1916,6 @@ impl<'a> Performer<'a> {
                     }
                 }
             }
-            OperatingSystemCommand::ITermProprietary(iterm) => match iterm {
-                ITermProprietary::File(image) => self.set_image(*image),
-                _ => error!("unhandled iterm2: {:?}", iterm),
-            },
             OperatingSystemCommand::SystemNotification(message) => {
                 error!("Application sends SystemNotification: {}", message);
             }

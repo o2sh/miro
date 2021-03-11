@@ -10,10 +10,16 @@ use failure::Fallible;
 use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;
 use glium::{IndexBuffer, VertexBuffer};
+use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const SPRITE_SPEED: f32 = 10.0;
+
+lazy_static! {
+    static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
+    static ref CPU_LOAD_LENGTH: usize = "CPU:00%".chars().count();
+}
 
 pub struct SoftwareRenderState {
     pub glyph_cache: RefCell<GlyphCache<ImageTexture>>,
@@ -43,8 +49,10 @@ pub struct OpenGLRenderState {
     pub glyph_index_buffer: IndexBuffer<u32>,
     pub sprite_vertex_buffer: RefCell<VertexBuffer<SpriteVertex>>,
     pub sprite_index_buffer: IndexBuffer<u32>,
-    pub header_vertex_buffer: RefCell<VertexBuffer<RectVertex>>,
-    pub header_index_buffer: IndexBuffer<u32>,
+    pub header_rect_vertex_buffer: RefCell<VertexBuffer<RectVertex>>,
+    pub header_rect_index_buffer: IndexBuffer<u32>,
+    pub header_glyph_vertex_buffer: RefCell<VertexBuffer<Vertex>>,
+    pub header_glyph_index_buffer: IndexBuffer<u32>,
     pub player_texture: SpriteSheetTexture,
     pub header_color: (f32, f32, f32, f32),
     pub header_height: f32,
@@ -106,6 +114,17 @@ impl OpenGLRenderState {
             pixel_height as f32,
         )?;
 
+        let (header_glyph_vertex_buffer, header_glyph_index_buffer) =
+            Self::compute_header_glyph_vertices(
+                &context,
+                header_height,
+                *CPU_LOAD_LENGTH,
+                *CURRENT_TIME_LENGTH,
+                pixel_width as f32,
+                pixel_height as f32,
+                metrics,
+            )?;
+
         //header
         let mut header_errors = vec![];
         let mut header_program = None;
@@ -143,13 +162,14 @@ impl OpenGLRenderState {
 
         let header_color = color.to_tuple_rgba();
 
-        let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
-            &context,
-            header_color,
-            header_height,
-            pixel_width as f32,
-            pixel_height as f32,
-        )?;
+        let (header_rect_vertex_buffer, header_rect_index_buffer) =
+            Self::compute_header_rect_vertices(
+                &context,
+                header_color,
+                header_height,
+                pixel_width as f32,
+                pixel_height as f32,
+            )?;
 
         //sprite
         let mut sprite_errors = vec![];
@@ -209,8 +229,10 @@ impl OpenGLRenderState {
             glyph_index_buffer,
             sprite_vertex_buffer: RefCell::new(sprite_vertex_buffer),
             sprite_index_buffer,
-            header_vertex_buffer: RefCell::new(header_vertex_buffer),
-            header_index_buffer,
+            header_rect_vertex_buffer: RefCell::new(header_rect_vertex_buffer),
+            header_rect_index_buffer,
+            header_glyph_vertex_buffer: RefCell::new(header_glyph_vertex_buffer),
+            header_glyph_index_buffer,
             player_texture,
             header_color,
             sprite_size,
@@ -235,16 +257,17 @@ impl OpenGLRenderState {
         self.sprite_speed = self.sprite_speed * dpi;
 
         //header
-        let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
-            &self.context,
-            self.header_color,
-            self.header_height,
-            pixel_width as f32,
-            pixel_height as f32,
-        )?;
+        let (header_rect_vertex_buffer, header_rect_index_buffer) =
+            Self::compute_header_rect_vertices(
+                &self.context,
+                self.header_color,
+                self.header_height,
+                pixel_width as f32,
+                pixel_height as f32,
+            )?;
 
-        *self.header_vertex_buffer.borrow_mut() = header_vertex_buffer;
-        self.header_index_buffer = header_index_buffer;
+        *self.header_rect_vertex_buffer.borrow_mut() = header_rect_vertex_buffer;
+        self.header_rect_index_buffer = header_rect_index_buffer;
 
         //recompute glyph vertices to account for new top padding
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
@@ -292,16 +315,17 @@ impl OpenGLRenderState {
         self.glyph_index_buffer = glyph_index_buffer;
 
         //header
-        let (header_vertex_buffer, header_index_buffer) = Self::compute_header_vertices(
-            &self.context,
-            self.header_color,
-            self.header_height,
-            pixel_width as f32,
-            pixel_height as f32,
-        )?;
+        let (header_rect_vertex_buffer, header_rect_index_buffer) =
+            Self::compute_header_rect_vertices(
+                &self.context,
+                self.header_color,
+                self.header_height,
+                pixel_width as f32,
+                pixel_height as f32,
+            )?;
 
-        *self.header_vertex_buffer.borrow_mut() = header_vertex_buffer;
-        self.header_index_buffer = header_index_buffer;
+        *self.header_rect_vertex_buffer.borrow_mut() = header_rect_vertex_buffer;
+        self.header_rect_index_buffer = header_rect_index_buffer;
 
         //sprite
         self.reset_sprite_pos(pixel_height as f32 / 2.0);
@@ -408,6 +432,71 @@ impl OpenGLRenderState {
         ))
     }
 
+    fn compute_header_glyph_vertices(
+        context: &Rc<GliumContext>,
+        header_height: f32,
+        left_num_cols: usize,
+        right_num_cols: usize,
+        width: f32,
+        height: f32,
+        metrics: &RenderMetrics,
+    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
+        let mut verts = Vec::new();
+        let mut indices = Vec::new();
+
+        let cell_width = metrics.cell_size.width as f32;
+        let cell_height = metrics.cell_size.height as f32;
+
+        let header_width_padding = cell_width;
+
+        let top_padding = (header_height - cell_height) / 2.0;
+        let y_pos = (height / -2.0) + top_padding;
+        for x in 0..(left_num_cols + right_num_cols) {
+            let x_pos = if x < left_num_cols {
+                (width / -2.0) + header_width_padding + (x as f32 * cell_width)
+            } else {
+                (width / 2.0)
+                    - header_width_padding
+                    - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
+                    + 5.0
+            };
+            // Remember starting index for this position
+            let idx = verts.len() as u32;
+            verts.push(Vertex {
+                // Top left
+                position: (x_pos, y_pos),
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Top Right
+                position: (x_pos + cell_width, y_pos),
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Bottom Left
+                position: (x_pos, y_pos + cell_height),
+                ..Default::default()
+            });
+            verts.push(Vertex {
+                // Bottom Right
+                position: (x_pos + cell_width, y_pos + cell_height),
+                ..Default::default()
+            });
+
+            // Emit two triangles to form the glyph quad
+            indices.push(idx);
+            indices.push(idx + 1);
+            indices.push(idx + 2);
+            indices.push(idx + 1);
+            indices.push(idx + 2);
+            indices.push(idx + 3);
+        }
+        Ok((
+            VertexBuffer::dynamic(context, &verts)?,
+            IndexBuffer::new(context, glium::index::PrimitiveType::TrianglesList, &indices)?,
+        ))
+    }
+
     pub fn compute_sprite_vertices(
         context: &Rc<GliumContext>,
         sprite_width: f32,
@@ -454,7 +543,7 @@ impl OpenGLRenderState {
         ))
     }
 
-    pub fn compute_header_vertices(
+    pub fn compute_header_rect_vertices(
         context: &Rc<GliumContext>,
         color: (f32, f32, f32, f32),
         banner_height: f32,

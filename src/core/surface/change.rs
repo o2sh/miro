@@ -1,6 +1,5 @@
 use crate::core::cell::{AttributeChange, CellAttributes};
 use crate::core::color::ColorAttribute;
-pub use crate::core::image::{ImageData, TextureCoordinate};
 use crate::core::surface::{CursorShape, Position};
 use serde_derive::*;
 use std::sync::Arc;
@@ -42,14 +41,6 @@ pub enum Change {
     CursorColor(ColorAttribute),
     /// Change the cursor shape
     CursorShape(CursorShape),
-    /// Place an image at the current cursor position.
-    /// The image defines the dimensions in cells.
-    /// TODO: check iterm rendering behavior when the image is larger than the width of the screen.
-    /// If the image is taller than the remaining space at the bottom
-    /// of the screen, the screen will scroll up.
-    /// The cursor Y position is unchanged by rendering the Image.
-    /// The cursor X position will be incremented by `Image::width` cells.
-    Image(Image),
     /// Scroll the `region_size` lines starting at `first_row` upwards
     /// by `scroll_count` lines.  The `scroll_count` lines at the top of
     /// the region are overwritten.  The `scroll_count` lines at the
@@ -98,30 +89,4 @@ impl From<AttributeChange> for Change {
     fn from(c: AttributeChange) -> Self {
         Change::Attribute(c)
     }
-}
-
-/// The `Image` `Change` needs to support adding an image that spans multiple
-/// rows and columns, as well as model the content for just one of those cells.
-/// For instance, if some of the cells inside an image are replaced by textual
-/// content, and the screen is scrolled, computing the diff change stream needs
-/// to be able to express that a single cell holds a slice from a larger image.
-/// The `Image` struct expresses its dimensions in cells and references a region
-/// in the shared source image data using texture coordinates.
-/// A 4x3 cell image would set `width=3`, `height=3`, `top_left=(0,0)`, `bottom_right=(1,1)`.
-/// The top left cell from that image, if it were to be included in a diff,
-/// would be recorded as `width=1`, `height=1`, `top_left=(0,0)`, `bottom_right=(1/4,1/3)`.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Image {
-    /// measured in cells
-    pub width: usize,
-    /// measure in cells
-    pub height: usize,
-    /// Texture coordinate for the top left of this image block.
-    /// (0,0) is the top left of the ImageData. (1, 1) is
-    /// the bottom right.
-    pub top_left: TextureCoordinate,
-    /// Texture coordinates for the bottom right of this image block.
-    pub bottom_right: TextureCoordinate,
-    /// the image data
-    pub image: Arc<ImageData>,
 }

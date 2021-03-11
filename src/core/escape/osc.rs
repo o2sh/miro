@@ -5,8 +5,6 @@ use bitflags::bitflags;
 use failure::{bail, ensure, err_msg, Fallible};
 use num;
 use num_derive::*;
-use ordered_float::NotNan;
-use std::collections::HashMap;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::str;
 
@@ -35,10 +33,8 @@ pub enum OperatingSystemCommand {
     QuerySelection(Selection),
     SetSelection(Selection, String),
     SystemNotification(String),
-    ITermProprietary(ITermProprietary),
     ChangeColorNumber(Vec<ChangeColorPair>),
     ChangeDynamicColors(DynamicColorNumber, Vec<ColorOrQuery>),
-
     Unspecified(Vec<Vec<u8>>),
 }
 
@@ -232,11 +228,7 @@ impl OperatingSystemCommand {
             SetHyperlink => Ok(OperatingSystemCommand::SetHyperlink(Hyperlink::parse(osc)?)),
             ManipulateSelectionData => Self::parse_selection(osc),
             SystemNotification => single_string!(SystemNotification),
-            ITermProprietary => {
-                self::ITermProprietary::parse(osc).map(OperatingSystemCommand::ITermProprietary)
-            }
             ChangeColorNumber => Self::parse_change_color_number(osc),
-
             SetTextForegroundColor
             | SetTextBackgroundColor
             | SetTextCursorColor
@@ -284,7 +276,6 @@ pub enum OperatingSystemCommandCode {
     EmacsShell = 51,
     ManipulateSelectionData = 52,
     RxvtProprietary = 777,
-    ITermProprietary = 1337,
 }
 
 impl Display for OperatingSystemCommand {
@@ -316,7 +307,6 @@ impl Display for OperatingSystemCommand {
             QuerySelection(s) => write!(f, "52;{};?", s)?,
             SetSelection(s, val) => write!(f, "52;{};{}", s, base64::encode(val))?,
             SystemNotification(s) => write!(f, "9;{}", s)?,
-            ITermProprietary(i) => i.fmt(f)?,
             ChangeColorNumber(specs) => {
                 write!(f, "4;")?;
                 for pair in specs {
@@ -331,351 +321,6 @@ impl Display for OperatingSystemCommand {
             }
         };
         write!(f, "\x07")?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ITermProprietary {
-    /// The "Set Mark" command allows you to record a location and then jump back to it later
-    SetMark,
-    /// To bring iTerm2 to the foreground
-    StealFocus,
-    /// To erase the scrollback history
-    ClearScrollback,
-    /// To inform iTerm2 of the current directory to help semantic history
-    CurrentDir(String),
-    /// To change the session's profile on the fly
-    SetProfile(String),
-    /// Currently defined values for the string parameter are "rule", "find", "font"
-    /// or an empty string.  iTerm2 will go into paste mode until EndCopy is received.
-    CopyToClipboard(String),
-    /// Ends CopyToClipboard mode in iTerm2.
-    EndCopy,
-    /// The boolean should be yes or no. This shows or hides the cursor guide
-    HighlightCursorLine(bool),
-    /// Request that the terminal send a ReportCellSize response
-    RequestCellSize,
-    /// The response to RequestCellSize.  The height and width are the dimensions
-    /// of a cell measured in points
-    ReportCellSize {
-        height_points: NotNan<f32>,
-        width_points: NotNan<f32>,
-    },
-    /// Place a string in the systems pasteboard
-    Copy(String),
-    SetBadgeFormat(String),
-    /// Download file data from the application.
-    File(Box<ITermFileData>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ITermFileData {
-    /// file name
-    pub name: Option<String>,
-    /// size of the data in bytes; this is used by iterm to show progress
-    /// while waiting for the rest of the payload
-    pub size: Option<usize>,
-    /// width to render
-    pub width: ITermDimension,
-    /// height to render
-    pub height: ITermDimension,
-    /// if true, preserve aspect ratio when fitting to width/height
-    pub preserve_aspect_ratio: bool,
-    /// if true, attempt to display in the terminal rather than downloading to
-    /// the users download directory
-    pub inline: bool,
-    /// The data to transfer
-    pub data: Vec<u8>,
-}
-
-impl ITermFileData {
-    fn parse(osc: &[&[u8]]) -> Fallible<Self> {
-        let mut params = HashMap::new();
-
-        // Unfortunately, the encoding for the file download data is
-        // awkward to fit in the conventional OSC data that our parser
-        // expects at a higher level.
-        // We have a mix of '=', ';' and ':' separated keys and values,
-        // and a number of them are optional.
-        // ESC ] 1337 ; File = [optional arguments] : base-64 encoded file contents ^G
-
-        let mut data = None;
-
-        let last = osc.len() - 1;
-        for (idx, s) in osc.iter().enumerate().skip(1) {
-            let param = if idx == 1 {
-                // skip over File=
-                &s[5..]
-            } else {
-                s
-            };
-
-            let param = if idx == last {
-                // The final argument contains `:base64`, so look for that
-                if let Some(colon) = param.iter().position(|c| *c == b':') {
-                    data = Some(base64::decode(&param[colon + 1..])?);
-                    &param[..colon]
-                } else {
-                    // If we don't find the colon in the last piece, we've
-                    // got nothing useful
-                    bail!("failed to parse file data; no colon found");
-                }
-            } else {
-                param
-            };
-
-            // look for k=v in param
-            if let Some(equal) = param.iter().position(|c| *c == b'=') {
-                let key = &param[..equal];
-                let value = &param[equal + 1..];
-                params.insert(str::from_utf8(key)?, str::from_utf8(value)?);
-            } else if idx != last {
-                bail!("failed to parse file data; no equals found");
-            }
-        }
-
-        let name = params
-            .get("name")
-            .and_then(|s| base64::decode(s).ok())
-            .and_then(|b| String::from_utf8(b).ok());
-        let size = params.get("size").and_then(|s| s.parse().ok());
-        let width = params
-            .get("width")
-            .and_then(|s| ITermDimension::parse(s).ok())
-            .unwrap_or(ITermDimension::Automatic);
-        let height = params
-            .get("height")
-            .and_then(|s| ITermDimension::parse(s).ok())
-            .unwrap_or(ITermDimension::Automatic);
-        let preserve_aspect_ratio =
-            params.get("preserveAspectRatio").map(|s| *s != "0").unwrap_or(true);
-        let inline = params.get("inline").map(|s| *s != "0").unwrap_or(false);
-        let data = data.ok_or_else(|| err_msg("didn't set data"))?;
-        Ok(Self { name, size, width, height, preserve_aspect_ratio, inline, data })
-    }
-}
-
-impl Display for ITermFileData {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        write!(f, "File")?;
-        let mut sep = "=";
-        let emit_sep = |sep, f: &mut Formatter| {
-            write!(f, "{}", sep)?;
-            Ok(";")
-        };
-        if let Some(size) = self.size {
-            sep = emit_sep(sep, f)?;
-            write!(f, "size={}", size)?;
-        }
-        if let Some(ref name) = self.name {
-            sep = emit_sep(sep, f)?;
-            write!(f, "name={}", base64::encode(name))?;
-        }
-        if self.width != ITermDimension::Automatic {
-            sep = emit_sep(sep, f)?;
-            write!(f, "width={}", self.width)?;
-        }
-        if self.height != ITermDimension::Automatic {
-            sep = emit_sep(sep, f)?;
-            write!(f, "height={}", self.height)?;
-        }
-        if !self.preserve_aspect_ratio {
-            sep = emit_sep(sep, f)?;
-            write!(f, "preserveAspectRatio=0")?;
-        }
-        if self.inline {
-            sep = emit_sep(sep, f)?;
-            write!(f, "inline=1")?;
-        }
-        // Ensure that we emit a sep if we didn't already.
-        // It will still be set to '=' in that case.
-        if sep == "=" {
-            write!(f, "=")?;
-        }
-        write!(f, ":{}", base64::encode(&self.data))?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ITermDimension {
-    Automatic,
-    Cells(i64),
-    Pixels(i64),
-    Percent(i64),
-}
-
-impl Default for ITermDimension {
-    fn default() -> Self {
-        Self::Automatic
-    }
-}
-
-impl Display for ITermDimension {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        use self::ITermDimension::*;
-        match self {
-            Automatic => write!(f, "auto"),
-            Cells(n) => write!(f, "{}", n),
-            Pixels(n) => write!(f, "{}px", n),
-            Percent(n) => write!(f, "{}%", n),
-        }
-    }
-}
-
-impl std::str::FromStr for ITermDimension {
-    type Err = failure::Error;
-    fn from_str(s: &str) -> Fallible<Self> {
-        ITermDimension::parse(s)
-    }
-}
-
-impl ITermDimension {
-    fn parse(s: &str) -> Fallible<Self> {
-        if s == "auto" {
-            Ok(ITermDimension::Automatic)
-        } else if s.ends_with("px") {
-            let s = &s[..s.len() - 2];
-            let num = s.parse()?;
-            Ok(ITermDimension::Pixels(num))
-        } else if s.ends_with('%') {
-            let s = &s[..s.len() - 1];
-            let num = s.parse()?;
-            Ok(ITermDimension::Percent(num))
-        } else {
-            let num = s.parse()?;
-            Ok(ITermDimension::Cells(num))
-        }
-    }
-
-    /// Convert the dimension into a number of pixels based on the provided
-    /// size of a cell and number of cells in that dimension.
-    /// Returns None for the Automatic variant.
-    pub fn to_pixels(&self, cell_size: usize, num_cells: usize) -> Option<usize> {
-        match self {
-            ITermDimension::Automatic => None,
-            ITermDimension::Cells(n) => Some((*n).max(0) as usize * cell_size),
-            ITermDimension::Pixels(n) => Some((*n).max(0) as usize),
-            ITermDimension::Percent(n) => Some(
-                (((*n).max(0).min(100) as f32 / 100.0) * num_cells as f32 * cell_size as f32)
-                    as usize,
-            ),
-        }
-    }
-}
-
-impl ITermProprietary {
-    #[cfg_attr(
-        feature = "cargo-clippy",
-        allow(clippy::cyclomatic_complexity, clippy::cognitive_complexity)
-    )]
-    fn parse(osc: &[&[u8]]) -> Fallible<Self> {
-        // iTerm has a number of different styles of OSC parameter
-        // encodings, which makes this section of code a bit gnarly.
-        ensure!(osc.len() > 1, "not enough args");
-
-        let param = String::from_utf8_lossy(osc[1]);
-
-        let mut iter = param.splitn(2, '=');
-        let keyword = iter.next().ok_or_else(|| err_msg("bad params"))?;
-        let p1 = iter.next();
-
-        macro_rules! single {
-            ($variant:ident, $text:expr) => {
-                if osc.len() == 2 && keyword == $text && p1.is_none() {
-                    return Ok(ITermProprietary::$variant);
-                }
-            };
-        };
-
-        macro_rules! one_str {
-            ($variant:ident, $text:expr) => {
-                if osc.len() == 2 && keyword == $text {
-                    if let Some(p1) = p1 {
-                        return Ok(ITermProprietary::$variant(p1.into()));
-                    }
-                }
-            };
-        };
-        macro_rules! const_arg {
-            ($variant:ident, $text:expr, $value:expr, $res:expr) => {
-                if osc.len() == 2 && keyword == $text {
-                    if let Some(p1) = p1 {
-                        if p1 == $value {
-                            return Ok(ITermProprietary::$variant($res));
-                        }
-                    }
-                }
-            };
-        }
-
-        single!(SetMark, "SetMark");
-        single!(StealFocus, "StealFocus");
-        single!(ClearScrollback, "ClearScrollback");
-        single!(EndCopy, "EndCopy");
-        single!(RequestCellSize, "ReportCellSize");
-        const_arg!(HighlightCursorLine, "HighlightCursorLine", "yes", true);
-        const_arg!(HighlightCursorLine, "HighlightCursorLine", "no", false);
-        one_str!(CurrentDir, "CurrentDir");
-        one_str!(SetProfile, "SetProfile");
-        one_str!(CopyToClipboard, "CopyToClipboard");
-
-        let p1_empty = match p1 {
-            Some(p1) if p1 == "" => true,
-            None => true,
-            _ => false,
-        };
-
-        if osc.len() == 3 && keyword == "Copy" && p1_empty {
-            return Ok(ITermProprietary::Copy(String::from_utf8(base64::decode(osc[2])?)?));
-        }
-        if osc.len() == 3 && keyword == "SetBadgeFormat" && p1_empty {
-            return Ok(ITermProprietary::SetBadgeFormat(String::from_utf8(base64::decode(
-                osc[2],
-            )?)?));
-        }
-
-        if osc.len() == 3 && keyword == "ReportCellSize" && p1.is_some() {
-            if let Some(p1) = p1 {
-                return Ok(ITermProprietary::ReportCellSize {
-                    height_points: NotNan::new(p1.parse()?)?,
-                    width_points: NotNan::new(String::from_utf8_lossy(osc[2]).parse()?)?,
-                });
-            }
-        }
-
-        if keyword == "File" {
-            return Ok(ITermProprietary::File(Box::new(ITermFileData::parse(osc)?)));
-        }
-
-        bail!("ITermProprietary {:?}", osc);
-    }
-}
-
-impl Display for ITermProprietary {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        write!(f, "1337;")?;
-        use self::ITermProprietary::*;
-        match self {
-            SetMark => write!(f, "SetMark")?,
-            StealFocus => write!(f, "StealFocus")?,
-            ClearScrollback => write!(f, "ClearScrollback")?,
-            CurrentDir(s) => write!(f, "CurrentDir={}", s)?,
-            SetProfile(s) => write!(f, "SetProfile={}", s)?,
-            CopyToClipboard(s) => write!(f, "CopyToClipboard={}", s)?,
-            EndCopy => write!(f, "EndCopy")?,
-            HighlightCursorLine(yes) => {
-                write!(f, "HighlightCursorLine={}", if *yes { "yes" } else { "no" })?
-            }
-            RequestCellSize => write!(f, "ReportCellSize")?,
-            ReportCellSize { height_points, width_points } => {
-                write!(f, "ReportCellSize={};{}", height_points, width_points)?
-            }
-            Copy(s) => write!(f, "Copy=;{}", base64::encode(s))?,
-            SetBadgeFormat(s) => write!(f, "SetBadgeFormat={}", base64::encode(s))?,
-            File(file) => file.fmt(f)?,
-        }
         Ok(())
     }
 }

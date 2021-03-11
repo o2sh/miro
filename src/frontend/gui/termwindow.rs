@@ -2,7 +2,7 @@ use super::quad::*;
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
 use crate::clipboard::SystemClipboard;
-use crate::config::Config;
+use crate::config::{Config, TextStyle};
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::{FontConfiguration, FontSystemSelection};
@@ -19,6 +19,7 @@ use crate::window;
 use crate::window::bitmaps::atlas::{OutOfTextureSpace, SpriteSlice};
 use crate::window::bitmaps::Texture2d;
 use crate::window::*;
+use chrono::{DateTime, Utc};
 use failure::Fallible;
 use glium::{uniform, Surface};
 use std::any::Any;
@@ -753,8 +754,8 @@ impl TermWindow {
 
         // Draw top banner rectangle
         frame.draw(
-            &*gl_state.header_vertex_buffer.borrow(),
-            &gl_state.header_index_buffer,
+            &*gl_state.header_rect_vertex_buffer.borrow(),
+            &gl_state.header_rect_index_buffer,
             &gl_state.header_program,
             &uniform! {
                 projection: projection,
@@ -847,6 +848,30 @@ impl TermWindow {
         Ok(())
     }
 
+    fn render_header_line_opengl(&self, palette: &ColorPalette) -> Fallible<()> {
+        let gl_state = self.render_state.opengl();
+        let now: DateTime<Utc> = Utc::now();
+        let current_time = now.format("%H:%M:%S").to_string();
+        let cpu_load = "CPU:12%";
+        let mut vb = gl_state.header_glyph_vertex_buffer.borrow_mut();
+        let mut vertices = vb
+            .slice_mut(..)
+            .ok_or_else(|| format_err!("we're confused about the screen size"))?
+            .map();
+
+        let style = TextStyle::default();
+
+        let glyph_info = {
+            let font = self.fonts.cached_font(&style)?;
+            let mut font = font.borrow_mut();
+            font.shape(&format!("CPU:{:02}%{}", cpu_load, current_time))?
+        };
+
+        let glyph_color = palette.resolve_fg(term::color::ColorAttribute::Default);
+        let bg_color = palette.resolve_bg(term::color::ColorAttribute::Default);
+
+        Ok(())
+    }
     /// "Render" a line of the terminal screen into the vertex buffer.
     /// This is nominally a matter of setting the fg/bg color and the
     /// texture coordinates for a given glyph.  There's a little bit
@@ -964,45 +989,6 @@ impl TermWindow {
                         bg_color,
                         palette,
                     );
-
-                    if let Some(image) = attrs.image.as_ref() {
-                        // Render iTerm2 style image attributes
-
-                        if let Ok(sprite) =
-                            gl_state.glyph_cache.borrow_mut().cached_image(image.image_data())
-                        {
-                            let width = sprite.coords.size.width;
-                            let height = sprite.coords.size.height;
-
-                            let top_left = image.top_left();
-                            let bottom_right = image.bottom_right();
-                            let origin = Point::new(
-                                sprite.coords.origin.x + (*top_left.x * width as f32) as isize,
-                                sprite.coords.origin.y + (*top_left.y * height as f32) as isize,
-                            );
-
-                            let coords = Rect::new(
-                                origin,
-                                Size::new(
-                                    ((*bottom_right.x - *top_left.x) * width as f32) as isize,
-                                    ((*bottom_right.y - *top_left.y) * height as f32) as isize,
-                                ),
-                            );
-
-                            let texture_rect = sprite.texture.to_texture_coords(coords);
-
-                            let mut quad = Quad::for_cell(cell_idx, &mut vertices);
-
-                            quad.set_fg_color(glyph_color);
-                            quad.set_bg_color(bg_color);
-                            quad.set_texture(texture_rect);
-                            quad.set_texture_adjust(0., 0., 0., 0.);
-                            quad.set_underline(gl_state.util_sprites.white_space.texture_coords());
-                            quad.set_has_color(true);
-
-                            continue;
-                        }
-                    }
 
                     let texture =
                         glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);

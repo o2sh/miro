@@ -1,7 +1,5 @@
 use crate::core::cell::{AttributeChange, Cell, CellAttributes};
 use crate::core::color::ColorAttribute;
-use crate::core::image::ImageCell;
-use ordered_float::NotNan;
 use serde_derive::*;
 use std::borrow::Cow;
 use std::cmp::min;
@@ -10,7 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub mod change;
 pub mod line;
 
-pub use self::change::{Change, Image, TextureCoordinate};
+pub use self::change::Change;
 pub use self::line::Line;
 
 /// Position holds 0-based positioning information, where
@@ -250,7 +248,6 @@ impl Surface {
             Change::ClearToEndOfScreen(color) => self.clear_eos(*color),
             Change::CursorColor(color) => self.cursor_color = *color,
             Change::CursorShape(shape) => self.cursor_shape = *shape,
-            Change::Image(image) => self.add_image(image),
             Change::Title(text) => self.title = text.to_owned(),
             Change::ScrollRegionUp { first_row, region_size, scroll_count } => {
                 self.scroll_region_up(*first_row, *region_size, *scroll_count)
@@ -259,51 +256,6 @@ impl Surface {
                 self.scroll_region_down(*first_row, *region_size, *scroll_count)
             }
         }
-    }
-
-    fn add_image(&mut self, image: &Image) {
-        let xsize = (image.bottom_right.x - image.top_left.x) / image.width as f32;
-        let ysize = (image.bottom_right.y - image.top_left.y) / image.height as f32;
-
-        if self.ypos + image.height > self.height {
-            let scroll = (self.ypos + image.height) - self.height;
-            for _ in 0..scroll {
-                self.scroll_screen_up();
-            }
-            self.ypos -= scroll;
-        }
-
-        let mut ypos = NotNan::new(0.0).unwrap();
-        for y in 0..image.height {
-            let mut xpos = NotNan::new(0.0).unwrap();
-            for x in 0..image.width {
-                self.lines[self.ypos + y].set_cell(
-                    self.xpos + x,
-                    Cell::new(
-                        ' ',
-                        self.attributes
-                            .clone()
-                            .set_image(Some(Box::new(ImageCell::new(
-                                TextureCoordinate::new(
-                                    image.top_left.x + xpos,
-                                    image.top_left.y + ypos,
-                                ),
-                                TextureCoordinate::new(
-                                    image.top_left.x + xpos + xsize,
-                                    image.top_left.y + ypos + ysize,
-                                ),
-                                image.image.clone(),
-                            ))))
-                            .clone(),
-                    ),
-                );
-
-                xpos += xsize;
-            }
-            ypos += ysize;
-        }
-
-        self.xpos += image.width;
     }
 
     fn clear_screen(&mut self, color: ColorAttribute) {

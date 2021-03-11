@@ -1,5 +1,4 @@
 use crate::config::TextStyle;
-use crate::core::image::ImageData;
 use crate::font::{FontConfiguration, GlyphInfo};
 use crate::window::bitmaps::atlas::{Atlas, Sprite};
 use crate::window::bitmaps::{Image, ImageTexture, Texture2d};
@@ -8,7 +7,6 @@ use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
@@ -162,25 +160,5 @@ impl<T: Texture2d> GlyphCache<T> {
         };
 
         Ok(Rc::new(glyph))
-    }
-
-    pub fn cached_image(&mut self, image_data: &Arc<ImageData>) -> Fallible<Sprite<T>> {
-        if let Some(sprite) = self.image_cache.get(&image_data.id()) {
-            return Ok(sprite.clone());
-        }
-
-        let decoded_image = image::load_from_memory(image_data.data())?.to_bgra();
-        let (width, height) = decoded_image.dimensions();
-        let image = crate::window::bitmaps::Image::from_raw(
-            width as usize,
-            height as usize,
-            decoded_image.to_vec(),
-        );
-
-        let sprite = self.atlas.allocate(&image)?;
-
-        self.image_cache.insert(image_data.id(), sprite.clone());
-
-        Ok(sprite)
     }
 }
