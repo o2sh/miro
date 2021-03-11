@@ -2,7 +2,6 @@ use crate::core::cell::{AttributeChange, CellAttributes};
 use crate::core::color::ColorAttribute;
 use crate::core::surface::{CursorShape, Position};
 use serde_derive::*;
-use std::sync::Arc;
 
 /// `Change` describes an update operation to be applied to a `Surface`.
 /// Changes to the active attributes (color, style), moving the cursor

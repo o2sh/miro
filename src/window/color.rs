@@ -17,12 +17,6 @@ fn generate_srgb8_to_linear_f32_table() -> [f32; 256] {
 
 #[allow(clippy::unreadable_literal)]
 fn generate_linear_f32_to_srgb8_table() -> [u32; 104] {
-    // My intent was to generate this array on the fly using the code that is commented
-    // out below.  It is based on this gist:
-    // https://gist.github.com/rygorous/2203834
-    // but for whatever reason, the rust translation yields different numbers.
-    // I haven't had an opportunity to dig in to why that is, and I just wanted
-    // to get things rolling, so we're in a slightly gross state for now.
     [
         0x0073000d, 0x007a000d, 0x0080000d, 0x0087000d, 0x008d000d, 0x0094000d, 0x009a000d,
         0x00a1000d, 0x00a7001a, 0x00b4001a, 0x00c1001a, 0x00ce001a, 0x00da001a, 0x00e7001a,
@@ -40,68 +34,7 @@ fn generate_linear_f32_to_srgb8_table() -> [u32; 104] {
         0x4f76065d, 0x52a50610, 0x55ac05cc, 0x5892058f, 0x5b590559, 0x5e0c0a23, 0x631c0980,
         0x67db08f6, 0x6c55087f, 0x70940818, 0x74a007bd, 0x787d076c, 0x7c330723,
     ]
-    /*
-    let numexp = 13;
-    let mantissa_msb = 3;
-    let nbuckets = numexp << mantissa_msb;
-    let bucketsize = 1 << (23 - mantissa_msb);
-    let mantshift = 12;
-
-    let mut table = [0;104];
-
-    let sum_aa = bucketsize as f64;
-    let mut sum_ab = 0.0f64;
-    let mut sum_bb = 0.0f64;
-
-    for i in 0..bucketsize {
-        let j = (i >> mantshift) as f64;
-
-        sum_ab += j;
-        sum_bb += j * j;
-    }
-
-    let inv_det = 1.0 / (sum_aa * sum_bb - sum_ab * sum_ab);
-    eprintln!("sum_ab={:e} sum_bb={:e} inv_det={:e}", sum_ab, sum_bb, inv_det);
-
-    for bucket in 0..nbuckets {
-        let start = ((127 - numexp) << 23) + bucket*bucketsize;
-
-        let mut sum_a = 0.0;
-        let mut sum_b = 0.0;
-
-        for i in 0..bucketsize {
-            let j = i >> mantshift;
-
-            let val = linear_f32_to_srgbf32(f32::from_bits(start + i)) as f64 + 0.5;
-            sum_a += val;
-            sum_b += j as f64 * val;
-        }
-
-        let solved_a = inv_det * (sum_bb*sum_a - sum_ab*sum_b);
-        let solved_b = inv_det * (sum_aa*sum_b - sum_ab*sum_a);
-        let scaled_a = solved_a * 65536.0 / 512.0;
-        let scaled_b = solved_b * 65536.0;
-
-        let int_a = (scaled_a + 0.5) as u32;
-        let int_b = (scaled_b + 0.5) as u32;
-
-        table[bucket as usize] = (int_a << 16) + int_b;
-    }
-
-    table
-    */
 }
-
-/*
-/// Convert from linear rgb in floating point form (0-1.0) to srgb in floating point (0-255.0)
-fn linear_f32_to_srgbf32(f: f32) -> f32 {
-    if f <= 0.0031308 {
-        f * 12.92
-    } else {
-        f.powf(1.0 / 2.4) * 1.055 - 0.055
-    }
-}
-*/
 
 #[allow(clippy::unreadable_literal)]
 const ALMOST_ONE: u32 = 0x3f7fffff;
@@ -128,53 +61,6 @@ fn linear_f32_to_srgb8_using_table(f: f32) -> u8 {
     let t = (f_bits >> 12) & 0xff;
 
     ((bias + scale * t) >> 16) as u8
-}
-
-#[cfg(target_arch = "x86_64")]
-#[allow(clippy::unreadable_literal)]
-fn linear_f32_to_srgb8_vec(s: LinSrgba) -> Color {
-    use std::arch::x86_64::*;
-
-    unsafe fn i32_get(m: *const __m128i, idx: isize) -> i32 {
-        let u: *const i32 = m as _;
-        *u.offset(idx)
-    }
-
-    unsafe {
-        let clamp_min_4 = _mm_set1_epi32((127 - 13) << 23);
-        let almost_one_4 = _mm_set1_epi32(0x3f7fffff);
-        let mant_mask_4 = _mm_set1_epi32(0xff);
-        let top_scale_4 = _mm_set1_epi32(0x02000000);
-
-        let f = _mm_set_ps(s.red, s.green, s.blue, s.alpha);
-
-        let clamped = _mm_min_ps(
-            _mm_max_ps(f, _mm_castsi128_ps(clamp_min_4)),
-            _mm_castsi128_ps(almost_one_4),
-        );
-
-        let tabidx = _mm_srli_epi32(_mm_castps_si128(clamped), 20);
-
-        let tabval = _mm_set_epi32(
-            *F32_TO_U8_TABLE.get_unchecked((i32_get(&tabidx, 0) - (127 - 13) * 8) as usize) as i32,
-            *F32_TO_U8_TABLE.get_unchecked((i32_get(&tabidx, 1) - (127 - 13) * 8) as usize) as i32,
-            *F32_TO_U8_TABLE.get_unchecked((i32_get(&tabidx, 2) - (127 - 13) * 8) as usize) as i32,
-            *F32_TO_U8_TABLE.get_unchecked((i32_get(&tabidx, 3) - (127 - 13) * 8) as usize) as i32,
-        );
-
-        let tabmult1 = _mm_srli_epi32(_mm_castps_si128(clamped), 12);
-        let tabmult2 = _mm_and_si128(tabmult1, mant_mask_4);
-        let tabmult3 = _mm_or_si128(tabmult2, top_scale_4);
-        let tabprod = _mm_madd_epi16(tabval, tabmult3);
-        let result = _mm_srli_epi32(tabprod, 16);
-
-        Color::rgba(
-            i32_get(&result, 0) as u8,
-            i32_get(&result, 1) as u8,
-            i32_get(&result, 2) as u8,
-            i32_get(&result, 3) as u8,
-        )
-    }
 }
 
 /// Convert from srgb in u8 0-255 to linear floating point rgb 0-1.0

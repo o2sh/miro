@@ -17,7 +17,6 @@ use libc::{mode_t, umask};
 use log::{debug, error};
 use std::collections::{HashMap, HashSet};
 use std::fs::remove_file;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -49,12 +48,6 @@ impl LocalListener {
             }
         }
     }
-}
-
-#[derive(Debug)]
-pub enum IdentitySource {
-    Pkcs12File { path: PathBuf, password: String },
-    PemFiles { key: PathBuf, cert: Option<PathBuf>, chain: Option<PathBuf> },
 }
 
 pub struct ClientSession<S: ReadAndWrite> {

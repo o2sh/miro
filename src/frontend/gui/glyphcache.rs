@@ -31,7 +31,6 @@ pub struct GlyphCache<T: Texture2d> {
     glyph_cache: HashMap<GlyphKey, Rc<CachedGlyph<T>>>,
     pub atlas: Atlas<T>,
     fonts: Rc<FontConfiguration>,
-    image_cache: HashMap<usize, Sprite<T>>,
 }
 
 impl GlyphCache<ImageTexture> {
@@ -39,12 +38,7 @@ impl GlyphCache<ImageTexture> {
         let surface = Rc::new(ImageTexture::new(size, size));
         let atlas = Atlas::new(&surface).expect("failed to create new texture atlas");
 
-        Self {
-            fonts: Rc::clone(fonts),
-            glyph_cache: HashMap::new(),
-            image_cache: HashMap::new(),
-            atlas,
-        }
+        Self { fonts: Rc::clone(fonts), glyph_cache: HashMap::new(), atlas }
     }
 }
 
@@ -63,12 +57,7 @@ impl GlyphCache<SrgbTexture2d> {
         )?);
         let atlas = Atlas::new(&surface).expect("failed to create new texture atlas");
 
-        Ok(Self {
-            fonts: Rc::clone(fonts),
-            glyph_cache: HashMap::new(),
-            image_cache: HashMap::new(),
-            atlas,
-        })
+        Ok(Self { fonts: Rc::clone(fonts), glyph_cache: HashMap::new(), atlas })
     }
 }
 

@@ -383,10 +383,6 @@ impl Image {
         Image { data, width, height }
     }
 
-    pub fn from_raw(width: usize, height: usize, data: Vec<u8>) -> Self {
-        Self { data, width, height }
-    }
-
     /// Create a new bgra32 image buffer with the specified dimensions.
     /// The buffer is populated with the source data in rgba32 format.
     pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
