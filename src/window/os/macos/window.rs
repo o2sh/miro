@@ -261,7 +261,6 @@ impl Window {
             let conn = Connection::get().expect("Connection::init has not been called");
 
             let window_id = conn.next_window_id();
-
             let inner = Rc::new(RefCell::new(Inner {
                 callbacks,
                 view_id: None,
@@ -269,7 +268,6 @@ impl Window {
                 gl_context_pair: None,
                 text_cursor_position: Rect::new(Point::new(0, 0), Size::new(0, 0)),
             }));
-
             let window =
                 StrongPtr::new(NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
                     rect,
@@ -277,40 +275,50 @@ impl Window {
                     NSBackingStoreBuffered,
                     NO,
                 ));
-
             window.setReleasedWhenClosed_(NO);
             // window.cascadeTopLeftFromPoint_(NSPoint::new(20.0, 20.0));
             window.center();
             window.setTitle_(*nsstring(&name));
             window.setAcceptsMouseMovedEvents_(YES);
-
             let view = WindowView::alloc(&inner)?;
             view.initWithFrame_(rect);
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
-
             window.setContentView_(*view);
             window.setDelegate_(*view);
-
             let frame = NSView::frame(*view);
             let backing_frame = NSView::convertRectToBacking(*view, frame);
             let width = backing_frame.size.width;
             let height = backing_frame.size.height;
-
             let window_inner = Rc::new(RefCell::new(WindowInner { window_id, window, view }));
             conn.windows.borrow_mut().insert(window_id, Rc::clone(&window_inner));
-
             let window = Window(window_id);
-
             inner.borrow_mut().callbacks.created(&window);
-            // Synthesize a resize event immediately; this allows
-            // the embedding application an opportunity to discover
-            // the dpi and adjust for display scaling
-            inner.borrow_mut().callbacks.resize(Dimensions {
-                pixel_width: width as usize,
-                pixel_height: height as usize,
-                dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
-            });
 
+            let mut do_resize = true;
+            conn.schedule_timer(std::time::Duration::from_millis(100), move || {
+                let mut inner = inner.borrow_mut();
+
+                // Synthesize a resize event immediately; this allows
+                // the embedding application an opportunity to discover
+                // the dpi and adjust for display scaling
+                if do_resize {
+                    inner.callbacks.resize(Dimensions {
+                        pixel_width: width as usize,
+                        pixel_height: height as usize,
+                        dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
+                    });
+                    do_resize = false;
+                }
+                if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
+                    let mut frame = glium::Frame::new(
+                        Rc::clone(&gl_context_pair.context),
+                        (width as u32, height as u32),
+                    );
+                    inner.callbacks.paint_header(&mut frame);
+                    inner.callbacks.paint_tab(&mut frame);
+                    frame.finish().expect("frame.finish failed and we don't know how to recover");
+                }
+            });
             Ok(window)
         }
     }
@@ -469,7 +477,7 @@ struct Inner {
     text_cursor_position: Rect,
 }
 
-const CLS_NAME: &str = "WezTermWindowView";
+const CLS_NAME: &str = "MiroWindowView";
 
 struct WindowView {
     inner: Rc<RefCell<Inner>>,
@@ -986,29 +994,7 @@ impl WindowView {
         }
     }
 
-    extern "C" fn draw_rect(this: &mut Object, _sel: Sel, _dirty_rect: NSRect) {
-        let frame = unsafe { NSView::frame(this as *mut _) };
-        let backing_frame = unsafe { NSView::convertRectToBacking(this as *mut _, frame) };
-
-        let width = backing_frame.size.width;
-        let height = backing_frame.size.height;
-
-        if let Some(this) = Self::get_this(this) {
-            let mut inner = this.inner.borrow_mut();
-
-            if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
-                let mut frame = glium::Frame::new(
-                    Rc::clone(&gl_context_pair.context),
-                    (width as u32, height as u32),
-                );
-
-                inner.callbacks.paint_tab(&mut frame);
-                inner.callbacks.paint_header(&mut frame);
-                frame.finish().expect("frame.finish failed and we don't know how to recover");
-                return;
-            }
-        }
-    }
+    extern "C" fn draw_rect(_this: &mut Object, _sel: Sel, _dirty_rect: NSRect) {}
 
     fn get_this(this: &Object) -> Option<&mut Self> {
         unsafe {

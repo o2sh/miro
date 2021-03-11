@@ -704,16 +704,11 @@ impl TermWindow {
         self.activate_tab_relative(0).ok();
     }
 
+    #[allow(unused_variables)]
     fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.frame_count += 1;
 
-        let palette = tab.palette();
-
-        let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
-        let (r, g, b, a) = background_color.to_tuple_rgba();
-
         let dpi = self.render_state.opengl().dpi;
-
         if self.dimensions.dpi as f32 != dpi {
             self.render_state.change_header_scaling(
                 self.dimensions.dpi as f32,
@@ -725,19 +720,24 @@ impl TermWindow {
         let gl_state = self.render_state.opengl();
 
         //clear header portion of frame
-        frame.clear(
-            Some(&glium::Rect {
-                left: 0,
-                bottom: self.dimensions.pixel_height as u32 - gl_state.header_height as u32,
-                width: self.dimensions.pixel_width as u32,
-                height: gl_state.header_height as u32,
-            }),
-            Some((r, g, b, a)),
-            false,
-            None,
-            None,
-        );
-
+        #[cfg(all(not(target_os = "macos")))]
+        {
+            let palette = tab.palette();
+            let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
+            let (r, g, b, a) = background_color.to_tuple_rgba();
+            frame.clear(
+                Some(&glium::Rect {
+                    left: 0,
+                    bottom: self.dimensions.pixel_height as u32 - gl_state.header_height as u32,
+                    width: self.dimensions.pixel_width as u32,
+                    height: gl_state.header_height as u32,
+                }),
+                Some((r, g, b, a)),
+                false,
+                None,
+                None,
+            );
+        }
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
             self.dimensions.pixel_width as f32 / 2.0,
@@ -796,14 +796,10 @@ impl TermWindow {
         let mut term = tab.renderer();
         let cursor = term.get_cursor_position();
 
-        {
-            let dirty_lines = term.get_dirty_lines();
+        let dirty_lines = term.get_dirty_lines();
 
-            for (line_idx, line, selrange) in dirty_lines {
-                self.render_screen_line_opengl(
-                    line_idx, &line, selrange, &cursor, &*term, &palette,
-                )?;
-            }
+        for (line_idx, line, selrange) in dirty_lines {
+            self.render_screen_line_opengl(line_idx, &line, selrange, &cursor, &*term, &palette)?;
         }
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
