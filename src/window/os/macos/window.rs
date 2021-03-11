@@ -994,8 +994,6 @@ impl WindowView {
         }
     }
 
-    extern "C" fn draw_rect(_this: &mut Object, _sel: Sel, _dirty_rect: NSRect) {}
-
     fn get_this(this: &Object) -> Option<&mut Self> {
         unsafe {
             let myself: *mut c_void = *this.get_ivar(CLS_NAME);
@@ -1047,11 +1045,6 @@ impl WindowView {
             cls.add_method(
                 sel!(windowShouldClose:),
                 Self::window_should_close as extern "C" fn(&mut Object, Sel, id) -> BOOL,
-            );
-
-            cls.add_method(
-                sel!(drawRect:),
-                Self::draw_rect as extern "C" fn(&mut Object, Sel, NSRect),
             );
 
             cls.add_method(
