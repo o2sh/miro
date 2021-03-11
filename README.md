@@ -2,7 +2,8 @@
 
 A GPU-accelerated terminal emulator written in Rust.
 
-![miro](resources/miro.gif)
+<h3 align="center"><img src="resources/miro.gif"></h3>
+
 
 ## Status
 
