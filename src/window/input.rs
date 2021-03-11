@@ -81,6 +81,7 @@ pub enum MousePress {
     Middle,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MouseEventKind {
     Move,

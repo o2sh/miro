@@ -327,6 +327,21 @@ impl OpenGLRenderState {
         *self.header_rect_vertex_buffer.borrow_mut() = header_rect_vertex_buffer;
         self.header_rect_index_buffer = header_rect_index_buffer;
 
+        //header
+        let (header_glyph_vertex_buffer, header_glyph_index_buffer) =
+            Self::compute_header_glyph_vertices(
+                &self.context,
+                self.header_height,
+                *CPU_LOAD_LENGTH,
+                *CURRENT_TIME_LENGTH,
+                pixel_width as f32,
+                pixel_height as f32,
+                metrics,
+            )?;
+
+        *self.header_glyph_vertex_buffer.borrow_mut() = header_glyph_vertex_buffer;
+        self.header_glyph_index_buffer = header_glyph_index_buffer;
+
         //sprite
         self.reset_sprite_pos(pixel_height as f32 / 2.0);
 

@@ -26,6 +26,7 @@ use std::any::Any;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
+use sysinfo::{ProcessorExt, System, SystemExt};
 
 pub struct TermWindow {
     window: Option<Window>,
@@ -38,6 +39,7 @@ pub struct TermWindow {
     clipboard: Arc<dyn term::Clipboard>,
     keys: KeyMap,
     frame_count: u32,
+    sys: System,
 }
 
 struct Host<'a> {
@@ -369,6 +371,8 @@ impl TermWindow {
             ATLAS_SIZE,
         )?);
 
+        let sys = System::new();
+
         let window = Window::new_window(
             "miro",
             "miro",
@@ -392,6 +396,7 @@ impl TermWindow {
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
                 frame_count: 0,
+                sys,
             }),
         )?;
 
@@ -570,6 +575,7 @@ impl TermWindow {
         Ok(tab_id)
     }
 
+    #[allow(dead_code)]
     fn perform_key_assignment(
         &mut self,
         tab: &Rc<dyn Tab>,
@@ -709,6 +715,12 @@ impl TermWindow {
     fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.frame_count += 1;
 
+        if self.frame_count % 5 == 0 {
+            self.sys.refresh_system();
+        }
+
+        let palette = tab.palette();
+
         let dpi = self.render_state.opengl().dpi;
         if self.dimensions.dpi as f32 != dpi {
             self.render_state.change_header_scaling(
@@ -723,7 +735,6 @@ impl TermWindow {
         //clear header portion of frame
         #[cfg(all(not(target_os = "macos")))]
         {
-            let palette = tab.palette();
             let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
             let (r, g, b, a) = background_color.to_tuple_rgba();
             frame.clear(
@@ -763,14 +774,28 @@ impl TermWindow {
             &draw_params,
         )?;
 
-        let number_of_sprites = gl_state.spritesheet.sprites.len();
+        //Draw header text
+        self.render_header_line_opengl(&palette)?;
 
-        let sprite =
-            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
+        let tex = gl_state.glyph_cache.borrow().atlas.texture();
 
-        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
+        frame.draw(
+            &*gl_state.header_glyph_vertex_buffer.borrow(),
+            &gl_state.header_glyph_index_buffer,
+            &gl_state.glyph_program,
+            &uniform! {
+                projection: projection,
+                glyph_tex: &*tex,
+                bg_and_line_layer: false,
+            },
+            &draw_params,
+        )?;
 
         // Draw mario
+        let number_of_sprites = gl_state.spritesheet.sprites.len();
+        let sprite =
+            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
+        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
         frame.draw(
             &*gl_state.sprite_vertex_buffer.borrow(),
             &gl_state.sprite_index_buffer,
@@ -852,7 +877,7 @@ impl TermWindow {
         let gl_state = self.render_state.opengl();
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load = "CPU:12%";
+        let cpu_load = self.sys.get_global_processor_info().get_cpu_usage();
         let mut vb = gl_state.header_glyph_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
@@ -864,11 +889,47 @@ impl TermWindow {
         let glyph_info = {
             let font = self.fonts.cached_font(&style)?;
             let mut font = font.borrow_mut();
-            font.shape(&format!("CPU:{:02}%{}", cpu_load, current_time))?
+            font.shape(&format!("CPU:{:02}%{}", cpu_load.round(), current_time))?
         };
 
-        let glyph_color = palette.resolve_fg(term::color::ColorAttribute::Default);
+        let glyph_color = palette.resolve_fg(term::color::ColorAttribute::PaletteIndex(0xff));
         let bg_color = palette.resolve_bg(term::color::ColorAttribute::Default);
+
+        for (glyph_idx, info) in glyph_info.iter().enumerate() {
+            let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, &style)?;
+
+            let left = (glyph.x_offset + glyph.bearing_x) as f32;
+            let top = ((self.render_metrics.cell_size.height as f64
+                + self.render_metrics.descender)
+                - (glyph.y_offset + glyph.bearing_y)) as f32;
+
+            let texture = glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);
+
+            let slice = SpriteSlice {
+                cell_idx: glyph_idx,
+                num_cells: info.num_cells as usize,
+                cell_width: self.render_metrics.cell_size.width as usize,
+                scale: glyph.scale as f32,
+                left_offset: left,
+            };
+
+            let pixel_rect = slice.pixel_rect(texture);
+            let texture_rect = texture.texture.to_texture_coords(pixel_rect);
+
+            let left = if glyph_idx == 0 { left } else { 0.0 };
+            let bottom = (pixel_rect.size.height as f32 * glyph.scale as f32) + top
+                - self.render_metrics.cell_size.height as f32;
+            let right =
+                pixel_rect.size.width as f32 + left - self.render_metrics.cell_size.width as f32;
+
+            let mut quad = Quad::for_cell(glyph_idx, &mut vertices);
+
+            quad.set_fg_color(rgbcolor_to_window_color(glyph_color));
+            quad.set_bg_color(rgbcolor_to_window_color(bg_color));
+            quad.set_texture(texture_rect);
+            quad.set_texture_adjust(left, top, right, bottom);
+            quad.set_has_color(glyph.has_color);
+        }
 
         Ok(())
     }
