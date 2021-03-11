@@ -18,7 +18,7 @@ const SPRITE_SPEED: f32 = 10.0;
 
 lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
-    static ref CPU_LOAD_LENGTH: usize = "CPU:00%".chars().count();
+    static ref CPU_LOAD_LENGTH: usize = "CPU:000%".chars().count();
 }
 
 pub struct SoftwareRenderState {

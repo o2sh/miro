@@ -877,7 +877,7 @@ impl TermWindow {
         let gl_state = self.render_state.opengl();
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load = self.sys.get_global_processor_info().get_cpu_usage();
+        let cpu_load = format!("{}", self.sys.get_global_processor_info().get_cpu_usage().round());
         let mut vb = gl_state.header_glyph_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
@@ -886,10 +886,18 @@ impl TermWindow {
 
         let style = TextStyle::default();
 
+        let indent = 3 - cpu_load.len();
+
         let glyph_info = {
             let font = self.fonts.cached_font(&style)?;
             let mut font = font.borrow_mut();
-            font.shape(&format!("CPU:{:02}%{}", cpu_load.round(), current_time))?
+            font.shape(&format!(
+                "CPU:{}%{:indent$}{}",
+                cpu_load,
+                "",
+                current_time,
+                indent = indent
+            ))?
         };
 
         let glyph_color = palette.resolve_fg(term::color::ColorAttribute::PaletteIndex(0xff));
