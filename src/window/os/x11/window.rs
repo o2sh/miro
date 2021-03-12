@@ -78,23 +78,21 @@ impl WindowInner {
         let window_dimensions =
             Rect::from_size(Size::new(self.width as isize, self.height as isize));
 
+        if self.paint_all {
+            self.paint_all = false;
+            self.expose.clear();
+            self.expose.push_back(window_dimensions);
+        }
+
         if let Some(gl_context) = self.gl_state.as_ref() {
             self.expose.clear();
+
             let mut frame = glium::Frame::new(
                 Rc::clone(&gl_context),
                 (u32::from(self.width), u32::from(self.height)),
             );
+
             self.callbacks.paint_header(&mut frame);
-
-            if self.paint_all {
-                self.paint_all = false;
-                self.expose.clear();
-                self.expose.push_back(window_dimensions);
-            } else if self.expose.is_empty() {
-                frame.finish()?;
-                return Ok(());
-            }
-
             self.callbacks.paint_tab(&mut frame);
             frame.finish()?;
             return Ok(());
