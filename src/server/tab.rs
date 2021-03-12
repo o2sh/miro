@@ -1,8 +1,7 @@
-use crate::clipboard::SystemClipboard;
 use crate::core::hyperlink::Hyperlink;
 use crate::core::input::KeyEvent;
 use crate::core::promise::{BrokenPromise, Future};
-use crate::core::surface::{Change, SequenceNo, Surface};
+use crate::core::surface::{SequenceNo, Surface};
 use crate::frontend::executor;
 use crate::mux::domain::DomainId;
 use crate::mux::renderable::Renderable;
@@ -13,9 +12,9 @@ use crate::server::codec::*;
 use crate::server::domain::ClientInner;
 use crate::term::color::ColorPalette;
 use crate::term::selection::SelectionRange;
-use crate::term::{Clipboard, CursorPosition, Line};
+use crate::term::{CursorPosition, Line};
 use crate::term::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, TerminalHost};
-use failure::{bail, Fallible};
+use failure::Fallible;
 use filedescriptor::Pipe;
 use log::error;
 use std::borrow::Cow;
@@ -130,7 +129,6 @@ pub struct ClientTab {
     writer: RefCell<TabWriter>,
     reader: Pipe,
     mouse: Arc<Mutex<MouseState>>,
-    clipboard: Arc<dyn Clipboard>,
 }
 
 impl ClientTab {
@@ -176,45 +174,8 @@ impl ClientTab {
             local_tab_id,
             renderable: RefCell::new(render),
             writer: RefCell::new(writer),
-            // FIXME: ideally we'd pass down an instance of Clipboard
-            // rather than creating a new SystemClipboard here.
-            // That will be important if we end up with multiple chained
-            // domains in the future.
-            clipboard: Arc::new(SystemClipboard::new()),
             reader,
         }
-    }
-
-    pub fn process_unilateral(&self, pdu: Pdu) -> Fallible<()> {
-        match pdu {
-            Pdu::GetTabRenderChangesResponse(delta) => {
-                log::trace!("new delta {}", delta.sequence_no);
-                self.renderable
-                    .borrow()
-                    .inner
-                    .borrow_mut()
-                    .apply_changes_to_surface(delta.sequence_no, delta.changes);
-            }
-            Pdu::SetClipboard(SetClipboard { clipboard, .. }) => {
-                self.clipboard.set_contents(clipboard)?;
-            }
-            Pdu::OpenURL(OpenURL { url, .. }) => {
-                // FIXME: ideally we'd have a provider that we can
-                // capture (like the clipboard) so that we can propagate
-                // the click back to the ultimate client, but for now
-                // we just do a single stage
-                match open::that(&url) {
-                    Ok(_) => {}
-                    Err(err) => error!("failed to open {}: {:?}", url, err),
-                }
-            }
-            _ => bail!("unhandled unilateral pdu: {:?}", pdu),
-        };
-        Ok(())
-    }
-
-    pub fn remote_tab_id(&self) -> TabId {
-        self.remote_tab_id
     }
 }
 
@@ -317,15 +278,6 @@ const MAX_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const BASE_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 impl RenderableInner {
-    fn apply_changes_to_surface(&mut self, remote_seq: SequenceNo, changes: Vec<Change>) {
-        if let Some(first) = changes.first().as_ref() {
-            log::trace!("{:?}", first);
-        }
-        self.poll_interval = BASE_POLL_INTERVAL;
-        self.surface.add_changes(changes);
-        self.remote_sequence = remote_seq;
-    }
-
     fn poll(&mut self) -> Fallible<()> {
         let ready = self.poll_future.as_ref().map(Future::is_ready).unwrap_or(false);
         if ready {

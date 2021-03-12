@@ -47,9 +47,6 @@ pub trait Domain: Downcast {
     /// Returns the name of the domain
     fn domain_name(&self) -> &str;
 
-    /// Re-attach to any tabs that might be pre-existing in this domain
-    fn attach(&self) -> Fallible<()>;
-
     /// Detach all tabs
     fn detach(&self) -> Fallible<()>;
 
@@ -126,10 +123,6 @@ impl Domain for LocalDomain {
 
     fn domain_name(&self) -> &str {
         &self.name
-    }
-
-    fn attach(&self) -> Fallible<()> {
-        Ok(())
     }
 
     fn detach(&self) -> Fallible<()> {

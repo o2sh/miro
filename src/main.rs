@@ -76,7 +76,6 @@ fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<
 
     let front_end = opts.front_end.unwrap_or(config.front_end);
     let gui = front_end.try_new()?;
-    domain.attach()?;
 
     if mux.is_empty() {
         let window_id = mux.new_empty_window();

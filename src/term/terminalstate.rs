@@ -446,6 +446,7 @@ impl TerminalState {
     ) -> Result<(), Error> {
         let y = event.y as ScrollbackOrVisibleRowIndex
             - self.viewport_offset as ScrollbackOrVisibleRowIndex;
+
         let idx = self.screen().scrollback_or_visible_row(y);
         let selection_range = match self.screen().lines[idx]
             .compute_double_click_range(event.x, is_double_click_word)
@@ -484,9 +485,6 @@ impl TerminalState {
                 SelectionRange { start: start_coord, end: end_coord }
             }
         };
-
-        // TODO: if selection_range.start.x == 0, search backwards for wrapping
-        // lines too.
 
         self.selection_start = Some(selection_range.start);
         self.selection_range = Some(selection_range);

@@ -7,7 +7,7 @@ use crate::frontend::FrontEndSelection;
 use crate::pty::{CommandBuilder, PtySystemSelection};
 use crate::term;
 use crate::term::color::RgbColor;
-use failure::{err_msg, Error, Fallible};
+use failure::{err_msg, Error};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -15,7 +15,7 @@ use serde_derive::*;
 use serde_json::Value;
 use std;
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::path::PathBuf;
 
 fn compute_runtime_dir() -> Result<PathBuf, Error> {
@@ -622,25 +622,8 @@ pub struct UnixDomain {
 }
 
 impl UnixDomain {
-    pub fn socket_path(&self) -> PathBuf {
-        self.socket_path.as_ref().cloned().unwrap_or_else(|| RUNTIME_DIR.join("sock"))
-    }
-
     fn default_unix_domains() -> Vec<Self> {
         vec![UnixDomain::default()]
-    }
-
-    pub fn serve_command(&self) -> Fallible<Vec<OsString>> {
-        match self.serve_command.as_ref() {
-            Some(cmd) => Ok(cmd.iter().map(Into::into).collect()),
-            None => Ok(vec![
-                std::env::current_exe()?.into_os_string(),
-                OsString::from("start"),
-                OsString::from("--daemonize"),
-                OsString::from("--front-end"),
-                OsString::from("MuxServer"),
-            ]),
-        }
     }
 }
 

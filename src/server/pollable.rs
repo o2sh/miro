@@ -1,9 +1,9 @@
 use crate::server::UnixStream;
-use crossbeam_channel::{unbounded as channel, Receiver, Sender, TryRecvError};
+use crossbeam_channel::Sender;
 use failure::{format_err, Fallible};
 use filedescriptor::*;
 use std::cell::RefCell;
-use std::io::{Read, Write};
+use std::io::Write;
 
 pub trait ReadAndWrite: std::io::Read + std::io::Write + Send + AsPollFd {
     fn set_non_blocking(&self, non_blocking: bool) -> Fallible<()>;
@@ -43,38 +43,14 @@ impl<T> Clone for PollableSender<T> {
     }
 }
 
-pub struct PollableReceiver<T> {
-    receiver: Receiver<T>,
+pub struct PollableReceiver {
     read: RefCell<FileDescriptor>,
 }
 
-impl<T> PollableReceiver<T> {
-    pub fn try_recv(&self) -> Result<T, TryRecvError> {
-        let item = self.receiver.try_recv()?;
-        let mut byte = [0u8];
-        self.read.borrow_mut().read(&mut byte).ok();
-        Ok(item)
-    }
-}
-
-impl<T> AsPollFd for PollableReceiver<T> {
+impl AsPollFd for PollableReceiver {
     fn as_poll_fd(&self) -> pollfd {
         self.read.borrow().as_socket_descriptor().as_poll_fd()
     }
-}
-
-/// A channel that can be polled together with a socket.
-/// This uses the self-pipe trick but with a unix domain
-/// socketpair.
-/// In theory this should also work on windows, but will require
-/// windows 10 w/unix domain socket support.
-pub fn pollable_channel<T>() -> Fallible<(PollableSender<T>, PollableReceiver<T>)> {
-    let (sender, receiver) = channel();
-    let (write, read) = socketpair()?;
-    Ok((
-        PollableSender { sender, write: RefCell::new(FileDescriptor::new(write)) },
-        PollableReceiver { receiver, read: RefCell::new(FileDescriptor::new(read)) },
-    ))
 }
 
 pub trait AsPollFd {
@@ -90,11 +66,5 @@ impl AsPollFd for SocketDescriptor {
 impl AsPollFd for UnixStream {
     fn as_poll_fd(&self) -> pollfd {
         self.as_socket_descriptor().as_poll_fd()
-    }
-}
-
-pub fn poll_for_read(pfd: &mut [pollfd]) {
-    if let Err(e) = poll(pfd, None) {
-        log::error!("poll failed for {}", e);
     }
 }

@@ -258,17 +258,6 @@ impl Mux {
     pub fn is_empty(&self) -> bool {
         self.tabs.borrow().is_empty()
     }
-
-    pub fn iter_tabs(&self) -> Vec<Rc<dyn Tab>> {
-        self.tabs.borrow().iter().map(|(_, v)| Rc::clone(v)).collect()
-    }
-
-    pub fn domain_was_detached(&self, domain: DomainId) {
-        self.tabs.borrow_mut().retain(|_tab_id, tab| tab.domain_id() != domain);
-        // Ideally we'd do this here, but that seems to cause problems
-        // at the moment:
-        // self.prune_dead_windows();
-    }
 }
 
 #[derive(Debug, Fail)]
