@@ -2,11 +2,7 @@
 extern crate failure;
 
 use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
-use failure::{Error, Fallible};
-use std::ffi::OsString;
-use std::fs::DirBuilder;
-use std::os::unix::fs::DirBuilderExt;
-use std::path::Path;
+use failure::Error;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -36,30 +32,7 @@ mod window;
 #[derive(Debug, Default, Clone)]
 struct StartCommand {
     front_end: Option<FrontEndSelection>,
-
     font_system: Option<FontSystemSelection>,
-
-    /// If true, do not connect to domains marked as connect_automatically
-    /// in your miro.toml configuration file.
-    no_auto_connect: bool,
-
-    /// Detach from the foreground and become a background process
-    daemonize: bool,
-
-    /// Instead of executing your shell, run PROG.
-    /// For example: `miro start -- bash -l` will spawn bash
-    /// as if it were a login shell.
-    prog: Vec<OsString>,
-}
-
-pub fn create_user_owned_dirs(p: &Path) -> Fallible<()> {
-    let mut builder = DirBuilder::new();
-    builder.recursive(true);
-
-    builder.mode(0o700);
-
-    builder.create(p)?;
-    Ok(())
 }
 
 fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<(), Error> {

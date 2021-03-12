@@ -115,8 +115,6 @@ pub struct ExitStatus {
     successful: bool,
 }
 
-impl ExitStatus {}
-
 impl From<std::process::ExitStatus> for ExitStatus {
     fn from(status: std::process::ExitStatus) -> ExitStatus {
         ExitStatus { successful: status.success() }
