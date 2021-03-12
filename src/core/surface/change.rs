@@ -69,15 +69,6 @@ pub enum Change {
     Title(String),
 }
 
-impl Change {
-    pub fn is_text(&self) -> bool {
-        match self {
-            Change::Text(_) => true,
-            _ => false,
-        }
-    }
-}
-
 impl<S: Into<String>> From<S> for Change {
     fn from(s: S) -> Self {
         Change::Text(s.into())

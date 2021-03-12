@@ -17,7 +17,6 @@ use crate::mux::domain::{Domain, LocalDomain};
 use crate::mux::Mux;
 use crate::pty::cmdbuilder::CommandBuilder;
 use crate::pty::PtySize;
-use crate::server::domain::{ClientDomain, ClientDomainConfig};
 use crate::term::color::RgbColor;
 
 mod clipboard;
@@ -53,15 +52,6 @@ struct StartCommand {
     prog: Vec<OsString>,
 }
 
-fn client_domains(config: &Arc<config::Config>) -> Vec<ClientDomainConfig> {
-    let mut domains = vec![];
-    for unix_dom in &config.unix_domains {
-        domains.push(ClientDomainConfig::Unix(unix_dom.clone()));
-    }
-
-    domains
-}
-
 pub fn create_user_owned_dirs(p: &Path) -> Fallible<()> {
     let mut builder = DirBuilder::new();
     builder.recursive(true);
@@ -87,22 +77,6 @@ fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<
     let front_end = opts.front_end.unwrap_or(config.front_end);
     let gui = front_end.try_new()?;
     domain.attach()?;
-
-    fn record_domain(mux: &Rc<Mux>, client: ClientDomain) -> Fallible<Arc<dyn Domain>> {
-        let domain: Arc<dyn Domain> = Arc::new(client);
-        mux.add_domain(&domain);
-        Ok(domain)
-    }
-
-    if front_end != FrontEndSelection::MuxServer && !opts.no_auto_connect {
-        for client_config in client_domains(&config) {
-            let connect_automatically = client_config.connect_automatically();
-            let dom = record_domain(&mux, ClientDomain::new(client_config))?;
-            if connect_automatically {
-                dom.attach()?;
-            }
-        }
-    }
 
     if mux.is_empty() {
         let window_id = mux.new_empty_window();

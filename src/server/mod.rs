@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixStream;
 
 pub mod client;
 pub mod codec;

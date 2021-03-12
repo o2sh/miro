@@ -32,11 +32,6 @@ pub fn is_opengl_enabled() -> bool {
 }
 
 impl GuiFrontEnd {
-    pub fn try_new_no_opengl() -> Fallible<Rc<dyn FrontEnd>> {
-        USE_OPENGL.store(false, Ordering::Release);
-        Self::try_new()
-    }
-
     pub fn try_new() -> Fallible<Rc<dyn FrontEnd>> {
         let connection = Connection::init()?;
         let front_end = Rc::new(GuiFrontEnd { connection });

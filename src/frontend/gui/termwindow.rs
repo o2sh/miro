@@ -612,13 +612,6 @@ impl TermWindow {
                     w.hide();
                 }
             }
-            Show => {
-                if let Some(w) = self.window.as_ref() {
-                    w.show();
-                }
-            }
-            CloseCurrentTab => self.close_current_tab(),
-            Nop => {}
         };
         Ok(())
     }
@@ -696,19 +689,6 @@ impl TermWindow {
     }
     fn reset_font_size(&mut self) {
         self.scaling_changed(self.dimensions, 1.);
-    }
-
-    fn close_current_tab(&mut self) {
-        let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => return,
-        };
-        mux.remove_tab(tab.tab_id());
-        if let Some(mut win) = mux.get_window_mut(self.mux_window_id) {
-            win.remove_by_id(tab.tab_id());
-        }
-        self.activate_tab_relative(0).ok();
     }
 
     #[allow(unused_variables)]

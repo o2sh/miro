@@ -6,7 +6,7 @@ use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::{Window, WindowId};
 use crate::pty::ExitStatus;
 use crate::ratelim::RateLimiter;
-use crate::server::pollable::{pollable_channel, PollableReceiver, PollableSender};
+use crate::server::pollable::PollableSender;
 use crate::term::terminal::Clipboard;
 use crate::term::TerminalHost;
 use domain::{Domain, DomainId};
@@ -16,7 +16,6 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::io::Read;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -30,17 +29,12 @@ pub enum MuxNotification {
     TabOutput(TabId),
 }
 
-static SUB_ID: AtomicUsize = AtomicUsize::new(0);
-
-pub type MuxSubscriber = PollableReceiver<MuxNotification>;
-
 pub struct Mux {
     tabs: RefCell<HashMap<TabId, Rc<dyn Tab>>>,
     windows: RefCell<HashMap<WindowId, Window>>,
     config: Arc<Config>,
     default_domain: RefCell<Option<Arc<dyn Domain>>>,
     domains: RefCell<HashMap<DomainId, Arc<dyn Domain>>>,
-    domains_by_name: RefCell<HashMap<String, Arc<dyn Domain>>>,
     subscribers: RefCell<HashMap<usize, PollableSender<MuxNotification>>>,
 }
 
@@ -140,17 +134,9 @@ impl Mux {
             windows: RefCell::new(HashMap::new()),
             config: Arc::clone(config),
             default_domain: RefCell::new(default_domain),
-            domains_by_name: RefCell::new(domains_by_name),
             domains: RefCell::new(domains),
             subscribers: RefCell::new(HashMap::new()),
         }
-    }
-
-    pub fn subscribe(&self) -> Fallible<MuxSubscriber> {
-        let sub_id = SUB_ID.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = pollable_channel()?;
-        self.subscribers.borrow_mut().insert(sub_id, tx);
-        Ok(rx)
     }
 
     pub fn notify(&self, notification: MuxNotification) {
@@ -164,16 +150,6 @@ impl Mux {
 
     pub fn get_domain(&self, id: DomainId) -> Option<Arc<dyn Domain>> {
         self.domains.borrow().get(&id).cloned()
-    }
-
-    pub fn add_domain(&self, domain: &Arc<dyn Domain>) {
-        if self.default_domain.borrow().is_none() {
-            *self.default_domain.borrow_mut() = Some(Arc::clone(domain));
-        }
-        self.domains.borrow_mut().insert(domain.domain_id(), Arc::clone(domain));
-        self.domains_by_name
-            .borrow_mut()
-            .insert(domain.domain_name().to_string(), Arc::clone(domain));
     }
 
     pub fn config(&self) -> &Arc<Config> {
@@ -285,10 +261,6 @@ impl Mux {
 
     pub fn iter_tabs(&self) -> Vec<Rc<dyn Tab>> {
         self.tabs.borrow().iter().map(|(_, v)| Rc::clone(v)).collect()
-    }
-
-    pub fn iter_windows(&self) -> Vec<WindowId> {
-        self.windows.borrow().keys().cloned().collect()
     }
 
     pub fn domain_was_detached(&self, domain: DomainId) {

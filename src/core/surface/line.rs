@@ -1,7 +1,6 @@
 use crate::core::cell::{Cell, CellAttributes};
 use crate::core::cellcluster::CellCluster;
 use crate::core::hyperlink::Rule;
-use crate::core::surface::Change;
 use bitflags::bitflags;
 use serde_derive::*;
 use std::ops::Range;
@@ -335,69 +334,6 @@ impl Line {
 
     pub fn cells(&self) -> &[Cell] {
         &self.cells
-    }
-
-    /// Given a starting attribute value, produce a series of Change
-    /// entries to recreate the current line
-    pub fn changes(&self, start_attr: &CellAttributes) -> Vec<Change> {
-        let mut result = Vec::new();
-        let mut attr = start_attr.clone();
-        let mut text_run = String::new();
-
-        for (_, cell) in self.visible_cells() {
-            if *cell.attrs() == attr {
-                text_run.push_str(cell.str());
-            } else {
-                // flush out the current text run
-                if !text_run.is_empty() {
-                    result.push(Change::Text(text_run.clone()));
-                    text_run.clear();
-                }
-
-                attr = cell.attrs().clone();
-                result.push(Change::AllAttributes(attr.clone()));
-                text_run.push_str(cell.str());
-            }
-        }
-
-        // flush out any remaining text run
-        if !text_run.is_empty() {
-            // if this is just spaces then it is likely cheaper
-            // to emit ClearToEndOfLine instead.
-            if attr == CellAttributes::default().set_background(attr.background).clone() {
-                let left = text_run.trim_end_matches(' ').to_string();
-                let num_trailing_spaces = text_run.len() - left.len();
-
-                if num_trailing_spaces > 0 {
-                    if !left.is_empty() {
-                        result.push(Change::Text(left.to_string()));
-                    } else if result.len() == 1 {
-                        // if the only queued result prior to clearing
-                        // to the end of the line is an attribute change,
-                        // we can prune it out and return just the line
-                        // clearing operation
-                        if let Change::AllAttributes(_) = result[0] {
-                            result.clear()
-                        }
-                    }
-
-                    // Since this function is only called in the full repaint
-                    // case, and we always emit a clear screen with the default
-                    // background color, we don't need to emit an instruction
-                    // to clear the remainder of the line unless it has a different
-                    // background color.
-                    if attr.background != Default::default() {
-                        result.push(Change::ClearToEndOfLine(attr.background));
-                    }
-                } else {
-                    result.push(Change::Text(text_run.clone()));
-                }
-            } else {
-                result.push(Change::Text(text_run.clone()));
-            }
-        }
-
-        result
     }
 }
 

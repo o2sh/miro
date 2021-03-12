@@ -17,9 +17,6 @@ pub mod muxserver;
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum FrontEndSelection {
     OpenGL,
-    Software,
-    MuxServer,
-    Null,
 }
 
 impl Default for FrontEndSelection {
@@ -56,9 +53,6 @@ pub fn front_end() -> Option<Rc<dyn FrontEnd>> {
 impl FrontEndSelection {
     pub fn try_new(self) -> Result<Rc<dyn FrontEnd>, Error> {
         let front_end = match self {
-            FrontEndSelection::MuxServer => muxserver::MuxServerFrontEnd::try_new(),
-            FrontEndSelection::Null => muxserver::MuxServerFrontEnd::new_null(),
-            FrontEndSelection::Software => gui::GuiFrontEnd::try_new_no_opengl(),
             FrontEndSelection::OpenGL => gui::GuiFrontEnd::try_new(),
         }?;
 
@@ -78,9 +72,6 @@ impl std::str::FromStr for FrontEndSelection {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_ref() {
-            "muxserver" => Ok(FrontEndSelection::MuxServer),
-            "null" => Ok(FrontEndSelection::Null),
-            "software" => Ok(FrontEndSelection::Software),
             "opengl" => Ok(FrontEndSelection::OpenGL),
             _ => Err(format_err!(
                 "{} is not a valid FrontEndSelection variant, possible values are {:?}",

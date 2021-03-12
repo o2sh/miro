@@ -121,12 +121,6 @@ impl<T: Send + 'static> std::convert::From<Result<T, Error>> for Future<T> {
 
 impl<T: Send + 'static> Future<T> {
     /// Create a leaf future which is immediately ready with
-    /// the provided value
-    pub fn ok(value: T) -> Self {
-        Self::result(Ok(value))
-    }
-
-    /// Create a leaf future which is immediately ready with
     /// the provided error
     pub fn err(err: Error) -> Self {
         Self::result(Err(err))

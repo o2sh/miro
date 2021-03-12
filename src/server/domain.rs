@@ -1,7 +1,7 @@
 use crate::config::UnixDomain;
 use crate::font::{FontConfiguration, FontSystemSelection};
 use crate::frontend::front_end;
-use crate::mux::domain::{alloc_domain_id, Domain, DomainId, DomainState};
+use crate::mux::domain::{Domain, DomainId, DomainState};
 use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::WindowId;
 use crate::mux::Mux;
@@ -65,12 +65,6 @@ impl ClientDomainConfig {
             ClientDomainConfig::Unix(unix) => &unix.name,
         }
     }
-
-    pub fn connect_automatically(&self) -> bool {
-        match self {
-            ClientDomainConfig::Unix(unix) => unix.connect_automatically,
-        }
-    }
 }
 
 impl ClientInner {
@@ -97,11 +91,6 @@ pub struct ClientDomain {
 }
 
 impl ClientDomain {
-    pub fn new(config: ClientDomainConfig) -> Self {
-        let local_domain_id = alloc_domain_id();
-        Self { config, inner: RefCell::new(None), local_domain_id }
-    }
-
     fn inner(&self) -> Option<Arc<ClientInner>> {
         self.inner.borrow().as_ref().map(|i| Arc::clone(i))
     }

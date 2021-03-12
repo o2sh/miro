@@ -24,7 +24,6 @@ pub enum KeyAssignment {
     ResetFontSize,
     ActivateTab(usize),
     Hide,
-    CloseCurrentTab,
 }
 
 pub struct KeyMap(HashMap<(KeyCode, KeyModifiers), KeyAssignment>);
@@ -86,7 +85,6 @@ impl KeyMap {
             [KeyModifiers::SUPER, KeyCode::Char('7'), ActivateTab(6)],
             [KeyModifiers::SUPER, KeyCode::Char('8'), ActivateTab(7)],
             [KeyModifiers::SUPER, KeyCode::Char('9'), ActivateTab(8)],
-            [KeyModifiers::SUPER, KeyCode::Char('w'), CloseCurrentTab],
             [ctrl_shift, KeyCode::Char('1'), ActivateTab(0)],
             [ctrl_shift, KeyCode::Char('2'), ActivateTab(1)],
             [ctrl_shift, KeyCode::Char('3'), ActivateTab(2)],
@@ -96,7 +94,6 @@ impl KeyMap {
             [ctrl_shift, KeyCode::Char('7'), ActivateTab(6)],
             [ctrl_shift, KeyCode::Char('8'), ActivateTab(7)],
             [ctrl_shift, KeyCode::Char('9'), ActivateTab(8)],
-            [ctrl_shift, KeyCode::Char('w'), CloseCurrentTab],
             [
                 KeyModifiers::SUPER | KeyModifiers::SHIFT,
                 KeyCode::Char('['),
