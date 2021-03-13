@@ -1,5 +1,3 @@
-//! Working with pseudo-terminals
-
 use crate::pty::{Child, CommandBuilder, MasterPty, PtyPair, PtySize, PtySystem, SlavePty};
 use failure::{bail, Error, Fallible};
 use filedescriptor::FileDescriptor;
@@ -11,7 +9,8 @@ use std::os::unix::process::CommandExt;
 use std::process::Stdio;
 use std::ptr;
 
-pub struct UnixPtySystem {}
+pub struct UnixPtySystem;
+
 impl PtySystem for UnixPtySystem {
     fn openpty(&self, size: PtySize) -> Fallible<PtyPair> {
         let mut master: RawFd = -1;

@@ -1,7 +1,7 @@
 //! Configuration for the gui portion of the terminal
 use crate::core::hyperlink;
 use crate::core::input::{KeyCode, Modifiers};
-use crate::pty::{CommandBuilder, PtySystemSelection};
+use crate::pty::CommandBuilder;
 use crate::term;
 use crate::term::color::RgbColor;
 use failure::Error;
@@ -106,9 +106,6 @@ pub struct Config {
 
     #[serde(default)]
     pub keys: Vec<Key>,
-
-    #[serde(default)]
-    pub pty: PtySystemSelection,
 
     /// If set to true, send the system specific composed key when
     /// the ALT key is held down.  If set to false (the default)
@@ -324,7 +321,6 @@ impl Default for Config {
             hyperlink_rules: default_hyperlink_rules(),
             scrollback_lines: None,
             unix_domains: UnixDomain::default_unix_domains(),
-            pty: PtySystemSelection::default(),
             term: default_term(),
             keys: vec![],
             send_composed_key_when_alt_is_pressed: false,

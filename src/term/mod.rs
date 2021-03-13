@@ -1,4 +1,3 @@
-//! Terminal model
 use serde_derive::*;
 
 use failure::Error;

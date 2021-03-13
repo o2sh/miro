@@ -1,4 +1,3 @@
-// clippy hates bitflags
 #![cfg_attr(
     feature = "cargo-clippy",
     allow(clippy::suspicious_arithmetic_impl, clippy::redundant_field_names)

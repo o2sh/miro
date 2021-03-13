@@ -5,9 +5,6 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
-/// Renderable allows passing something that isn't an actual term::Terminal
-/// instance into the renderer, which opens up remoting of the terminal
-/// surfaces via a multiplexer.
 pub trait Renderable: Downcast {
     /// Returns the 0-based cursor position relative to the top left of
     /// the visible screen

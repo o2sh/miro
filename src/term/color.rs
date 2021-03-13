@@ -1,5 +1,3 @@
-//! Colors for attributes
-
 pub use crate::core::color::{AnsiColor, ColorAttribute, RgbColor, RgbaTuple};
 use std::fmt;
 use std::result::Result;

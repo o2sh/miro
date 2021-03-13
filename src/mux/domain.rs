@@ -1,16 +1,10 @@
-//! A Domain represents an instance of a multiplexer.
-//! For example, the gui frontend has its own domain,
-//! and we can connect to a domain hosted by a mux server
-//! that may be local, running "remotely" inside a WSL
-//! container or actually remote, running on the other end
-//! of an ssh session somewhere.
-
 use crate::config::Config;
 use crate::localtab::LocalTab;
 use crate::mux::tab::Tab;
 use crate::mux::window::WindowId;
 use crate::mux::Mux;
 use crate::pty::cmdbuilder::CommandBuilder;
+use crate::pty::unix;
 use crate::pty::{PtySize, PtySystem};
 use downcast_rs::{impl_downcast, Downcast};
 use failure::{Error, Fallible};
@@ -55,7 +49,7 @@ pub struct LocalDomain {
 
 impl LocalDomain {
     pub fn new(name: &str, config: &Arc<Config>) -> Result<Self, Error> {
-        let pty_system = config.pty.get()?;
+        let pty_system = Box::new(unix::UnixPtySystem);
         Ok(Self::with_pty_system(name, config, pty_system))
     }
 

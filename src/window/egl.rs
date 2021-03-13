@@ -3,9 +3,6 @@ use std::ffi::c_void;
 
 #[allow(non_camel_case_types, clippy::unreadable_literal)]
 pub mod ffi {
-    // gl_generator emits these weird cyclical and redundant type references;
-    // the types appear to have to be in a module and need to reference super,
-    // with some of the types specified in both scopes :-/
     pub mod generated {
         pub type khronos_utime_nanoseconds_t = super::khronos_utime_nanoseconds_t;
         pub type khronos_uint64_t = super::khronos_uint64_t;
