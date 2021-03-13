@@ -10,7 +10,6 @@ use crate::config::Theme;
 use crate::font::FontConfiguration;
 use crate::mux::domain::{Domain, LocalDomain};
 use crate::mux::Mux;
-use crate::pty::cmdbuilder::CommandBuilder;
 use crate::pty::PtySize;
 use crate::term::color::RgbColor;
 
@@ -30,19 +29,15 @@ mod window;
 fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
     let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
 
-    let cmd = Some(CommandBuilder::new_default_prog());
-
     let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local", &config)?);
     let mux = Rc::new(mux::Mux::new(&config, Some(domain.clone())));
     Mux::set_mux(&mux);
 
     let gui = frontend::try_new()?;
 
-    if mux.is_empty() {
-        let window_id = mux.new_empty_window();
-        let tab = mux.default_domain().spawn(PtySize::default(), cmd, window_id)?;
-        gui.spawn_new_window(mux.config(), &fontconfig, &tab, window_id)?;
-    }
+    let window_id = mux.new_empty_window();
+    let tab = mux.default_domain().spawn(PtySize::default(), window_id)?;
+    gui.spawn_new_window(mux.config(), &fontconfig, &tab, window_id)?;
 
     gui.run_forever()
 }

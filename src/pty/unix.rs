@@ -1,4 +1,4 @@
-use crate::pty::{Child, CommandBuilder, MasterPty, PtyPair, PtySize, PtySystem, SlavePty};
+use crate::pty::{Child, MasterPty, PtyPair, PtySize, PtySystem, SlavePty};
 use failure::{bail, Error, Fallible};
 use filedescriptor::FileDescriptor;
 use libc::{self, winsize};
@@ -6,6 +6,7 @@ use std::io;
 use std::mem;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::os::unix::process::CommandExt;
+use std::process::Command;
 use std::process::Stdio;
 use std::ptr;
 
@@ -73,9 +74,7 @@ fn cloexec(fd: RawFd) -> Result<(), Error> {
 }
 
 impl SlavePty for UnixSlavePty {
-    fn spawn_command(&self, builder: CommandBuilder) -> Result<Box<dyn Child>, Error> {
-        let mut cmd = builder.as_command()?;
-
+    fn spawn_command(&self, mut cmd: Command) -> Result<Box<dyn Child>, Error> {
         unsafe {
             cmd.stdin(self.as_stdio()?).stdout(self.as_stdio()?).stderr(self.as_stdio()?).pre_exec(
                 move || {

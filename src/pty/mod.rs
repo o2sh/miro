@@ -1,9 +1,7 @@
 use failure::{Error, Fallible};
 use serde_derive::*;
 use std::io::Result as IoResult;
-
-pub mod cmdbuilder;
-pub use cmdbuilder::CommandBuilder;
+use std::process::Command;
 
 pub mod unix;
 
@@ -60,7 +58,7 @@ pub trait Child: std::fmt::Debug {
 /// Can be used to spawn processes into the pty.
 pub trait SlavePty {
     /// Spawns the command specified by the provided CommandBuilder
-    fn spawn_command(&self, cmd: CommandBuilder) -> Result<Box<dyn Child>, Error>;
+    fn spawn_command(&self, cmd: Command) -> Result<Box<dyn Child>, Error>;
 }
 
 /// Represents the exit status of a child process.
@@ -109,4 +107,22 @@ impl Child for std::process::Child {
     fn wait(&mut self) -> IoResult<ExitStatus> {
         std::process::Child::wait(self).map(Into::into)
     }
+}
+
+pub fn get_shell() -> Fallible<String> {
+    std::env::var("SHELL").or_else(|_| {
+        let ent = unsafe { libc::getpwuid(libc::getuid()) };
+
+        if ent.is_null() {
+            Ok("/bin/sh".into())
+        } else {
+            use std::ffi::CStr;
+            use std::str;
+            let shell = unsafe { CStr::from_ptr((*ent).pw_shell) };
+            shell
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|e| format_err!("failed to resolve shell: {:?}", e))
+        }
+    })
 }

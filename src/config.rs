@@ -1,17 +1,14 @@
 //! Configuration for the gui portion of the terminal
 use crate::core::hyperlink;
 use crate::core::input::{KeyCode, Modifiers};
-use crate::pty::CommandBuilder;
 use crate::term;
 use crate::term::color::RgbColor;
-use failure::Error;
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_derive::*;
 use serde_json::Value;
 use std;
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -49,20 +46,6 @@ pub struct Config {
     /// The set of unix domains
     #[serde(default = "UnixDomain::default_unix_domains")]
     pub unix_domains: Vec<UnixDomain>,
-
-    /// If no `prog` is specified on the command line, use this
-    /// instead of running the user's shell.
-    /// For example, to have `miro` always run `top` by default,
-    /// you'd use this:
-    ///
-    /// ```
-    /// default_prog = ["top"]
-    /// ```
-    ///
-    /// `default_prog` is implemented as an array where the 0th element
-    /// is the command to run and the rest of the elements are passed
-    /// as the positional arguments to that command.
-    pub default_prog: Option<Vec<String>>,
 
     /// Constrains the rate at which output from a child command is
     /// processed and applied to the terminal model.
@@ -317,7 +300,6 @@ impl Default for Config {
             font_rules: Vec::new(),
             ratelimit_mux_output_pushes_per_second: None,
             colors: None,
-            default_prog: None,
             hyperlink_rules: default_hyperlink_rules(),
             scrollback_lines: None,
             unix_domains: UnixDomain::default_unix_domains(),
@@ -526,31 +508,6 @@ impl Config {
         }
 
         cfg
-    }
-
-    pub fn build_prog(&self, prog: Option<Vec<&OsStr>>) -> Result<CommandBuilder, Error> {
-        let mut cmd = match prog {
-            Some(args) => {
-                let mut args = args.iter();
-                let mut cmd = CommandBuilder::new(args.next().expect("executable name"));
-                cmd.args(args);
-                cmd
-            }
-            None => {
-                if let Some(prog) = self.default_prog.as_ref() {
-                    let mut args = prog.iter();
-                    let mut cmd = CommandBuilder::new(args.next().expect("executable name"));
-                    cmd.args(args);
-                    cmd
-                } else {
-                    CommandBuilder::new_default_prog()
-                }
-            }
-        };
-
-        cmd.env("TERM", &self.term);
-
-        Ok(cmd)
     }
 }
 

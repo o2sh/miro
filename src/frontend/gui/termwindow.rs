@@ -562,7 +562,7 @@ impl TermWindow {
                 })?
             }
         };
-        let tab = domain.spawn(size, None, self.mux_window_id)?;
+        let tab = domain.spawn(size, self.mux_window_id)?;
         let tab_id = tab.tab_id();
 
         let len = {
@@ -621,8 +621,7 @@ impl TermWindow {
             let mux = Mux::get().unwrap();
             let fonts = Rc::new(FontConfiguration::new(Arc::clone(mux.config())));
             let window_id = mux.new_empty_window();
-            let tab =
-                mux.default_domain().spawn(crate::pty::PtySize::default(), None, window_id)?;
+            let tab = mux.default_domain().spawn(crate::pty::PtySize::default(), window_id)?;
             let front_end = front_end().expect("to be called on gui thread");
             front_end.spawn_new_window(mux.config(), &fonts, &tab, window_id)?;
             Ok(())
