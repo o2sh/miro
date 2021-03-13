@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #[cfg(target_os = "macos")]
 use core_text::font::{CTFont, CTFontRef};
-#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
+#[cfg(not(target_os = "macos"))]
 use freetype;
 
 pub use self::harfbuzz::*;
@@ -13,7 +13,7 @@ use std::mem;
 use std::ptr;
 use std::slice;
 
-#[cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))]
+#[cfg(not(target_os = "macos"))]
 extern "C" {
     fn hb_ft_font_set_load_flags(font: *mut hb_font_t, load_flags: i32);
 }

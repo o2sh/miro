@@ -15,9 +15,9 @@ pub use self::system::*;
 
 pub mod ftwrap;
 
-#[cfg(all(unix, any(feature = "fontconfig", not(target_os = "macos"))))]
+#[cfg( not(target_os = "macos"))]
 pub mod fcftwrap;
-#[cfg(all(unix, any(feature = "fontconfig", not(target_os = "macos"))))]
+#[cfg(not(target_os = "macos"))]
 pub mod fcwrap;
 
 #[cfg(target_os = "macos")]
