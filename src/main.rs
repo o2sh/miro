@@ -28,10 +28,7 @@ mod term;
 mod window;
 
 fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
-    let font_system = config.font_system;
-    font_system.set_default();
-
-    let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config), font_system));
+    let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
 
     let cmd = Some(CommandBuilder::new_default_prog());
 

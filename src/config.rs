@@ -1,8 +1,6 @@
 //! Configuration for the gui portion of the terminal
-
 use crate::core::hyperlink;
 use crate::core::input::{KeyCode, Modifiers};
-use crate::font::FontSystemSelection;
 use crate::pty::{CommandBuilder, PtySystemSelection};
 use crate::term;
 use crate::term::color::RgbColor;
@@ -105,9 +103,6 @@ pub struct Config {
     /// What to set the TERM variable to
     #[serde(default = "default_term")]
     pub term: String,
-
-    #[serde(default)]
-    pub font_system: FontSystemSelection,
 
     #[serde(default)]
     pub keys: Vec<Key>,
@@ -324,7 +319,6 @@ impl Default for Config {
             ratelimit_output_bytes_per_second: None,
             font_rules: Vec::new(),
             ratelimit_mux_output_pushes_per_second: None,
-            font_system: FontSystemSelection::default(),
             colors: None,
             default_prog: None,
             hyperlink_rules: default_hyperlink_rules(),

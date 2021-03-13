@@ -5,7 +5,7 @@ use crate::clipboard::SystemClipboard;
 use crate::config::{Config, TextStyle};
 use crate::core::color::RgbColor;
 use crate::core::promise;
-use crate::font::{FontConfiguration, FontSystemSelection};
+use crate::font::FontConfiguration;
 use crate::frontend::{executor, front_end};
 use crate::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
 use crate::mux::renderable::Renderable;
@@ -619,10 +619,7 @@ impl TermWindow {
     pub fn spawn_new_window(&mut self) {
         promise::Future::with_executor(executor(), move || {
             let mux = Mux::get().unwrap();
-            let fonts = Rc::new(FontConfiguration::new(
-                Arc::clone(mux.config()),
-                FontSystemSelection::get_default(),
-            ));
+            let fonts = Rc::new(FontConfiguration::new(Arc::clone(mux.config())));
             let window_id = mux.new_empty_window();
             let tab =
                 mux.default_domain().spawn(crate::pty::PtySize::default(), None, window_id)?;
