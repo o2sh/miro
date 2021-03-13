@@ -174,37 +174,6 @@ fn window_id_from_event(event: &xcb::GenericEvent) -> Option<xcb::xproto::Window
     }
 }
 
-/// Determine whether the server supports SHM.
-/// We can't simply run this on the main connection that we establish
-/// as lack of support is reported through the connection getting
-/// closed on us!  Instead we need to open a separate session to
-/// make this check.
-fn server_supports_shm() -> bool {
-    let display = unsafe { x11::xlib::XOpenDisplay(std::ptr::null()) };
-    if display.is_null() {
-        return false;
-    }
-    let conn = unsafe { xcb::Connection::from_raw_conn(XGetXCBConnection(display)) };
-    unsafe { XSetEventQueueOwner(display, 1) };
-
-    // Take care here: xcb_shm_query_version can successfully return
-    // a nullptr, and a subsequent deref will segfault, so we need
-    // to check the ptr before accessing it!
-    match xcb::shm::query_version(&conn).get_reply() {
-        Ok(reply) => {
-            if let Err(err) = conn.has_error() {
-                eprintln!("While probing for X SHM support: {}", err);
-                return false;
-            }
-            !reply.ptr.is_null() && reply.shared_pixmaps()
-        }
-        Err(err) => {
-            eprintln!("While probing for X SHM support: {}", err);
-            false
-        }
-    }
-}
-
 impl ConnectionOps for Connection {
     fn spawn_task<F: std::future::Future<Output = ()> + 'static>(&self, future: F) {
         let id = self.tasks.add_task(Task(Box::pin(future)));
@@ -372,9 +341,6 @@ impl Connection {
         let atom_clipboard = xcb::intern_atom(&conn, false, "CLIPBOARD").get_reply()?.atom();
 
         let keysyms = unsafe { xcb_key_symbols_alloc(conn.get_raw_conn()) };
-
-        let shm_available = server_supports_shm();
-        eprintln!("shm_available: {}", shm_available);
 
         let screen = conn
             .get_setup()

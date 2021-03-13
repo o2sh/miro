@@ -1,4 +1,4 @@
-use ratelimit_meter::algorithms::NonConformanceExt;
+use ratelimit_meter::algorithms::NonConformance;
 use ratelimit_meter::{DirectRateLimiter, LeakyBucket, NegativeMultiDecision};
 
 pub struct RateLimiter {
@@ -20,7 +20,7 @@ impl RateLimiter {
             match self.lim.check_n(amount) {
                 Ok(_) => return,
                 Err(NegativeMultiDecision::BatchNonConforming(_, over)) => {
-                    let duration = over.wait_time();
+                    let duration = over.wait_time_from(std::time::Instant::now());
                     log::trace!("RateLimiter: sleep for {:?}", duration);
                     std::thread::sleep(duration);
                 }

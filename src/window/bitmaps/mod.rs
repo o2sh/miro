@@ -2,6 +2,7 @@ use crate::window::color::Color;
 use crate::window::{Operator, Point, Rect, Size};
 use glium::texture::SrgbTexture2d;
 use palette::LinSrgba;
+use rgb::FromSlice;
 use std::cell::RefCell;
 
 pub mod atlas;
@@ -414,8 +415,10 @@ impl Image {
         } else {
             resize::Type::Mitchell
         };
-        resize::new(self.width, self.height, width, height, resize::Pixel::RGBA, algo)
-            .resize(&self.data, &mut dest.data);
+        resize::new(self.width, self.height, width, height, resize::Pixel::RGBA8, algo)
+            .expect("")
+            .resize(self.data.as_rgba(), dest.data.as_rgba_mut())
+            .expect("");
         dest
     }
 

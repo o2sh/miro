@@ -6,8 +6,7 @@ use crate::font::FontSystemSelection;
 use crate::pty::{CommandBuilder, PtySystemSelection};
 use crate::term;
 use crate::term::color::RgbColor;
-use failure::{err_msg, Error};
-use lazy_static::lazy_static;
+use failure::Error;
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_derive::*;
@@ -16,19 +15,6 @@ use std;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::PathBuf;
-
-fn compute_runtime_dir() -> Result<PathBuf, Error> {
-    if let Some(runtime) = dirs::runtime_dir() {
-        return Ok(runtime.join("miro"));
-    }
-
-    let home = dirs::home_dir().ok_or_else(|| err_msg("can't find home dir"))?;
-    Ok(home.join(".local/share/miro"))
-}
-
-lazy_static! {
-    static ref RUNTIME_DIR: PathBuf = compute_runtime_dir().unwrap();
-}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Theme {

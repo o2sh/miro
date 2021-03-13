@@ -136,7 +136,10 @@ impl SlavePty for UnixSlavePty {
 impl UnixSlavePty {
     /// Helper for setting up a Command instance
     fn as_stdio(&self) -> Result<Stdio, Error> {
-        let dup = self.fd.try_clone()?;
+        let dup = match self.fd.try_clone() {
+            Ok(v) => v,
+            Err(_) => bail!(""),
+        };
         Ok(unsafe { Stdio::from_raw_fd(dup.into_raw_fd()) })
     }
 }
@@ -172,7 +175,10 @@ impl MasterPty for UnixMasterPty {
     }
 
     fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
-        let fd = self.fd.try_clone()?;
+        let fd = match self.fd.try_clone() {
+            Ok(v) => v,
+            Err(_) => bail!(""),
+        };
         Ok(Box::new(fd))
     }
 }

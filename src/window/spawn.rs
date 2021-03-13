@@ -75,7 +75,11 @@ impl SpawnQueue {
 #[cfg(all(unix, not(target_os = "macos")))]
 impl SpawnQueue {
     fn new_impl() -> Fallible<Self> {
-        let pipe = Pipe::new()?;
+        let pipe = match Pipe::new() {
+            Ok(v) => v,
+            Err(_) => bail!(""),
+        };
+
         Ok(Self {
             spawned_funcs: Mutex::new(VecDeque::new()),
             write: Mutex::new(pipe.write),
