@@ -25,7 +25,6 @@ mod localtab;
 mod mux;
 mod pty;
 mod ratelim;
-mod server;
 mod term;
 mod window;
 

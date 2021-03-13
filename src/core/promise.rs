@@ -121,12 +121,6 @@ impl<T: Send + 'static> std::convert::From<Result<T, Error>> for Future<T> {
 
 impl<T: Send + 'static> Future<T> {
     /// Create a leaf future which is immediately ready with
-    /// the provided error
-    pub fn err(err: Error) -> Self {
-        Self::result(Err(err))
-    }
-
-    /// Create a leaf future which is immediately ready with
     /// the provided result
     pub fn result(result: Result<T, Error>) -> Self {
         Self { state: FutureState::Ready(result) }
@@ -167,55 +161,6 @@ impl<T: Send + 'static> Future<T> {
             }
             FutureState::Resolved => panic!("cannot chain a Resolved future"),
         }
-    }
-
-    /// Blocks until the associated promise is fulfilled
-    pub fn wait(self) -> Result<T, Error> {
-        match self.state {
-            FutureState::Waiting(core) => {
-                let mut locked = core.data.lock().unwrap();
-                loop {
-                    if let Some(result) = locked.result.take() {
-                        return result;
-                    }
-                    locked = core.cond.wait(locked).unwrap();
-                }
-            }
-            FutureState::Ready(result) => result,
-            FutureState::Resolved => failure::bail!("Future is already Resolved"),
-        }
-    }
-
-    pub fn is_ready(&self) -> bool {
-        match &self.state {
-            FutureState::Waiting(core) => {
-                let locked = core.data.lock().unwrap();
-                locked.result.is_some()
-            }
-            FutureState::Ready(_) | FutureState::Resolved => true,
-        }
-    }
-
-    /// When this future resolves, then map the result via the
-    /// supplied lambda, which returns something that is convertible
-    /// to a Future.
-    pub fn then<U, F, IF>(self, f: F) -> Future<U>
-    where
-        F: FnOnce(Result<T, Error>) -> IF + Send + 'static,
-        IF: Into<Future<U>> + 'static,
-        U: Send + 'static,
-    {
-        let mut promise = Promise::new();
-        let future = promise.get_future().unwrap();
-        let func = Box::new(f);
-
-        let promise_chain = Box::new(move |result| promise.result(result));
-
-        self.chain(Box::new(move |result| {
-            let future = func(result).into();
-            future.chain(promise_chain);
-        }));
-        future
     }
 }
 

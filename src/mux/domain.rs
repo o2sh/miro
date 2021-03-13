@@ -23,7 +23,6 @@ pub type DomainId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainState {
-    Detached,
     Attached,
 }
 

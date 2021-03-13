@@ -1,6 +1,6 @@
+use crate::mux::codec::*;
+use crate::mux::pollable::*;
 use crate::mux::tab::TabId;
-use crate::server::codec::*;
-use crate::server::pollable::*;
 use crate::term::terminal::Clipboard;
 use failure::Fallible;
 use std::sync::Arc;

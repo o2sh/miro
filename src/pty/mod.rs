@@ -166,7 +166,6 @@ pub enum PtySystemSelection {
 impl PtySystemSelection {
     /// Construct an instance of PtySystem described by the enum value.
     /// Windows specific enum variants result in an error.
-    #[cfg(unix)]
     pub fn get(self) -> Fallible<Box<dyn PtySystem>> {
         match self {
             PtySystemSelection::Unix => Ok(Box::new(unix::UnixPtySystem {})),

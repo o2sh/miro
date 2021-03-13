@@ -1,9 +1,9 @@
-use crate::server::UnixStream;
 use crossbeam_channel::Sender;
 use failure::{format_err, Fallible};
 use filedescriptor::*;
 use std::cell::RefCell;
 use std::io::Write;
+use std::os::unix::net::UnixStream;
 
 pub trait ReadAndWrite: std::io::Read + std::io::Write + Send + AsPollFd {
     fn set_non_blocking(&self, non_blocking: bool) -> Fallible<()>;
