@@ -21,11 +21,6 @@ use std::sync::Arc;
 static DOMAIN_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
 pub type DomainId = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DomainState {
-    Attached,
-}
-
 pub fn alloc_domain_id() -> DomainId {
     DOMAIN_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
 }
@@ -48,9 +43,6 @@ pub trait Domain: Downcast {
 
     /// Detach all tabs
     fn detach(&self) -> Fallible<()>;
-
-    /// Indicates the state of the domain
-    fn state(&self) -> DomainState;
 }
 impl_downcast!(Domain);
 
@@ -126,9 +118,5 @@ impl Domain for LocalDomain {
 
     fn detach(&self) -> Fallible<()> {
         failure::bail!("detach not implemented");
-    }
-
-    fn state(&self) -> DomainState {
-        DomainState::Attached
     }
 }

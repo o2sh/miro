@@ -3,7 +3,6 @@
 use crate::core::hyperlink;
 use crate::core::input::{KeyCode, Modifiers};
 use crate::font::FontSystemSelection;
-use crate::frontend::FrontEndSelection;
 use crate::pty::{CommandBuilder, PtySystemSelection};
 use crate::term;
 use crate::term::color::RgbColor;
@@ -110,9 +109,6 @@ pub struct Config {
     /// on the cell attributes
     #[serde(default)]
     pub font_rules: Vec<StyleRule>,
-
-    #[serde(default)]
-    pub front_end: FrontEndSelection,
 
     /// The color palette
     pub colors: Option<Palette>,
@@ -340,7 +336,6 @@ impl Default for Config {
             font: TextStyle::default(),
             ratelimit_mux_output_scans_per_second: None,
             ratelimit_output_bytes_per_second: None,
-            front_end: FrontEndSelection::default(),
             font_rules: Vec::new(),
             ratelimit_mux_output_pushes_per_second: None,
             font_system: FontSystemSelection::default(),

@@ -7,8 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::config::Theme;
-use crate::font::{FontConfiguration, FontSystemSelection};
-use crate::frontend::FrontEndSelection;
+use crate::font::FontConfiguration;
 use crate::mux::domain::{Domain, LocalDomain};
 use crate::mux::Mux;
 use crate::pty::cmdbuilder::CommandBuilder;
@@ -28,13 +27,7 @@ mod ratelim;
 mod term;
 mod window;
 
-#[derive(Debug, Default, Clone)]
-struct StartCommand {
-    front_end: Option<FrontEndSelection>,
-    font_system: Option<FontSystemSelection>,
-}
-
-fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<(), Error> {
+fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
     let font_system = config.font_system;
     font_system.set_default();
 
@@ -46,8 +39,7 @@ fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<
     let mux = Rc::new(mux::Mux::new(&config, Some(domain.clone())));
     Mux::set_mux(&mux);
 
-    let front_end = opts.front_end.unwrap_or(config.front_end);
-    let gui = front_end.try_new()?;
+    let gui = frontend::try_new()?;
 
     if mux.is_empty() {
         let window_id = mux.new_empty_window();
@@ -60,9 +52,7 @@ fn run_terminal_gui(config: Arc<config::Config>, opts: &StartCommand) -> Result<
 
 fn run(theme: Option<Theme>) -> Result<(), Error> {
     let config = Arc::new(config::Config::default_config(theme));
-
-    let start = StartCommand::default();
-    run_terminal_gui(config, &start)
+    run_terminal_gui(config)
 }
 
 fn main() -> Result<(), Error> {

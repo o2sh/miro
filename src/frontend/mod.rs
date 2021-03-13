@@ -4,26 +4,15 @@ use crate::font::FontConfiguration;
 use crate::mux::tab::Tab;
 use crate::mux::window::WindowId;
 use downcast_rs::{impl_downcast, Downcast};
-use failure::{format_err, Error, Fallible};
+use failure::{Error, Fallible};
 use lazy_static::lazy_static;
-use serde_derive::*;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 pub mod gui;
 pub mod muxserver;
-
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
-pub enum FrontEndSelection {
-    OpenGL,
-}
-
-impl Default for FrontEndSelection {
-    fn default() -> Self {
-        FrontEndSelection::OpenGL
-    }
-}
 
 lazy_static! {
     static ref EXECUTOR: Mutex<Option<Box<dyn Executor>>> = Mutex::new(None);
@@ -50,36 +39,13 @@ pub fn front_end() -> Option<Rc<dyn FrontEnd>> {
     res
 }
 
-impl FrontEndSelection {
-    pub fn try_new(self) -> Result<Rc<dyn FrontEnd>, Error> {
-        let front_end = match self {
-            FrontEndSelection::OpenGL => gui::GuiFrontEnd::try_new(),
-        }?;
+pub fn try_new() -> Result<Rc<dyn FrontEnd>, Error> {
+    let front_end = gui::GuiFrontEnd::try_new()?;
 
-        EXECUTOR.lock().unwrap().replace(front_end.executor());
-        FRONT_END.with(|f| *f.borrow_mut() = Some(Rc::clone(&front_end)));
+    EXECUTOR.lock().unwrap().replace(front_end.executor());
+    FRONT_END.with(|f| *f.borrow_mut() = Some(Rc::clone(&front_end)));
 
-        Ok(front_end)
-    }
-
-    // TODO: find or build a proc macro for this
-    pub fn variants() -> Vec<&'static str> {
-        vec!["OpenGL", "Software", "MuxServer", "Null"]
-    }
-}
-
-impl std::str::FromStr for FrontEndSelection {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_ref() {
-            "opengl" => Ok(FrontEndSelection::OpenGL),
-            _ => Err(format_err!(
-                "{} is not a valid FrontEndSelection variant, possible values are {:?}",
-                s,
-                FrontEndSelection::variants()
-            )),
-        }
-    }
+    Ok(front_end)
 }
 
 pub trait FrontEnd: Downcast {
