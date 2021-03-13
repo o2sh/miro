@@ -19,9 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 
-pub mod codec;
 pub mod domain;
-pub mod listener;
 pub mod pollable;
 pub mod renderable;
 pub mod tab;

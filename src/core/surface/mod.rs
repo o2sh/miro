@@ -39,7 +39,3 @@ impl Default for CursorShape {
         CursorShape::Default
     }
 }
-
-/// SequenceNo indicates a logical position within a stream of changes.
-/// The sequence is only meaningful within a given `Surface` instance.
-pub type SequenceNo = usize;
