@@ -16,7 +16,7 @@ use crate::term::color::ColorPalette;
 use crate::term::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
 use crate::term::{CursorPosition, Line};
 use crate::window;
-use crate::window::bitmaps::atlas::{OutOfTextureSpace, SpriteSlice};
+use crate::window::bitmaps::atlas::SpriteSlice;
 use crate::window::bitmaps::Texture2d;
 use crate::window::*;
 use chrono::{DateTime, Utc};
@@ -288,7 +288,7 @@ impl WindowCallbacks for TermWindow {
         false
     }
 
-    fn paint_header(&mut self, frame: &mut glium::Frame) {
+    fn paint_opengl(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
             Some(tab) => tab,
@@ -297,36 +297,11 @@ impl WindowCallbacks for TermWindow {
                 return;
             }
         };
-        self.paint_header_opengl(&tab, frame).expect("error while painting sprite");
-    }
 
-    fn paint_tab(&mut self, frame: &mut glium::Frame) {
-        let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-            Some(tab) => tab,
-            None => {
-                frame.clear_color(0., 0., 0., 1.);
-                return;
-            }
-        };
         self.update_text_cursor(&tab);
-        let start = std::time::Instant::now();
-        if let Err(err) = self.paint_tab_opengl(&tab, frame) {
-            if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
-                log::error!("out of texture space, allocating {}", size);
-                if let Err(err) = self.recreate_texture_atlas(Some(size)) {
-                    log::error!("failed recreate atlas with size {}: {}", size, err);
-
-                    self.recreate_texture_atlas(None)
-                        .expect("OutOfTextureSpace and failed to recreate atlas");
-                }
-                tab.renderer().make_all_lines_dirty();
-
-                return self.paint_tab(frame);
-            }
-            log::error!("paint_tab_opengl failed: {}", err);
-        }
-        log::debug!("paint_tab_opengl elapsed={:?}", start.elapsed());
+        self.clear(&tab, frame);
+        self.paint_tab_opengl(&tab, frame).expect("error while painting tab");
+        self.paint_header_opengl(&tab, frame).expect("error while painting sprite");
         self.update_title();
     }
 }
@@ -678,23 +653,6 @@ impl TermWindow {
         }
         let gl_state = self.render_state.opengl();
 
-        #[cfg(all(not(target_os = "macos")))]
-        {
-            let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
-            let (r, g, b, a) = background_color.to_tuple_rgba();
-            frame.clear(
-                Some(&glium::Rect {
-                    left: 0,
-                    bottom: self.dimensions.pixel_height as u32 - gl_state.header_height as u32,
-                    width: self.dimensions.pixel_width as u32,
-                    height: gl_state.header_height as u32,
-                }),
-                Some((r, g, b, a)),
-                false,
-                None,
-                None,
-            );
-        }
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
             self.dimensions.pixel_width as f32 / 2.0,
@@ -1065,6 +1023,13 @@ impl TermWindow {
         };
 
         (fg_color, bg_color)
+    }
+
+    fn clear(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) {
+        let palette = tab.palette();
+        let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
+        let (r, g, b, a) = background_color.to_tuple_rgba();
+        frame.clear_color(r, g, b, a);
     }
 }
 

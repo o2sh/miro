@@ -19,11 +19,8 @@ pub use os::*;
 #[derive(Debug, Clone, Copy)]
 pub enum Operator {
     Over,
-
     Source,
-
     Multiply,
-
     MultiplyThenOver(Color),
 }
 
@@ -33,7 +30,6 @@ pub struct Dimensions {
     pub pixel_height: usize,
     pub dpi: usize,
 }
-
 pub struct PixelUnit;
 pub type Point = euclid::Point2D<isize, PixelUnit>;
 pub type Rect = euclid::Rect<isize, PixelUnit>;
@@ -41,7 +37,6 @@ pub type Size = euclid::Size2D<isize, PixelUnit>;
 
 pub trait PaintContext {
     fn get_dimensions(&self) -> Dimensions;
-
     fn clear(&mut self, color: Color) {
         let dims = self.get_dimensions();
         self.clear_rect(
@@ -49,9 +44,7 @@ pub trait PaintContext {
             color,
         );
     }
-
     fn clear_rect(&mut self, rect: Rect, color: Color);
-
     fn draw_image(
         &mut self,
         dest_top_left: Point,
@@ -59,7 +52,6 @@ pub trait PaintContext {
         im: &dyn BitmapImage,
         operator: Operator,
     );
-
     fn draw_line(&mut self, start: Point, end: Point, color: Color, operator: Operator);
 }
 
@@ -75,49 +67,31 @@ pub trait WindowCallbacks: Any {
     fn can_close(&mut self) -> bool {
         true
     }
-
     fn destroy(&mut self) {}
-
     fn resize(&mut self, dimensions: Dimensions) {}
-
-    fn paint_tab(&mut self, frame: &mut glium::Frame) {}
-
-    fn paint_header(&mut self, frame: &mut glium::Frame) {}
-
+    fn paint_opengl(&mut self, frame: &mut glium::Frame) {}
     fn key_event(&mut self, key: &KeyEvent, context: &dyn WindowOps) -> bool {
         false
     }
-
     fn mouse_event(&mut self, event: &MouseEvent, context: &dyn WindowOps) {
         context.set_cursor(Some(MouseCursor::Arrow));
     }
-
     fn created(&mut self, window: &Window) {}
-
     fn as_any(&mut self) -> &mut dyn Any;
 }
 
 pub trait WindowOps {
     fn show(&self);
-
     fn hide(&self);
-
     fn close(&self);
-
     fn set_cursor(&self, cursor: Option<MouseCursor>);
-
     fn invalidate(&self);
-
     fn set_title(&self, title: &str);
-
     fn set_inner_size(&self, width: usize, height: usize);
-
     fn set_text_cursor_position(&self, _cursor: Rect) {}
-
     fn apply<F: Send + 'static + Fn(&mut dyn Any, &dyn WindowOps)>(&self, func: F)
     where
         Self: Sized;
-
     fn enable_opengl<
         F: Send
             + 'static
@@ -135,18 +109,11 @@ pub trait WindowOps {
 
 pub trait WindowOpsMut {
     fn show(&mut self);
-
     fn hide(&mut self);
-
     fn close(&mut self);
-
     fn set_cursor(&mut self, cursor: Option<MouseCursor>);
-
     fn invalidate(&mut self);
-
     fn set_title(&mut self, title: &str);
-
     fn set_inner_size(&self, width: usize, height: usize);
-
     fn set_text_cursor_position(&mut self, _cursor: Rect) {}
 }

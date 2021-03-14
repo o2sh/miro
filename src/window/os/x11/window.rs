@@ -92,8 +92,7 @@ impl WindowInner {
                 (u32::from(self.width), u32::from(self.height)),
             );
 
-            self.callbacks.paint_header(&mut frame);
-            self.callbacks.paint_tab(&mut frame);
+            self.callbacks.paint_opengl(&mut frame);
             frame.finish()?;
             return Ok(());
         }

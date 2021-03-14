@@ -304,8 +304,7 @@ impl Window {
                         Rc::clone(&gl_context_pair.context),
                         (width as u32, height as u32),
                     );
-                    inner.callbacks.paint_header(&mut frame);
-                    inner.callbacks.paint_tab(&mut frame);
+                    inner.callbacks.paint_opengl(&mut frame);
                     frame.finish().expect("frame.finish failed and we don't know how to recover");
                 }
             });
