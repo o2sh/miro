@@ -1,6 +1,3 @@
-//! This module provides an InputParser struct to help with parsing
-//! input received from a terminal.
-
 use crate::core::keymap::KeyMap;
 use crate::core::readbuf::ReadBuffer;
 use bitflags::bitflags;
@@ -31,8 +28,8 @@ bitflags! {
         const MIDDLE = 1<<3;
         const VERT_WHEEL = 1<<4;
         const HORZ_WHEEL = 1<<5;
-        /// if set then the wheel movement was in the positive
-        /// direction, else the negative direction
+
+
         const WHEEL_POSITIVE = 1<<6;
     }
 }
@@ -52,24 +49,19 @@ pub struct MouseEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyEvent {
-    /// Which key was pressed
     pub key: KeyCode,
 
-    /// Which modifiers are down
     pub modifiers: Modifiers,
 }
 
-/// Which key is pressed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum KeyCode {
-    /// The decoded unicode character
     Char(char),
 
     Hyper,
     Super,
     Meta,
 
-    /// Ctrl-break on windows
     Cancel,
     Backspace,
     Tab,
@@ -125,7 +117,7 @@ pub enum KeyCode {
     Subtract,
     Decimal,
     Divide,
-    /// F1-F24 are possible
+
     Function(u8),
     NumLock,
     ScrollLock,
@@ -189,8 +181,6 @@ mod windows {
             mods |= Modifiers::SHIFT;
         }
 
-        // TODO: we could report caps lock, numlock and scrolllock
-
         mods
     }
     impl InputParser {
@@ -199,7 +189,6 @@ mod windows {
             event: &KEY_EVENT_RECORD,
             callback: &mut F,
         ) {
-            // TODO: do we want downs instead of ups?
             if event.bKeyDown == 0 {
                 return;
             }
@@ -419,7 +408,6 @@ impl InputParser {
         let mut map = KeyMap::new();
 
         for alpha in b'A'..=b'Z' {
-            // Ctrl-[A..=Z] are sent as 1..=26
             let ctrl = [alpha - 0x40];
             map.insert(
                 &ctrl,
@@ -429,7 +417,6 @@ impl InputParser {
                 }),
             );
 
-            // ALT A-Z is often sent with a leading ESC
             let alt = [0x1b, alpha];
             map.insert(
                 &alt,
@@ -440,7 +427,6 @@ impl InputParser {
             );
         }
 
-        // Common arrow keys
         for (keycode, dir) in &[
             (KeyCode::UpArrow, b'A'),
             (KeyCode::DownArrow, b'B'),
@@ -449,14 +435,12 @@ impl InputParser {
             (KeyCode::Home, b'H'),
             (KeyCode::End, b'F'),
         ] {
-            // Arrow keys in normal mode encoded using CSI
             let arrow = [0x1b, b'[', *dir];
             map.insert(
                 &arrow,
                 InputEvent::Key(KeyEvent { key: *keycode, modifiers: Modifiers::NONE }),
             );
 
-            // TODO: check compat; this happens to match up to iterm in my setup
             for (suffix, modifiers) in &[
                 (";2", Modifiers::SHIFT),
                 (";3", Modifiers::ALT),
@@ -477,7 +461,6 @@ impl InputParser {
             (KeyCode::ApplicationRightArrow, b'C'),
             (KeyCode::ApplicationLeftArrow, b'D'),
         ] {
-            // Arrow keys in application cursor mode encoded using SS3
             let app = [0x1b, b'O', *dir];
             map.insert(
                 &app,
@@ -485,7 +468,6 @@ impl InputParser {
             );
         }
 
-        // Function keys 1-4 with no modifiers encoded using SS3
         for (keycode, c) in &[
             (KeyCode::Function(1), b'P'),
             (KeyCode::Function(2), b'Q'),
@@ -499,7 +481,6 @@ impl InputParser {
             );
         }
 
-        // Function keys with modifiers encoded using CSI
         for n in 1..=12 {
             for (suffix, modifiers) in &[
                 ("", Modifiers::NONE),

@@ -11,14 +11,14 @@ bitflags! {
     #[derive(Serialize, Deserialize)]
     struct LineBits : u8 {
         const NONE = 0;
-        /// The contents of the Line have changed and cached or
-        /// derived data will need to be reassessed.
+
+
         const DIRTY = 1;
-        /// The line contains 1+ cells with explicit hyperlinks set
+
         const HAS_HYPERLINK = 1<<1;
-        /// true if we have scanned for implicit hyperlinks
+
         const SCANNED_IMPLICIT_HYPERLINKS = 1<<2;
-        /// true if we found implicit hyperlinks in the last scan
+
         const HAS_IMPLICIT_HYPERLINKS = 1<<3;
     }
 }
@@ -69,29 +69,21 @@ impl Line {
         self.bits |= LineBits::DIRTY;
     }
 
-    /// Check whether the dirty bit is set.
-    /// If it is set, then something about the line has changed since
-    /// the dirty bit was last cleared.
     #[inline]
     pub fn is_dirty(&self) -> bool {
         (self.bits & LineBits::DIRTY) == LineBits::DIRTY
     }
 
-    /// Force the dirty bit set.
-    /// FIXME: this is abused by term::Screen, want to remove or rethink it.
     #[inline]
     pub fn set_dirty(&mut self) {
         self.bits |= LineBits::DIRTY;
     }
 
-    /// Clear the dirty bit.
     #[inline]
     pub fn clear_dirty(&mut self) {
         self.bits &= !LineBits::DIRTY;
     }
 
-    /// If we have any cells with an implicit hyperlink, remove the hyperlink
-    /// from the cell attributes but leave the remainder of the attributes alone.
     pub fn invalidate_implicit_hyperlinks(&mut self) {
         if (self.bits & (LineBits::SCANNED_IMPLICIT_HYPERLINKS | LineBits::HAS_IMPLICIT_HYPERLINKS))
             == LineBits::NONE
@@ -121,36 +113,20 @@ impl Line {
         self.bits |= LineBits::DIRTY;
     }
 
-    /// Scan through the line and look for sequences that match the provided
-    /// rules.  Matching sequences are considered to be implicit hyperlinks
-    /// and will have a hyperlink attribute associated with them.
-    /// This function will only make changes if the line has been invalidated
-    /// since the last time this function was called.
-    /// This function does not remember the values of the `rules` slice, so it
-    /// is the responsibility of the caller to call `invalidate_implicit_hyperlinks`
-    /// if it wishes to call this function with different `rules`.
     pub fn scan_and_create_hyperlinks(&mut self, rules: &[Rule]) {
         if (self.bits & LineBits::SCANNED_IMPLICIT_HYPERLINKS)
             == LineBits::SCANNED_IMPLICIT_HYPERLINKS
         {
-            // Has not changed since last time we scanned
             return;
         }
 
-        // FIXME: let's build a string and a byte-to-cell map here, and
-        // use this as an opportunity to rebuild HAS_HYPERLINK, skip matching
-        // cells with existing non-implicit hyperlinks, and avoid matching
-        // text with zero-width cells.
         let line = self.as_str();
         self.bits |= LineBits::SCANNED_IMPLICIT_HYPERLINKS;
         self.bits &= !LineBits::HAS_IMPLICIT_HYPERLINKS;
 
         for m in Rule::match_hyperlinks(&line, rules) {
-            // The capture range is measured in bytes but we need to translate
-            // that to the char index of the column.
             for (cell_idx, (byte_idx, _char)) in line.char_indices().enumerate() {
                 if self.cells[cell_idx].attrs().hyperlink.is_some() {
-                    // Don't replace existing links
                     continue;
                 }
                 if m.range.contains(&byte_idx) {
@@ -167,14 +143,12 @@ impl Line {
         }
     }
 
-    /// Returns true if the line contains a hyperlink
     #[inline]
     pub fn has_hyperlink(&self) -> bool {
         (self.bits & (LineBits::HAS_HYPERLINK | LineBits::HAS_IMPLICIT_HYPERLINKS))
             != LineBits::NONE
     }
 
-    /// Recompose line into the corresponding utf8 string.
     pub fn as_str(&self) -> String {
         let mut s = String::new();
         for (_, cell) in self.visible_cells() {
@@ -191,8 +165,6 @@ impl Line {
         let mut lower = click_col;
         let mut upper = click_col;
 
-        // TODO: look back and look ahead for cells that are hidden by
-        // a preceding multi-wide cell
         for (idx, cell) in self.cells.iter().enumerate().skip(click_col) {
             if !is_word(cell.str()) {
                 break;
@@ -216,7 +188,6 @@ impl Line {
         }
     }
 
-    /// Returns a substring from the line.
     pub fn columns_as_str(&self, range: Range<usize>) -> String {
         let mut s = String::new();
         for (n, c) in self.visible_cells() {
@@ -231,15 +202,9 @@ impl Line {
         s
     }
 
-    /// If we're about to modify a cell obscured by a double-width
-    /// character ahead of that cell, we need to nerf that sequence
-    /// of cells to avoid partial rendering concerns.
-    /// Similarly, when we assign a cell, we need to blank out those
-    /// occluded successor cells.
     pub fn set_cell(&mut self, idx: usize, cell: Cell) -> &Cell {
         let width = cell.width();
 
-        // if the line isn't wide enough, pad it out with the default attributes
         if idx + width >= self.cells.len() {
             self.cells.resize(idx + width, Cell::default());
         }
@@ -251,8 +216,6 @@ impl Line {
         }
         self.invalidate_grapheme_at_or_before(idx);
 
-        // For double-wide or wider chars, ensure that the cells that
-        // are overlapped by this one are blanked out.
         for i in 1..=width.saturating_sub(1) {
             self.cells[idx + i] = Cell::new(' ', cell.attrs().clone());
         }
@@ -262,8 +225,6 @@ impl Line {
     }
 
     fn invalidate_grapheme_at_or_before(&mut self, idx: usize) {
-        // Assumption: that the width of a grapheme is never > 2.
-        // This constrains the amount of look-back that we need to do here.
         if idx > 0 {
             let prior = idx - 1;
             let width = self.cells[prior].width();
@@ -279,8 +240,6 @@ impl Line {
     pub fn insert_cell(&mut self, x: usize, cell: Cell) {
         self.invalidate_implicit_hyperlinks();
 
-        // If we're inserting a wide cell, we should also insert the overlapped cells.
-        // We insert them first so that the grapheme winds up left-most.
         let width = cell.width();
         for _ in 1..=width.saturating_sub(1) {
             self.cells.insert(x, Cell::new(' ', cell.attrs().clone()));
@@ -302,19 +261,11 @@ impl Line {
             if x >= max_col {
                 break;
             }
-            // FIXME: we can skip the look-back for second and subsequent iterations
+
             self.set_cell(x, cell.clone());
         }
     }
 
-    /// Iterates the visible cells, respecting the width of the cell.
-    /// For instance, a double-width cell overlaps the following (blank)
-    /// cell, so that blank cell is omitted from the iterator results.
-    /// The iterator yields (column_index, Cell).  Column index is the
-    /// index into Self::cells, and due to the possibility of skipping
-    /// the characters that follow wide characters, the column index may
-    /// skip some positions.  It is returned as a convenience to the consumer
-    /// as using .enumerate() on this iterator wouldn't be as useful.
     pub fn visible_cells(&self) -> impl Iterator<Item = (usize, &Cell)> {
         let mut skip_width = 0;
         self.cells.iter().enumerate().filter(move |(_idx, cell)| {

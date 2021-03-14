@@ -12,26 +12,15 @@ pub type TextureCoord = euclid::Point2D<f32, TextureUnit>;
 pub type TextureRect = euclid::Rect<f32, TextureUnit>;
 pub type TextureSize = euclid::Size2D<f32, TextureUnit>;
 
-/// Represents a big endian bgra32 bitmap that may not be present
-/// in local RAM, but may be addressable in eg: video RAM
 pub trait Texture2d {
-    /// Copy the bits from the source bitmap to the texture at the location
-    /// specified by the rectangle.
-    /// The dimensions of the rectangle must match the source image
     fn write(&self, rect: Rect, im: &dyn BitmapImage);
 
-    /// Copy the bits from the texture at the location specified by the rectangle
-    /// into the bitmap image.
-    /// The dimensions of the rectangle must match the source image
     fn read(&self, rect: Rect, im: &mut dyn BitmapImage);
 
-    /// Returns the width of the texture in pixels
     fn width(&self) -> usize;
 
-    /// Returns the height of the texture in pixels
     fn height(&self) -> usize;
 
-    /// Converts a rect in pixel coordinates to texture coordinates
     fn to_texture_coords(&self, coords: Rect) -> TextureRect {
         let coords = coords.to_f32();
         let width = self.width() as f32;
@@ -47,23 +36,13 @@ impl Texture2d for SrgbTexture2d {
     fn write(&self, rect: Rect, im: &dyn BitmapImage) {
         let (im_width, im_height) = im.image_dimensions();
 
-        // This is a little unfortunate: glium only exposes GL_RGBA
-        // surfaces but our data is GL_BGRA.  We need to allocate
-        // a temporary buffer to hold the transformed data just for
-        // the duration of the write request.
         let source = glium::texture::RawImage2d {
             data: im
                 .pixels()
                 .iter()
                 .map(|&p| {
                     let (r, g, b, a) = Color(p).as_rgba();
-                    // convert from linear to srgb.
-                    // This brightens up the emoji glyphs so that the
-                    // colors match those of the software renderer and
-                    // other terminal emulators.
-                    // I haven't run down exactly why this is needed but
-                    // suspect that it would be resolved if we could teach
-                    // glium to use SRGB for the texture.
+
                     fn conv(v: u8) -> u8 {
                         let f = (v as f32) / 255.;
                         let c = if f <= 0.0031308 {
@@ -128,7 +107,6 @@ mod avx {
         height_pixels: usize,
         color: Color,
     ) {
-        // This holds 8 copies of the pixel value
         let bgra256 = std::arch::x86_64::_mm256_set1_epi32(color.0 as _);
         let aligned_width = align_lo(width_pixels, 8);
 
@@ -162,16 +140,11 @@ mod avx {
     }
 }
 
-/// A bitmap in big endian bgra32 color format with abstract
-/// storage filled in by the trait implementation.
 pub trait BitmapImage {
-    /// Obtain a read only pointer to the pixel data
     unsafe fn pixel_data(&self) -> *const u8;
 
-    /// Obtain a mutable pointer to the pixel data
     unsafe fn pixel_data_mut(&mut self) -> *mut u8;
 
-    /// Return the pair (width, height) of the image, measured in pixels
     fn image_dimensions(&self) -> (usize, usize);
 
     #[inline]
@@ -195,7 +168,7 @@ pub trait BitmapImage {
     }
 
     #[inline]
-    /// Obtain a mutable reference to the raw bgra pixel at the specified coordinates
+
     fn pixel_mut(&mut self, x: usize, y: usize) -> &mut u32 {
         let (width, height) = self.image_dimensions();
         debug_assert!(x < width && y < height, "x={} width={} y={} height={}", x, width, y, height);
@@ -207,7 +180,7 @@ pub trait BitmapImage {
     }
 
     #[inline]
-    /// Read the raw bgra pixel at the specified coordinates
+
     fn pixel(&self, x: usize, y: usize) -> &u32 {
         let (width, height) = self.image_dimensions();
         debug_assert!(x < width && y < height);
@@ -228,7 +201,6 @@ pub trait BitmapImage {
         unsafe { std::slice::from_raw_parts_mut(self.pixel_mut(x1, y), x2 - x1) }
     }
 
-    /// Clear the entire image to the specific color
     fn clear(&mut self, color: Color) {
         #[cfg(target_arch = "x86_64")]
         {
@@ -282,9 +254,6 @@ pub trait BitmapImage {
         }
     }
 
-    /// Draw a line starting at `start` and ending at `end`.
-    /// The line will be anti-aliased and applied to the surface using the
-    /// specified Operator.
     fn draw_line(&mut self, start: Point, end: Point, color: Color, operator: Operator) {
         let (dim_width, dim_height) = self.image_dimensions();
         let linear: LinSrgba = color.into();
@@ -307,14 +276,12 @@ pub trait BitmapImage {
         }
     }
 
-    /// Draw a 1-pixel wide rectangle
     fn draw_rect(&mut self, rect: Rect, color: Color, operator: Operator) {
         let bottom_right = rect.origin.add_size(&rect.size);
 
-        // Draw the vertical lines down either side
         self.draw_line(rect.origin, Point::new(rect.origin.x, bottom_right.y), color, operator);
         self.draw_line(Point::new(bottom_right.x, rect.origin.y), bottom_right, color, operator);
-        // And the horizontals for the top and bottom
+
         self.draw_line(rect.origin, Point::new(bottom_right.x, rect.origin.y), color, operator);
         self.draw_line(Point::new(rect.origin.x, bottom_right.y), bottom_right, color, operator);
     }
@@ -360,8 +327,6 @@ pub trait BitmapImage {
     }
 }
 
-/// A bitmap in big endian bgra32 color format, with storage
-/// in a Vec<u8>.
 pub struct Image {
     data: Vec<u8>,
     width: usize,
@@ -375,8 +340,6 @@ impl Into<Vec<u8>> for Image {
 }
 
 impl Image {
-    /// Create a new bgra32 image buffer with the specified dimensions.
-    /// The buffer is initialized to all zeroes.
     pub fn new(width: usize, height: usize) -> Image {
         let size = height * width * 4;
         let mut data = vec![0; size];
@@ -384,8 +347,6 @@ impl Image {
         Image { data, width, height }
     }
 
-    /// Create a new bgra32 image buffer with the specified dimensions.
-    /// The buffer is populated with the source data in rgba32 format.
     pub fn with_rgba32(width: usize, height: usize, stride: usize, data: &[u8]) -> Image {
         let mut image = Image::new(width, height);
         for y in 0..height {
@@ -406,8 +367,6 @@ impl Image {
         image
     }
 
-    /// Creates a new image with the contents of the current image, but
-    /// resized to the specified dimensions.
     pub fn resize(&self, width: usize, height: usize) -> Image {
         let mut dest = Image::new(width, height);
         let algo = if (width * height) < (self.width * self.height) {
@@ -464,13 +423,11 @@ impl Texture2d for ImageTexture {
         unimplemented!();
     }
 
-    /// Returns the width of the texture in pixels
     fn width(&self) -> usize {
         let (width, _height) = self.image.borrow().image_dimensions();
         width
     }
 
-    /// Returns the height of the texture in pixels
     fn height(&self) -> usize {
         let (_width, height) = self.image.borrow().image_dimensions();
         height

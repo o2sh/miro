@@ -1,10 +1,8 @@
 use bitflags::*;
 
-/// Which key is pressed.
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyCode {
-    /// The decoded unicode character
     Char(char),
     Super,
     Clear,
@@ -33,7 +31,7 @@ pub enum KeyCode {
     Subtract,
     Decimal,
     Divide,
-    /// F1-F24 are possible
+
     Function(u8),
     NumLock,
     ScrollLock,
@@ -102,21 +100,13 @@ pub struct MouseEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
-    /// Which key was pressed.
-    /// This is the potentially processed/composed version
-    /// of the input.
     pub key: KeyCode,
 
-    /// The raw unprocessed key press if it was different from
-    /// the processed/composed version
     pub raw_key: Option<KeyCode>,
 
-    /// Which modifiers are down
     pub modifiers: Modifiers,
 
-    /// How many times this key repeats
     pub repeat_count: u16,
 
-    /// If true, this is a key down rather than a key up event
     pub key_is_down: bool,
 }

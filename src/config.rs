@@ -1,4 +1,3 @@
-//! Configuration for the gui portion of the terminal
 use crate::core::hyperlink;
 use crate::core::input::{KeyCode, Modifiers};
 use crate::term;
@@ -28,72 +27,40 @@ impl Default for Theme {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    /// The font size, measured in points
     #[serde(default = "default_font_size")]
     pub font_size: f64,
 
-    /// The DPI to assume
     #[serde(default = "default_dpi")]
     pub dpi: f64,
 
-    /// The baseline font to use
     #[serde(default)]
     pub font: TextStyle,
 
     #[serde(default = "default_hyperlink_rules")]
     pub hyperlink_rules: Vec<hyperlink::Rule>,
 
-    /// The set of unix domains
     #[serde(default = "UnixDomain::default_unix_domains")]
     pub unix_domains: Vec<UnixDomain>,
 
-    /// Constrains the rate at which output from a child command is
-    /// processed and applied to the terminal model.
-    /// This acts as a brake in the case of a command spewing a
-    /// ton of output and allows for the UI to remain responsive
-    /// so that you can hit CTRL-C to interrupt it if desired.
-    /// The default value is 2MB/s.
     pub ratelimit_output_bytes_per_second: Option<u32>,
 
-    /// Constrains the rate at which the multiplexer server will
-    /// unilaterally push data to the client.
-    /// This helps to avoid saturating the link between the client
-    /// and server.
-    /// Each time the screen is updated as a result of the child
-    /// command outputting data (rather than in response to input
-    /// from the client), the server considers whether to push
-    /// the result to the client.
-    /// That decision is throttled by this configuration value
-    /// which has a default value of 10/s
     pub ratelimit_mux_output_pushes_per_second: Option<u32>,
 
-    /// Constrain how often the mux server scans the terminal
-    /// model to compute a diff to send to the mux client.
-    /// The default value is 100/s
     pub ratelimit_mux_output_scans_per_second: Option<u32>,
 
-    /// An optional set of style rules to select the font based
-    /// on the cell attributes
     #[serde(default)]
     pub font_rules: Vec<StyleRule>,
 
-    /// The color palette
     pub colors: Option<Palette>,
 
-    /// How many lines of scrollback you want to retain
     pub scrollback_lines: Option<usize>,
 
-    /// What to set the TERM variable to
     #[serde(default = "default_term")]
     pub term: String,
 
     #[serde(default)]
     pub keys: Vec<Key>,
 
-    /// If set to true, send the system specific composed key when
-    /// the ALT key is held down.  If set to false (the default)
-    /// then send the key with the ALT modifier (this is typically
-    /// encoded as ESC followed by the key).
     #[serde(default)]
     pub send_composed_key_when_alt_is_pressed: bool,
 
@@ -319,11 +286,10 @@ const FONT_FAMILY: &str = "monospace";
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct FontAttributes {
-    /// The font family name
     pub family: String,
-    /// Whether the font should be a bold variant
+
     pub bold: Option<bool>,
-    /// Whether the font should be an italic variant
+
     pub italic: Option<bool>,
 }
 
@@ -337,16 +303,11 @@ fn empty_font_attributes() -> Vec<FontAttributes> {
     Vec::new()
 }
 
-/// Represents textual styling.
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct TextStyle {
     #[serde(default = "empty_font_attributes")]
     pub font: Vec<FontAttributes>,
 
-    /// If set, when rendering text that is set to the default
-    /// foreground color, use this color instead.  This is most
-    /// useful in a `[[font_rules]]` section to implement changing
-    /// the text color for eg: bold text.
     pub foreground: Option<RgbColor>,
 }
 
@@ -357,7 +318,6 @@ impl Default for TextStyle {
 }
 
 impl TextStyle {
-    /// Make a version of this style with bold enabled.
     fn make_bold(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -373,7 +333,6 @@ impl TextStyle {
         }
     }
 
-    /// Make a version of this style with italic enabled.
     fn make_italic(&self) -> Self {
         Self {
             foreground: self.foreground,
@@ -395,9 +354,6 @@ impl TextStyle {
         let mut font = self.font.clone();
 
         if font.is_empty() {
-            // This can happen when migratin from the old fontconfig_pattern
-            // configuration syntax; ensure that we have something likely
-            // sane in the font configuration
             font.push(FontAttributes::default());
         }
 
@@ -409,8 +365,6 @@ impl TextStyle {
         font.push(FontAttributes { family: "Zapf Dingbats".into(), bold: None, italic: None });
         #[cfg(target_os = "macos")]
         font.push(FontAttributes { family: "Apple LiGothic".into(), bold: None, italic: None });
-
-        // Fallback font that has unicode replacement character
         #[cfg(windows)]
         font.push(FontAttributes { family: "Segoe UI".into(), bold: None, italic: None });
         #[cfg(windows)]
@@ -425,47 +379,22 @@ impl TextStyle {
     }
 }
 
-/// Defines a rule that can be used to select a `TextStyle` given
-/// an input `CellAttributes` value.  The logic that applies the
-/// matching can be found in src/font/mod.rs.  The concept is that
-/// the user can specify something like this:
-///
-/// ```
-/// [[font_rules]]
-/// italic = true
-/// font = { font = [{family = "Operator Mono SSm Lig", italic=true}]}
-/// ```
-///
-/// The above is translated as: "if the `CellAttributes` have the italic bit
-/// set, then use the italic style of font rather than the default", and
-/// stop processing further font rules.
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct StyleRule {
-    /// If present, this rule matches when CellAttributes::intensity holds
-    /// a value that matches this rule.  Valid values are "Bold", "Normal",
-    /// "Half".
     pub intensity: Option<term::Intensity>,
-    /// If present, this rule matches when CellAttributes::underline holds
-    /// a value that matches this rule.  Valid values are "None", "Single",
-    /// "Double".
+
     pub underline: Option<term::Underline>,
-    /// If present, this rule matches when CellAttributes::italic holds
-    /// a value that matches this rule.
+
     pub italic: Option<bool>,
-    /// If present, this rule matches when CellAttributes::blink holds
-    /// a value that matches this rule.
+
     pub blink: Option<term::Blink>,
-    /// If present, this rule matches when CellAttributes::reverse holds
-    /// a value that matches this rule.
+
     pub reverse: Option<bool>,
-    /// If present, this rule matches when CellAttributes::strikethrough holds
-    /// a value that matches this rule.
+
     pub strikethrough: Option<bool>,
-    /// If present, this rule matches when CellAttributes::invisible holds
-    /// a value that matches this rule.
+
     pub invisible: Option<bool>,
 
-    /// When this rule matches, `font` specifies the styling to be used.
     pub font: TextStyle,
 }
 
@@ -474,8 +403,6 @@ impl Config {
         Self::default().compute_extra_defaults(theme)
     }
 
-    /// In some cases we need to compute expanded values based
-    /// on those provided by the user.  This is where we do that.
     fn compute_extra_defaults(&self, theme: Option<Theme>) -> Self {
         let mut cfg = self.clone();
         if theme.is_some() {
@@ -511,40 +438,20 @@ impl Config {
     }
 }
 
-/// Configures an instance of a multiplexer that can be communicated
-/// with via a unix domain socket
 #[derive(Default, Debug, Clone, Deserialize)]
 pub struct UnixDomain {
-    /// The name of this specific domain.  Must be unique amongst
-    /// all types of domain in the configuration file.
     pub name: String,
 
-    /// The path to the socket.  If unspecified, a resonable default
-    /// value will be computed.
     pub socket_path: Option<PathBuf>,
 
-    /// If true, connect to this domain automatically at startup
     #[serde(default)]
     pub connect_automatically: bool,
 
-    /// If true, do not attempt to start this server if we try and fail to
-    /// connect to it.
     #[serde(default)]
     pub no_serve_automatically: bool,
 
-    /// If we decide that we need to start the server, the command to run
-    /// to set that up.  The default is to spawn:
-    /// `miro --daemonize --front-end MuxServer`
-    /// but it can be useful to set this to eg:
-    /// `wsl -e miro --daemonize --front-end MuxServer` to start up
-    /// a unix domain inside a wsl container.
     pub serve_command: Option<Vec<String>>,
 
-    /// If true, bypass checking for secure ownership of the
-    /// socket_path.  This is not recommended on a multi-user
-    /// system, but is useful for example when running the
-    /// server inside a WSL container but with the socket
-    /// on the host NTFS volume.
     #[serde(default)]
     pub skip_permissions_check: bool,
 }
@@ -557,20 +464,18 @@ impl UnixDomain {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Palette {
-    /// The text color to use when the attributes are reset to default
     pub foreground: Option<RgbColor>,
-    /// The background color to use when the attributes are reset to default
+
     pub background: Option<RgbColor>,
-    /// The color of the cursor
+
     pub cursor_fg: Option<RgbColor>,
     pub cursor_bg: Option<RgbColor>,
-    /// The color of selected text
+
     pub selection_fg: Option<RgbColor>,
     pub selection_bg: Option<RgbColor>,
-    /// A list of 8 colors corresponding to the basic ANSI palette
+
     pub ansi: Option<[RgbColor; 8]>,
-    /// A list of 8 colors corresponding to bright versions of the
-    /// ANSI palette
+
     pub brights: Option<[RgbColor; 8]>,
 }
 

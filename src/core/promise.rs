@@ -120,14 +120,10 @@ impl<T: Send + 'static> std::convert::From<Result<T, Error>> for Future<T> {
 }
 
 impl<T: Send + 'static> Future<T> {
-    /// Create a leaf future which is immediately ready with
-    /// the provided result
     pub fn result(result: Result<T, Error>) -> Self {
         Self { state: FutureState::Ready(result) }
     }
 
-    /// Create a future from a function that will be spawned via
-    /// the provided executor
     pub fn with_executor<F, IF, EXEC>(executor: EXEC, f: F) -> Future<T>
     where
         F: FnOnce() -> IF + Send + 'static,
@@ -168,9 +164,6 @@ impl<T: Send + 'static> std::future::Future for Future<T> {
     type Output = Result<T, Error>;
 
     fn poll(self: Pin<&mut Self>, _ctx: &mut Context) -> Poll<Self::Output> {
-        // This should be safe because we're not moving the Future,
-        // but instead replacing a field, and since no one is able to
-        // reference the state field, we should be ok with moving that.
         let myself = unsafe { Pin::get_unchecked_mut(self) };
 
         let state = std::mem::replace(&mut myself.state, FutureState::Resolved);

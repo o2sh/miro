@@ -11,7 +11,6 @@ mod keycodes;
 pub use self::window::*;
 pub use connection::*;
 
-/// Convert a rust string to a cocoa string
 fn nsstring(s: &str) -> StrongPtr {
     unsafe { StrongPtr::new(NSString::alloc(nil).init_str(s)) }
 }

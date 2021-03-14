@@ -36,11 +36,6 @@ pub struct MouseEvent {
     pub modifiers: KeyModifiers,
 }
 
-/// This is a little helper that keeps track of the "click streak",
-/// which is the number of successive clicks of the same mouse button
-/// within the `CLICK_INTERVAL`.  The streak is reset to 1 each time
-/// the mouse button differs from the last click, or when the elapsed
-/// time exceeds `CLICK_INTERVAL`.
 #[derive(Debug)]
 pub struct LastMouseClick {
     button: MouseButton,
@@ -48,7 +43,6 @@ pub struct LastMouseClick {
     pub streak: usize,
 }
 
-/// The multi-click interval, measured in milliseconds
 const CLICK_INTERVAL: u64 = 500;
 
 impl LastMouseClick {

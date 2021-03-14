@@ -15,8 +15,6 @@ pub struct GlyphKey {
     pub style: TextStyle,
 }
 
-/// Caches a rendered glyph.
-/// The image data may be None for whitespace glyphs.
 pub struct CachedGlyph<T: Texture2d> {
     pub has_color: bool,
     pub x_offset: f64,
@@ -62,8 +60,6 @@ impl GlyphCache<SrgbTexture2d> {
 }
 
 impl<T: Texture2d> GlyphCache<T> {
-    /// Resolve a glyph from the cache, rendering the glyph on-demand if
-    /// the cache doesn't already hold the desired glyph.
     pub fn cached_glyph(
         &mut self,
         info: &GlyphInfo,
@@ -81,7 +77,6 @@ impl<T: Texture2d> GlyphCache<T> {
         Ok(glyph)
     }
 
-    /// Perform the load and render of a glyph
     #[allow(clippy::float_cmp)]
     fn load_glyph(&mut self, info: &GlyphInfo, style: &TextStyle) -> Fallible<Rc<CachedGlyph<T>>> {
         let metrics;
@@ -109,7 +104,6 @@ impl<T: Texture2d> GlyphCache<T> {
             1.0f64
         };
         let glyph = if glyph.width == 0 || glyph.height == 0 {
-            // a whitespace glyph
             CachedGlyph {
                 has_color,
                 texture: None,

@@ -77,10 +77,6 @@ fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std
     });
 }
 
-/// This is just a stub impl of TerminalHost; it really only exists
-/// in order to parse data sent by the peer (so, just to parse output).
-/// As such it only really has Host::writer get called.
-/// The GUI driven flows provide their own impl of TerminalHost.
 struct Host<'a> {
     writer: &'a mut dyn std::io::Write,
 }

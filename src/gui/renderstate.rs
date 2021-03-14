@@ -78,7 +78,6 @@ impl OpenGLRenderState {
         let sprite_size = (spritesheet.sprite_width, spritesheet.sprite_height);
         let header_height = spritesheet.sprite_height;
 
-        //glyph
         let mut glyph_errors = vec![];
         let mut glyph_program = None;
         for version in &["330", "300 es"] {
@@ -125,7 +124,6 @@ impl OpenGLRenderState {
                 metrics,
             )?;
 
-        //header
         let mut header_errors = vec![];
         let mut header_program = None;
         for version in &["330", "300 es"] {
@@ -171,7 +169,6 @@ impl OpenGLRenderState {
                 pixel_height as f32,
             )?;
 
-        //sprite
         let mut sprite_errors = vec![];
         let mut sprite_program = None;
         for version in &["330", "300 es"] {
@@ -256,7 +253,6 @@ impl OpenGLRenderState {
         self.header_height = self.header_height * dpi;
         self.sprite_speed = self.sprite_speed * dpi;
 
-        //header
         let (header_rect_vertex_buffer, header_rect_index_buffer) =
             Self::compute_header_rect_vertices(
                 &self.context,
@@ -269,7 +265,6 @@ impl OpenGLRenderState {
         *self.header_rect_vertex_buffer.borrow_mut() = header_rect_vertex_buffer;
         self.header_rect_index_buffer = header_rect_index_buffer;
 
-        //recompute glyph vertices to account for new top padding
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
             self.header_height + 1.0,
@@ -281,7 +276,6 @@ impl OpenGLRenderState {
         *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
         self.glyph_index_buffer = glyph_index_buffer;
 
-        //sprite
         let (sprite_vertex_buffer, sprite_index_buffer) = Self::compute_sprite_vertices(
             &self.context,
             self.sprite_size.0,
@@ -302,7 +296,6 @@ impl OpenGLRenderState {
         pixel_width: usize,
         pixel_height: usize,
     ) -> Fallible<()> {
-        //glyph
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
             self.header_height + 1.0,
@@ -314,7 +307,6 @@ impl OpenGLRenderState {
         *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
         self.glyph_index_buffer = glyph_index_buffer;
 
-        //header
         let (header_rect_vertex_buffer, header_rect_index_buffer) =
             Self::compute_header_rect_vertices(
                 &self.context,
@@ -327,7 +319,6 @@ impl OpenGLRenderState {
         *self.header_rect_vertex_buffer.borrow_mut() = header_rect_vertex_buffer;
         self.header_rect_index_buffer = header_rect_index_buffer;
 
-        //header
         let (header_glyph_vertex_buffer, header_glyph_index_buffer) =
             Self::compute_header_glyph_vertices(
                 &self.context,
@@ -342,7 +333,6 @@ impl OpenGLRenderState {
         *self.header_glyph_vertex_buffer.borrow_mut() = header_glyph_vertex_buffer;
         self.header_glyph_index_buffer = header_glyph_index_buffer;
 
-        //sprite
         self.reset_sprite_pos(pixel_height as f32 / 2.0);
 
         Ok(())
@@ -382,12 +372,6 @@ impl OpenGLRenderState {
         format!("#version {}\n{}", version, include_str!("shaders/s_fragment.glsl"))
     }
 
-    /// Compute a vertex buffer to hold the quads that comprise the visible
-    /// portion of the screen.   We recreate this when the screen is resized.
-    /// The idea is that we want to minimize and heavy lifting and computation
-    /// and instead just poke some attributes into the offset that corresponds
-    /// to a changed cell when we need to repaint the screen, and then just
-    /// let the GPU figure out the rest.
     fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
         top_padding: f32,
@@ -407,30 +391,16 @@ impl OpenGLRenderState {
             for x in 0..num_cols {
                 let y_pos = top_padding + (height / -2.0) + (y as f32 * cell_height);
                 let x_pos = (width / -2.0) + (x as f32 * cell_width);
-                // Remember starting index for this position
+
                 let idx = verts.len() as u32;
+                verts.push(Vertex { position: (x_pos, y_pos), ..Default::default() });
+                verts.push(Vertex { position: (x_pos + cell_width, y_pos), ..Default::default() });
+                verts.push(Vertex { position: (x_pos, y_pos + cell_height), ..Default::default() });
                 verts.push(Vertex {
-                    // Top left
-                    position: (x_pos, y_pos),
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Top Right
-                    position: (x_pos + cell_width, y_pos),
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Bottom Left
-                    position: (x_pos, y_pos + cell_height),
-                    ..Default::default()
-                });
-                verts.push(Vertex {
-                    // Bottom Right
                     position: (x_pos + cell_width, y_pos + cell_height),
                     ..Default::default()
                 });
 
-                // Emit two triangles to form the glyph quad
                 indices.push(idx + V_TOP_LEFT as u32);
                 indices.push(idx + V_TOP_RIGHT as u32);
                 indices.push(idx + V_BOT_LEFT as u32);
@@ -475,30 +445,16 @@ impl OpenGLRenderState {
                     - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
                     + 5.0
             };
-            // Remember starting index for this position
+
             let idx = verts.len() as u32;
+            verts.push(Vertex { position: (x_pos, y_pos), ..Default::default() });
+            verts.push(Vertex { position: (x_pos + cell_width, y_pos), ..Default::default() });
+            verts.push(Vertex { position: (x_pos, y_pos + cell_height), ..Default::default() });
             verts.push(Vertex {
-                // Top left
-                position: (x_pos, y_pos),
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Top Right
-                position: (x_pos + cell_width, y_pos),
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Bottom Left
-                position: (x_pos, y_pos + cell_height),
-                ..Default::default()
-            });
-            verts.push(Vertex {
-                // Bottom Right
                 position: (x_pos + cell_width, y_pos + cell_height),
                 ..Default::default()
             });
 
-            // Emit two triangles to form the glyph quad
             indices.push(idx);
             indices.push(idx + 1);
             indices.push(idx + 2);
@@ -524,25 +480,21 @@ impl OpenGLRenderState {
         let (w, h) = { (width / 2.0, height / 2.0) };
 
         verts.push(SpriteVertex {
-            // Top left
             tex_coords: (0.0, 1.0),
             position: (-w, -h),
             ..Default::default()
         });
         verts.push(SpriteVertex {
-            // Top Right
             tex_coords: (1.0, 1.0),
             position: (-w + sprite_width, -h),
             ..Default::default()
         });
         verts.push(SpriteVertex {
-            // Bottom Left
             tex_coords: (0.0, 0.0),
             position: (-w, -h + sprite_height),
             ..Default::default()
         });
         verts.push(SpriteVertex {
-            // Bottom Right
             tex_coords: (1.0, 0.0),
             position: (-w + sprite_width, -h + sprite_height),
             ..Default::default()

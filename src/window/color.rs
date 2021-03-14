@@ -63,12 +63,10 @@ fn linear_f32_to_srgb8_using_table(f: f32) -> u8 {
     ((bias + scale * t) >> 16) as u8
 }
 
-/// Convert from srgb in u8 0-255 to linear floating point rgb 0-1.0
 fn srgb8_to_linear_f32(val: u8) -> f32 {
     unsafe { *SRGB_TO_F32_TABLE.get_unchecked(val as usize) }
 }
 
-/// A color stored as big endian bgra32
 #[derive(Copy, Clone, Debug)]
 pub struct Color(pub u32);
 
@@ -166,8 +164,6 @@ impl Color {
         c.into_format().into_components()
     }
 
-    /// Compute the composite of two colors according to the supplied operator.
-    /// self is the src operand, dest is the dest operand.
     #[inline]
     pub fn composite(self, dest: Color, operator: Operator) -> Color {
         match operator {
@@ -184,15 +180,12 @@ impl Color {
                 result
             }
             Operator::MultiplyThenOver(ref tint) => {
-                // First multiply by the tint color.  This colorizes the glyph.
                 let src: LinSrgba = self.into();
                 let tint: LinSrgba = (*tint).into();
                 let mut tinted = src.multiply(tint);
-                // We take the alpha from the source.  This is important because
-                // we're using Multiply to tint the glyph and if we don't reset the
-                // alpha we tend to end up with a background square of the tint color.
+
                 tinted.alpha = src.alpha;
-                // Then blend the tinted glyph over the destination background
+
                 let dest: LinSrgba = dest.into();
                 tinted.over(dest).into()
             }

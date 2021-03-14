@@ -1,5 +1,3 @@
-//! Systems that use fontconfig and freetype
-
 pub use self::fcwrap::Pattern as FontPattern;
 use crate::config::{Config, TextStyle};
 use crate::font::ftfont::FreeTypeFontImpl;
@@ -58,14 +56,6 @@ impl NamedFontListImpl {
         Self { fallback, fonts: vec![] }
     }
 
-    /// We prefer the termwiz config specified set of fallbacks,
-    /// so if the user specified two fonts then idx=0 and idx=1
-    /// map to those explicit names.  indices idx=2..N are the first
-    /// fontconfig provided fallback for idx=0, through Nth fallback.
-    /// Index=N+1 is the first fontconfig provided fallback for idx=1
-    /// and so on.
-    /// This function decodes the idx into the pair of user specified
-    /// font and the index into its set of fallbacks
     fn idx_to_fallback(&mut self, idx: usize) -> Option<(&mut NamedFontImpl, usize)> {
         if idx < self.fallback.len() {
             return Some((&mut self.fallback[idx], 0));
@@ -122,14 +112,10 @@ impl NamedFont for NamedFontListImpl {
 
 impl Drop for NamedFontListImpl {
     fn drop(&mut self) {
-        // Ensure that we drop the fonts before we drop the
-        // library, otherwise we will end up faulting
         self.fonts.clear();
     }
 }
 
-/// Holds "the" font selected by the user.  In actuality, it
-/// holds the set of fallback fonts that match their criteria
 pub struct NamedFontImpl {
     lib: ftwrap::Library,
     pattern: fcwrap::Pattern,
@@ -138,25 +124,18 @@ pub struct NamedFontImpl {
 }
 
 impl NamedFontImpl {
-    /// Construct a new Font from the user supplied pattern
     fn new(mut pattern: FontPattern) -> Result<Self, Error> {
         let mut lib = ftwrap::Library::new()?;
 
-        // Some systems don't support this mode, so if it fails, we don't
-        // care to abort the rest of what we're doing
         match lib.set_lcd_filter(ftwrap::FT_LcdFilter::FT_LCD_FILTER_DEFAULT) {
             Ok(_) => (),
             Err(err) => warn!("Ignoring: FT_LcdFilter failed: {:?}", err),
         };
 
-        // Enable some filtering options and pull in the standard
-        // fallback font selection from the user configuration
         pattern.monospace()?;
         pattern.config_substitute(fcwrap::MatchKind::Pattern)?;
         pattern.default_substitute();
 
-        // and obtain the selection with the best preference
-        // at index 0.
         let font_list = pattern.sort(true)?;
         let font_list_size = font_list.iter().count();
 

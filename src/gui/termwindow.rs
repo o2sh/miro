@@ -62,9 +62,6 @@ impl<'a> term::TerminalHost for Host<'a> {
     }
 
     fn click_link(&mut self, link: &Arc<term::cell::Hyperlink>) {
-        // Ensure that we spawn the `open` call outside of the context
-        // of our window loop; on Windows it can cause a panic due to
-        // triggering our WndProc recursively.
         let link = link.clone();
         promise::Future::with_executor(executor(), move || {
             log::error!("clicking {}", link.uri());
@@ -82,9 +79,6 @@ impl WindowCallbacks for TermWindow {
     }
 
     fn can_close(&mut self) -> bool {
-        // can_close triggers the current tab to be closed.
-        // If we have no tabs left then we can close the whole window.
-        // If we're in a weird state, then we allow the window to close too.
         let mux = Mux::get().unwrap();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
             Some(tab) => tab,
@@ -159,8 +153,6 @@ impl WindowCallbacks for TermWindow {
             _ => context.invalidate(),
         }
 
-        // When hovering over a hyperlink, show an appropriate
-        // mouse cursor to give the cue that it is clickable
         context.set_cursor(Some(if tab.renderer().current_highlight().is_some() {
             MouseCursor::Hand
         } else {
@@ -170,8 +162,6 @@ impl WindowCallbacks for TermWindow {
 
     fn resize(&mut self, dimensions: Dimensions) {
         if dimensions.pixel_width == 0 || dimensions.pixel_height == 0 {
-            // on windows, this can happen when minimizing the window.
-            // NOP!
             return;
         }
         self.scaling_changed(dimensions, self.fonts.get_font_scale());
@@ -181,8 +171,6 @@ impl WindowCallbacks for TermWindow {
         if !key.key_is_down {
             return false;
         }
-
-        // log::error!("key_event {:?}", key);
 
         enum Key {
             Code(crate::core::input::KeyCode),
@@ -195,7 +183,6 @@ impl WindowCallbacks for TermWindow {
             use window::KeyCode as WK;
 
             let code = match key {
-                // TODO: consider eliminating these codes from crate::core::input::KeyCode
                 WK::Char('\r') => KC::Enter,
                 WK::Char('\t') => KC::Tab,
                 WK::Char('\u{08}') => KC::Backspace,
@@ -263,8 +250,6 @@ impl WindowCallbacks for TermWindow {
         if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) {
             let modifiers = window_mods_to_termwiz_mods(key.modifiers);
 
-            // First chance to operate on the raw key; if it matches a
-            // user-defined key binding then we execute it and stop there.
             if let Some(key) = &key.raw_key {
                 if let Key::Code(key) = win_key_code_to_termwiz_key_code(&key) {
                     if let Some(assignment) = self.keys.lookup(key, modifiers) {
@@ -331,15 +316,12 @@ impl WindowCallbacks for TermWindow {
                 log::error!("out of texture space, allocating {}", size);
                 if let Err(err) = self.recreate_texture_atlas(Some(size)) {
                     log::error!("failed recreate atlas with size {}: {}", size, err);
-                    // Failed to increase the size.
-                    // This might happen if a lot of images have been displayed in the
-                    // terminal over time and we've hit a texture size limit.
-                    // Let's just try recreating at the current size.
+
                     self.recreate_texture_atlas(None)
                         .expect("OutOfTextureSpace and failed to recreate atlas");
                 }
                 tab.renderer().make_all_lines_dirty();
-                // Recursively initiate a new paint
+
                 return self.paint_tab(frame);
             }
             log::error!("paint_tab_opengl failed: {}", err);
@@ -384,14 +366,7 @@ impl TermWindow {
                 config: Arc::clone(config),
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
-                dimensions: Dimensions {
-                    pixel_width: width,
-                    pixel_height: height,
-                    // This is the default dpi; we'll get a resize
-                    // event to inform us of the true dpi if it is
-                    // different from this value
-                    dpi: 96,
-                },
+                dimensions: Dimensions { pixel_width: width, pixel_height: height, dpi: 96 },
                 render_state,
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
@@ -589,12 +564,8 @@ impl TermWindow {
             SpawnWindow => {
                 self.spawn_new_window();
             }
-            ToggleFullScreen => {
-                // self.toggle_full_screen(),
-            }
-            Copy => {
-                // Nominally copy, but that is implicit, so NOP
-            }
+            ToggleFullScreen => {}
+            Copy => {}
             Paste => {
                 tab.trickle_paste(self.clipboard.get_contents()?)?;
             }
@@ -665,7 +636,6 @@ impl TermWindow {
                 tab.resize(size).ok();
             }
 
-            // Queue up a speculative resize in order to preserve the number of rows+cols
             if scale_changed {
                 if let Some(window) = self.window.as_ref() {
                     window.set_inner_size(
@@ -708,7 +678,6 @@ impl TermWindow {
         }
         let gl_state = self.render_state.opengl();
 
-        //clear header portion of frame
         #[cfg(all(not(target_os = "macos")))]
         {
             let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
@@ -739,7 +708,6 @@ impl TermWindow {
         let draw_params =
             glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
 
-        // Draw top banner rectangle
         frame.draw(
             &*gl_state.header_rect_vertex_buffer.borrow(),
             &gl_state.header_rect_index_buffer,
@@ -750,7 +718,6 @@ impl TermWindow {
             &draw_params,
         )?;
 
-        //Draw header text
         self.render_header_line_opengl(&palette)?;
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
@@ -767,7 +734,6 @@ impl TermWindow {
             &draw_params,
         )?;
 
-        // Draw mario
         let number_of_sprites = gl_state.spritesheet.sprites.len();
         let sprite =
             &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
@@ -818,7 +784,6 @@ impl TermWindow {
         let draw_params =
             glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
 
-        // Pass 1: Draw backgrounds, strikethrough and underline
         frame.draw(
             &*gl_state.glyph_vertex_buffer.borrow(),
             &gl_state.glyph_index_buffer,
@@ -831,7 +796,6 @@ impl TermWindow {
             &draw_params,
         )?;
 
-        // Pass 2: Draw glyphs
         frame.draw(
             &*gl_state.glyph_vertex_buffer.borrow(),
             &gl_state.glyph_index_buffer,
@@ -917,10 +881,7 @@ impl TermWindow {
 
         Ok(())
     }
-    /// "Render" a line of the terminal screen into the vertex buffer.
-    /// This is nominally a matter of setting the fg/bg color and the
-    /// texture coordinates for a given glyph.  There's a little bit
-    /// of extra complexity to deal with multi-cell glyphs.
+
     fn render_screen_line_opengl(
         &self,
         line_idx: usize,
@@ -944,7 +905,6 @@ impl TermWindow {
 
         let current_highlight = terminal.current_highlight();
 
-        // Break the line into clusters of cells with the same attributes
         let cell_clusters = line.cluster();
         let mut last_cell_idx = 0;
         for cluster in cell_clusters {
@@ -965,9 +925,6 @@ impl TermWindow {
                     }
                 }
                 term::color::ColorAttribute::PaletteIndex(idx) if idx < 8 => {
-                    // For compatibility purposes, switch to a brighter version
-                    // of one of the standard ANSI colors when Bold is enabled.
-                    // This lifts black to dark grey.
                     let idx =
                         if attrs.intensity() == term::Intensity::Bold { idx + 8 } else { idx };
                     palette.resolve_fg(term::color::ColorAttribute::PaletteIndex(idx))
@@ -989,7 +946,6 @@ impl TermWindow {
             let glyph_color = rgbcolor_to_window_color(fg_color);
             let bg_color = rgbcolor_to_window_color(bg_color);
 
-            // Shape the printable text from this cluster
             let glyph_info = {
                 let font = self.fonts.cached_font(style)?;
                 let mut font = font.borrow_mut();
@@ -1005,22 +961,15 @@ impl TermWindow {
                     + self.render_metrics.descender)
                     - (glyph.y_offset + glyph.bearing_y)) as f32;
 
-                // underline and strikethrough
                 let underline_tex_rect = gl_state
                     .util_sprites
                     .select_sprite(is_highlited_hyperlink, attrs.strikethrough(), attrs.underline())
                     .texture_coords();
 
-                // Iterate each cell that comprises this glyph.  There is usually
-                // a single cell per glyph but combining characters, ligatures
-                // and emoji can be 2 or more cells wide.
                 for glyph_idx in 0..info.num_cells as usize {
                     let cell_idx = cell_idx + glyph_idx;
 
                     if cell_idx >= num_cols {
-                        // terminal line data is wider than the window.
-                        // This happens for example while live resizing the window
-                        // smaller than the terminal.
                         break;
                     }
                     last_cell_idx = cell_idx;
@@ -1067,19 +1016,9 @@ impl TermWindow {
             }
         }
 
-        // Clear any remaining cells to the right of the clusters we
-        // found above, otherwise we leave artifacts behind.  The easiest
-        // reproduction for the artifacts is to maximize the window and
-        // open a vim split horizontally.  Backgrounding vim would leave
-        // the right pane with its prior contents instead of showing the
-        // cleared lines from the shell in the main screen.
-
         let white_space = gl_state.util_sprites.white_space.texture_coords();
 
         for cell_idx in last_cell_idx + 1..num_cols {
-            // Even though we don't have a cell for these, they still
-            // hold the cursor or the selection so we need to compute
-            // the colors in the usual way.
             let (glyph_color, bg_color) = self.compute_cell_fg_bg(
                 line_idx,
                 cell_idx,
@@ -1118,14 +1057,13 @@ impl TermWindow {
         let is_cursor = line_idx as i64 == cursor.y && cursor.x == cell_idx;
 
         let (fg_color, bg_color) = match (selected, is_cursor) {
-            // Normally, render the cell as configured
             (false, false) => (fg_color, bg_color),
-            // Cursor cell overrides colors
+
             (_, true) => (
                 rgbcolor_to_window_color(palette.cursor_fg),
                 rgbcolor_to_window_color(palette.cursor_bg),
             ),
-            // Selected text overrides colors
+
             (true, false) => (
                 rgbcolor_to_window_color(palette.selection_fg),
                 rgbcolor_to_window_color(palette.selection_bg),

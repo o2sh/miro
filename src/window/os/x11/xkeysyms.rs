@@ -22,9 +22,6 @@ pub fn modifiers_from_state(state: u16) -> Modifiers {
     mods
 }
 
-/// Translates non-printable X11 keysym to KeyCode
-/// for missing keys, look into `/usr/include/X11/keysymdef.h`
-/// and/or define them in KeyCode.
 pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
     use xkbcommon::xkb::keysyms::*;
     #[allow(non_upper_case_globals)]
@@ -40,7 +37,6 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_Pause => KeyCode::Pause,
         KEY_Print => KeyCode::Print,
 
-        // cursor movement
         KEY_Home => KeyCode::Home,
         KEY_End => KeyCode::End,
         KEY_Left => KeyCode::LeftArrow,
@@ -50,7 +46,6 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_Page_Up => KeyCode::PageUp,
         KEY_Page_Down => KeyCode::PageDown,
 
-        // modifiers
         KEY_Shift_L => KeyCode::Shift,
         KEY_Shift_R => KeyCode::Shift,
 
@@ -68,7 +63,6 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
 
         i @ KEY_F1..=KEY_F12 => KeyCode::Function((1 + i - KEY_F1) as u8),
 
-        // numeric and function keypad keys
         KEY_KP_Enter => KeyCode::Char(0xdu8 as char),
         KEY_KP_Delete => KeyCode::Char('\u{7f}'),
         KEY_KP_Home => KeyCode::Home,

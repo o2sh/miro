@@ -43,9 +43,6 @@ impl SpawnQueue {
         self.run_impl()
     }
 
-    // This needs to be a separate function from the loop in `run`
-    // in order for the lock to be released before we call the
-    // returned function
     fn pop_func(&self) -> Option<SpawnFunc> {
         self.spawned_funcs.lock().unwrap().pop_front()
     }

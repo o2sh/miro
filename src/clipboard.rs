@@ -8,8 +8,6 @@ pub struct SystemClipboard {
 }
 
 struct Inner {
-    /// macOS gets unhappy if we set up the clipboard too early,
-    /// so we use an Option to defer it until we use it
     clipboard: Option<ClipboardContext>,
 }
 
@@ -42,9 +40,7 @@ impl Clipboard for SystemClipboard {
         let mut inner = self.inner.lock().unwrap();
         let clip = inner.clipboard()?;
         clip.set_contents(data.unwrap_or_else(|| "".into())).map_err(|e| format_err!("{}", e))?;
-        // Request the clipboard contents we just set; on some systems
-        // if we copy and paste in miro, the clipboard isn't visible
-        // to us again until the second call to get_clipboard.
+
         clip.get_contents().map(|_| ()).map_err(|e| format_err!("{}", e))
     }
 }

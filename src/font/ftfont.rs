@@ -7,14 +7,13 @@ use std::cell::RefCell;
 use std::mem;
 use std::slice;
 
-/// Holds a loaded font alternative
 pub struct FreeTypeFontImpl {
     face: RefCell<ftwrap::Face>,
     #[cfg(all(unix, not(target_os = "macos")))]
     font: RefCell<harfbuzz::Font>,
-    /// nominal monospace cell height
+
     cell_height: f64,
-    /// nominal monospace cell width
+
     cell_width: f64,
 }
 
@@ -25,15 +24,11 @@ impl FreeTypeFontImpl {
         dpi: u32,
     ) -> Result<Self, Error> {
         debug!("set_char_size {} dpi={}", size, dpi);
-        // Scaling before truncating to integer minimizes the chances of hitting
-        // the fallback code for set_pixel_sizes below.
+
         let size = (size * 64.0) as ftwrap::FT_F26Dot6;
 
         let (cell_width, cell_height) = match face.set_char_size(size, size, dpi, dpi) {
-            Ok(_) => {
-                // Compute metrics for the nominal monospace cell
-                face.cell_metrics()
-            }
+            Ok(_) => face.cell_metrics(),
             Err(err) => {
                 let sizes = unsafe {
                     let rec = &(*face.face);
@@ -42,8 +37,7 @@ impl FreeTypeFontImpl {
                 if sizes.is_empty() {
                     return Err(err);
                 }
-                // Find the best matching size.
-                // We just take the biggest.
+
                 let mut best = 0;
                 let mut best_size = 0;
                 let mut cell_width = 0;
@@ -97,8 +91,7 @@ impl Font for FreeTypeFontImpl {
         FontMetrics {
             cell_height: self.cell_height,
             cell_width: self.cell_width,
-            // Note: face.face.descender is useless, we have to go through
-            // face.face.size.metrics to get to the real descender!
+
             descender: unsafe { (*(*face.face).size).metrics.descender as f64 } / 64.0,
             underline_thickness: unsafe { (*face.face).underline_thickness as f64 } * y_scale / 64.,
             underline_position: unsafe { (*face.face).underline_position as f64 } * y_scale / 64.,
@@ -106,26 +99,13 @@ impl Font for FreeTypeFontImpl {
     }
 
     fn rasterize_glyph(&self, glyph_pos: u32) -> Result<RasterizedGlyph, Error> {
-        let render_mode = //ftwrap::FT_Render_Mode::FT_RENDER_MODE_NORMAL;
- //       ftwrap::FT_Render_Mode::FT_RENDER_MODE_LCD;
-        ftwrap::FT_Render_Mode::FT_RENDER_MODE_LIGHT;
+        let render_mode = ftwrap::FT_Render_Mode::FT_RENDER_MODE_LIGHT;
 
-        // when changing the load flags, we also need
-        // to change them for harfbuzz otherwise it won't
-        // hint correctly
-        let load_flags = (ftwrap::FT_LOAD_COLOR) as i32 |
-            // enable FT_LOAD_TARGET bits.  There are no flags defined
-            // for these in the bindings so we do some bit magic for
-            // ourselves.  This is how the FT_LOAD_TARGET_() macro
-            // assembles these bits.
-            (render_mode as i32) << 16;
+        let load_flags = (ftwrap::FT_LOAD_COLOR) as i32 | (render_mode as i32) << 16;
 
         #[cfg(all(unix, not(target_os = "macos")))]
         self.font.borrow_mut().set_load_flags(load_flags);
 
-        // This clone is conceptually unsafe, but ok in practice as we are
-        // single threaded and don't load any other glyphs in the body of
-        // this load_glyph() function.
         let mut face = self.face.borrow_mut();
         let descender = unsafe { (*(*face.face).size).metrics.descender as f64 / 64.0 };
         let ft_glyph = face.load_and_render_glyph(glyph_pos, load_flags, render_mode)?;
@@ -133,7 +113,6 @@ impl Font for FreeTypeFontImpl {
         let mode: ftwrap::FT_Pixel_Mode =
             unsafe { mem::transmute(u32::from(ft_glyph.bitmap.pixel_mode)) };
 
-        // pitch is the number of bytes per source row
         let pitch = ft_glyph.bitmap.pitch.abs() as usize;
         let data = unsafe {
             slice::from_raw_parts_mut(ft_glyph.bitmap.buffer, ft_glyph.bitmap.rows as usize * pitch)
@@ -171,10 +150,6 @@ impl Font for FreeTypeFontImpl {
             ftwrap::FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
                 let width = ft_glyph.bitmap.width as usize;
                 let height = ft_glyph.bitmap.rows as usize;
-
-                // emoji glyphs don't always fill the bitmap size, so we compute
-                // the non-transparent bounds here with this simplistic code.
-                // This can likely be improved!
 
                 let mut first_line = None;
                 let mut first_col = None;
@@ -251,10 +226,6 @@ impl Font for FreeTypeFontImpl {
                     bearing_x: (f64::from(ft_glyph.bitmap_left)
                         * (dest_width as f64 / width as f64)),
 
-                    // Fudge alert: this is font specific: I've found
-                    // that the emoji font on macOS doesn't account for the
-                    // descender in its metrics, so we're adding that offset
-                    // here to avoid rendering the glyph too high
                     bearing_y: if cfg!(target_os = "macos") { descender } else { 0. }
                         + (f64::from(ft_glyph.bitmap_top) * (dest_height as f64 / height as f64)),
                 }

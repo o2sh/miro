@@ -1,4 +1,3 @@
-//! Render Glyphs on macOS using Core Text
 use crate::config::{Config, TextStyle};
 use crate::font::hbwrap as harfbuzz;
 use crate::font::system::{FallbackIdx, Font, FontMetrics, GlyphInfo, RasterizedGlyph};
@@ -94,9 +93,7 @@ impl NamedFont for NamedFontImpl {
     }
 }
 
-/// Resolve a codepoint into a glyph index for subsequent metric lookup
 fn glyph_index(ct_font: &CTFont, codepoint: char) -> Option<CGGlyph> {
-    // "a buffer of length 2 is large enough to encode any char" says char::encode_utf16().
     let mut buf = [0; 2];
     let encoded = codepoint.encode_utf16(&mut buf);
     let mut glyph: CGGlyph = 0;
@@ -122,19 +119,17 @@ fn metrics(codepoint: char, ct_font: &CTFont) -> Option<Metrics> {
         ct_font.get_advances_for_glyphs(kCTFontDefaultOrientation, &glyph_pos, ptr::null_mut(), 1)
     };
 
-    // ascent - distance from baseline to top of text
     let ascent = ct_font.ascent() as f64;
-    // descent - distance from baseline to bottom of text
+
     let descent = ct_font.descent();
-    // leading - additional space between lines of text
+
     let leading = ct_font.leading() as f64;
     let cell_height = ascent + descent + leading;
     Some(Metrics {
         font_metrics: FontMetrics {
             cell_height,
             cell_width,
-            // render.rs divides this value by 64 because freetype returns
-            // a scaled integer value, so compensate here
+
             descender: -descent,
             underline_thickness: 1.0,
             underline_position: 0.0,
@@ -181,8 +176,6 @@ impl Font for CoreTextFontImpl {
             .ct_font
             .get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph_pos as CGGlyph]);
 
-        // Pad out the size of the bitmap to allow for antialiasing.
-        // If we don't do this, we cut off the antialiased edges.
         const AA_PADDING: f64 = 1.5;
         let width = rect.size.width + 2.0 * AA_PADDING;
         let height = rect.size.height + 2.0 * AA_PADDING;
@@ -207,7 +200,6 @@ impl Font for CoreTextFontImpl {
             8,
             width * 4,
             &CGColorSpace::create_device_rgb(),
-            // Big-endian RGBA
             kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big,
         );
 
@@ -234,10 +226,6 @@ impl Font for CoreTextFontImpl {
 
         let data = context.data().to_vec();
 
-        // FIXME: there's something funky in this stuff still.
-        // For the most part things line up, but with operator mono
-        // the `s` glyph is slightly too high when compared to the
-        // freetype renderer.
         let bearing_x = rect.origin.x - AA_PADDING;
         let bearing_y = height as f64 + AA_PADDING + rect.origin.y;
         debug!(

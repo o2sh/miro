@@ -1,4 +1,3 @@
-// let () = msg_send! is a common pattern for objc
 #![allow(clippy::let_unit_value)]
 
 use super::{nsstring, nsstring_to_str};
@@ -129,8 +128,6 @@ mod opengl {
             };
             failure::ensure!(!pixel_format.is_null(), "failed to create NSOpenGLPixelFormat");
 
-            // Allow using retina resolutions; without this we're forced into low res
-            // and the system will scale us up, resulting in blurry rendering
             unsafe {
                 let _: () = msg_send![view, setWantsBestResolutionOpenGLSurface: YES];
             }
@@ -148,7 +145,6 @@ mod opengl {
             Ok(Self { _pixel_format: pixel_format, gl_context })
         }
 
-        /// Calls NSOpenGLContext update; we need to do this on resize
         pub fn update(&self) {
             unsafe {
                 let _: () = msg_send![*self.gl_context, update];
@@ -213,9 +209,6 @@ pub(crate) struct WindowInner {
 }
 
 fn function_key_to_keycode(function_key: char) -> KeyCode {
-    // FIXME: CTRL-C is 0x3, should it be normalized to C here
-    // using the unmod string?  Or should be normalize the 0x3
-    // as the canonical representation of that input?
     use cocoa::appkit;
     match function_key as u16 {
         appkit::NSUpArrowFunctionKey => KeyCode::UpArrow,
@@ -276,7 +269,7 @@ impl Window {
                     NO,
                 ));
             window.setReleasedWhenClosed_(NO);
-            // window.cascadeTopLeftFromPoint_(NSPoint::new(20.0, 20.0));
+
             window.center();
             window.setTitle_(*nsstring(&name));
             window.setAcceptsMouseMovedEvents_(YES);
@@ -298,9 +291,6 @@ impl Window {
             conn.schedule_timer(std::time::Duration::from_millis(100), move || {
                 let mut inner = inner.borrow_mut();
 
-                // Synthesize a resize event immediately; this allows
-                // the embedding application an opportunity to discover
-                // the dpi and adjust for display scaling
                 if do_resize {
                     inner.callbacks.resize(Dimensions {
                         pixel_width: width as usize,
@@ -574,15 +564,6 @@ impl WindowView {
         }
     }
 
-    /// `dealloc` is called when our NSView descendant is destroyed.
-    /// In practice, I've not seen this trigger, which likely means
-    /// that there is something afoot with reference counting.
-    /// The cardinality of Window and View objects is low enough
-    /// that I'm "OK" with this for now.
-    /// What really matters is that the `Inner` object is dropped
-    /// in a timely fashion once the window is closed, so we manage
-    /// that by hooking into `windowWillClose` and routing both
-    /// `dealloc` and `windowWillClose` to `drop_inner`.
     fn drop_inner(this: &mut Object) {
         unsafe {
             let myself: *mut c_void = *this.get_ivar(CLS_NAME);
@@ -595,9 +576,6 @@ impl WindowView {
         }
     }
 
-    // Called by the inputContext manager when the IME processes events.
-    // We need to translate the selector back into appropriate key
-    // sequences
     extern "C" fn do_command_by_selector(this: &mut Object, _sel: Sel, a_selector: Sel) {
         let selector = format!("{:?}", a_selector);
         let key = match selector.as_ref() {
@@ -647,7 +625,6 @@ impl WindowView {
         NSRange::new(NSNotFound as _, 0)
     }
 
-    // Called by the IME when inserting composed text and/or emoji
     extern "C" fn insert_text_replacement_range(
         this: &mut Object,
         _sel: Sel,
@@ -690,9 +667,6 @@ impl WindowView {
     }
 
     extern "C" fn valid_attributes_for_marked_text(_this: &mut Object, _sel: Sel) -> id {
-        // FIXME: returns NSArray<NSAttributedStringKey> *
-        // eprintln!("valid_attributes_for_marked_text");
-        // nil
         unsafe { NSArray::arrayWithObjects(nil, &[]) }
     }
 
@@ -720,8 +694,6 @@ impl WindowView {
         range: NSRange,
         actual: NSRangePointer,
     ) -> NSRect {
-        // Returns a rect in screen coordinates; this is used to place
-        // the input method editor
         eprintln!("firstRectForCharacterRange: range:{:?} actual:{:?}", range, actual);
         let frame = unsafe {
             let window: id = msg_send![this, window];
@@ -765,18 +737,15 @@ impl WindowView {
         }
     }
 
-    // Switch the coordinate system to have 0,0 in the top left
     extern "C" fn is_flipped(_this: &Object, _sel: Sel) -> BOOL {
         YES
     }
 
     extern "C" fn window_will_close(this: &mut Object, _sel: Sel, _id: id) {
         if let Some(this) = Self::get_this(this) {
-            // Advise the window of its impending death
             this.inner.borrow_mut().callbacks.destroy();
         }
 
-        // Release and zero out the inner member
         Self::drop_inner(this);
     }
 
@@ -845,10 +814,6 @@ impl WindowView {
         let modifiers = unsafe { key_modifiers(nsevent.modifierFlags()) };
         let virtual_key = unsafe { nsevent.keyCode() };
 
-        // `Delete` on macos is really Backspace and emits BS.
-        // `Fn-Delete` emits DEL.
-        // Alt-Delete is mapped by the IME to be equivalent to Fn-Delete.
-        // We want to emit Alt-BS in that situation.
         let unmod =
             if virtual_key == super::keycodes::kVK_Delete && modifiers.contains(Modifiers::ALT) {
                 "\x08"
@@ -870,7 +835,6 @@ impl WindowView {
             let mut char_iter = s.chars();
             if let Some(first_char) = char_iter.next() {
                 if char_iter.next().is_none() {
-                    // A single unicode char
                     Some(function_key_to_keycode(first_char))
                 } else {
                     Some(KeyCode::Composed(s.to_owned()))
@@ -1102,8 +1066,6 @@ impl WindowView {
                 sel!(acceptsFirstResponder),
                 Self::accepts_first_responder as extern "C" fn(&mut Object, Sel) -> BOOL,
             );
-
-            // NSTextInputClient
 
             cls.add_method(
                 sel!(hasMarkedText),

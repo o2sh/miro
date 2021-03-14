@@ -3,12 +3,6 @@ use log::error;
 use num;
 use vtparse::{VTActor, VTParser};
 
-/// The `Parser` struct holds the state machine that is used to decode
-/// a sequence of bytes.  The byte sequence can be streaming into the
-/// state machine.
-/// You can either have the parser trigger a callback as `Action`s are
-/// decoded, or have it return a `Vec<Action>` holding zero-or-more
-/// decoded actions.
 pub struct Parser {
     state_machine: VTParser,
 }
@@ -93,9 +87,6 @@ impl<'a, F: FnMut(Action)> VTActor for Performer<'a, F> {
         _ignored_extra_intermediates: bool,
         control: u8,
     ) {
-        // It doesn't appear to be possible for params.len() > 1 due to the way
-        // that the state machine in vte functions.  As such, it also seems to
-        // be impossible for ignored_extra_intermediates to be true too.
         (self.callback)(Action::Esc(Esc::parse(
             if intermediates.len() == 1 { Some(intermediates[0]) } else { None },
             control,

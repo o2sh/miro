@@ -114,7 +114,6 @@ impl Keyboard {
             let cstate = self.compose_state.borrow().status();
             match cstate {
                 ComposeStatus::Composing => {
-                    // eat
                     return None;
                 }
                 ComposeStatus::Composed => {
@@ -132,7 +131,6 @@ impl Keyboard {
             xsym
         };
 
-        // could be from_u32_unchecked
         let ks_char = std::char::from_u32(xkb::keysym_to_utf32(ksym));
 
         let kc = match ks_char {
@@ -141,7 +139,6 @@ impl Keyboard {
                 if let Some(key) = keysym_to_keycode(xsym) {
                     key
                 } else {
-                    // log::debug!("xkbc:Missing xcb keysym {} definition", xsym);
                     return None;
                 }
             }
@@ -151,7 +148,6 @@ impl Keyboard {
     }
 
     fn mod_is_active(&self, modifier: &str) -> bool {
-        // [TODO] consider state  Depressed & consumed mods
         self.state.borrow().mod_name_is_active(modifier, xkb::STATE_MODS_EFFECTIVE)
     }
 
@@ -165,17 +161,15 @@ impl Keyboard {
             res |= Modifiers::CTRL;
         }
         if self.mod_is_active(xkb::MOD_NAME_ALT) {
-            // Mod1
             res |= Modifiers::ALT;
         }
         if self.mod_is_active(xkb::MOD_NAME_LOGO) {
-            // Mod4
             res |= Modifiers::SUPER;
         }
         if self.mod_is_active("Mod3") {
             res |= Modifiers::SUPER;
         }
-        //Mod2 is numlock
+
         res
     }
 
@@ -239,8 +233,6 @@ fn query_lc_ctype() -> Fallible<&'static CStr> {
     unsafe { Ok(CStr::from_ptr(ptr)) }
 }
 
-/// struct that has fields common to the 3 different xkb events
-/// (StateNotify, NewKeyboardNotify, MapNotify)
 #[repr(C)]
 struct xcb_xkb_generic_event_t {
     response_type: u8,

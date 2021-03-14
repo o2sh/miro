@@ -1,10 +1,5 @@
-// suppress inscrutable useless_attribute clippy that shows up when
-// using derive(FromPrimitive)
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::useless_attribute))]
-//! This module provides the ability to parse escape sequences and attach
-//! semantic meaning to them.  It can also encode the semantic values as
-//! escape sequences.  It provides encoding and decoding functionality
-//! only; it does not provide terminal emulation facilities itself.
+
 use num_derive::*;
 use std::fmt::{Display, Error as FmtError, Formatter, Write as FmtWrite};
 
@@ -20,22 +15,17 @@ pub use self::osc::OperatingSystemCommand;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    /// Send a single printable character to the display
     Print(char),
-    /// A C0 or C1 control code
+
     Control(ControlCode),
-    /// Device control.  This is uncommon wrt. terminal emulation.
+
     DeviceControl(Box<DeviceControlMode>),
-    /// A command that typically doesn't change the contents of the
-    /// terminal, but rather influences how it displays or otherwise
-    /// interacts with the rest of the system
+
     OperatingSystemCommand(Box<OperatingSystemCommand>),
     CSI(CSI),
     Esc(Esc),
 }
 
-/// Encode self as an escape sequence.  The escape sequence may potentially
-/// be clear text with no actual escape sequences.
 impl Display for Action {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         match self {
@@ -51,26 +41,13 @@ impl Display for Action {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceControlMode {
-    /// Identify device control mode from the encoded parameters.
-    /// This mode is activated and must remain active until
-    /// `Exit` is observed.  While the mode is
-    /// active, data is made available to the device mode via
-    /// the `Data` variant.
-    Enter {
-        params: Vec<i64>,
-        // TODO: can we just make intermediates a single u8?
-        intermediates: Vec<u8>,
-        /// if true, more than two intermediates arrived and the
-        /// remaining data was ignored
-        ignored_extra_intermediates: bool,
-    },
-    /// Exit the current device control mode
+    Enter { params: Vec<i64>, intermediates: Vec<u8>, ignored_extra_intermediates: bool },
+
     Exit,
-    /// Data for the device mode to consume
+
     Data(u8),
 }
 
-/// C0 or C1 control codes
 #[derive(Debug, Copy, Clone, PartialEq, Eq, FromPrimitive)]
 #[repr(u8)]
 pub enum ControlCode {
@@ -107,7 +84,6 @@ pub enum ControlCode {
     RecordSeparator = 0x1e,
     UnitSeparator = 0x1f,
 
-    // C1 8-bit values
     BPH = 0x82,
     NBH = 0x83,
     NEL = 0x85,
@@ -138,8 +114,6 @@ pub enum ControlCode {
     APC = 0x9f,
 }
 
-/// A helper type to avoid accidentally tripping over problems with
-/// 1-based values in escape sequences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OneBased {
     value: u32,
@@ -155,7 +129,6 @@ impl OneBased {
         Self { value: value + 1 }
     }
 
-    /// Map a value from an escape sequence parameter
     pub fn from_esc_param(v: i64) -> Result<Self, ()> {
         if v == 0 {
             Ok(Self { value: num::one() })
@@ -166,12 +139,10 @@ impl OneBased {
         }
     }
 
-    /// Map a value from an optional escape sequence parameter
     pub fn from_optional_esc_param(o: Option<&i64>) -> Result<Self, ()> {
         Self::from_esc_param(o.cloned().unwrap_or(1))
     }
 
-    /// Return the underlying value as a 0-based value
     pub fn as_zero_based(self) -> u32 {
         self.value.saturating_sub(1)
     }

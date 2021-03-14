@@ -19,17 +19,12 @@ pub fn alloc_domain_id() -> DomainId {
 }
 
 pub trait Domain: Downcast {
-    /// Spawn a new command within this domain
     fn spawn(&self, size: PtySize, window: WindowId) -> Result<Rc<dyn Tab>, Error>;
 
-    /// Returns the domain id, which is useful for obtaining
-    /// a handle on the domain later.
     fn domain_id(&self) -> DomainId;
 
-    /// Returns the name of the domain
     fn domain_name(&self) -> &str;
 
-    /// Detach all tabs
     fn detach(&self) -> Fallible<()>;
 }
 impl_downcast!(Domain);

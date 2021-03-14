@@ -66,8 +66,6 @@ pub fn try_new() -> Result<Rc<dyn FrontEnd>, Error> {
 }
 
 pub trait FrontEnd: Downcast {
-    /// Run the event loop.  Does not return until there is either a fatal
-    /// error, or until there are no more windows left to manage.
     fn run_forever(&self) -> Result<(), Error>;
 
     fn spawn_new_window(
@@ -110,11 +108,6 @@ impl FrontEnd for GuiFrontEnd {
     }
 
     fn run_forever(&self) -> Fallible<()> {
-        // We run until we've run out of windows in the Mux.
-        // When we're running ssh we have a transient window
-        // or two during authentication and we want to de-bounce
-        // our decision to quit until we're sure that we have
-        // no windows, so we track it here.
         struct State {
             when: Option<Instant>,
         }

@@ -4,12 +4,7 @@ use std::fmt::{Display, Error as FmtError, Formatter, Write as FmtWrite};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Esc {
-    Unspecified {
-        intermediate: Option<u8>,
-        /// The final character in the Escape sequence; this typically
-        /// defines how to interpret the other parameters.
-        control: u8,
-    },
+    Unspecified { intermediate: Option<u8>, control: u8 },
     Code(EscCode),
 }
 
@@ -24,54 +19,48 @@ macro_rules! esc {
 
 #[derive(Debug, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Copy)]
 pub enum EscCode {
-    /// RIS - Full Reset
     FullReset = esc!('c'),
-    /// IND - Index.  Note that for Vt52 and Windows 10 ANSI consoles,
-    /// this is interpreted as CursorUp
+
     Index = esc!('D'),
-    /// NEL - Next Line
+
     NextLine = esc!('E'),
-    /// Move the cursor to the bottom left corner of the screen
+
     CursorPositionLowerLeft = esc!('F'),
-    /// HTS - Horizontal Tab Set
+
     HorizontalTabSet = esc!('H'),
-    /// RI - Reverse Index – Performs the reverse operation of \n, moves cursor up one line,
-    /// maintains horizontal position, scrolls buffer if necessary
+
     ReverseIndex = esc!('M'),
-    /// SS2 Single shift of G2 character set affects next character only
+
     SingleShiftG2 = esc!('N'),
-    /// SS3 Single shift of G3 character set affects next character only
+
     SingleShiftG3 = esc!('O'),
-    /// SPA - Start of Guarded Area
+
     StartOfGuardedArea = esc!('V'),
-    /// EPA - End of Guarded Area
+
     EndOfGuardedArea = esc!('W'),
-    /// SOS - Start of String
+
     StartOfString = esc!('X'),
-    /// DECID - Return Terminal ID (obsolete form of CSI c - aka DA)
+
     ReturnTerminalId = esc!('Z'),
-    /// ST - String Terminator
+
     StringTerminator = esc!('\\'),
-    /// PM - Privacy Message
+
     PrivacyMessage = esc!('^'),
-    /// APC - Application Program Command
+
     ApplicationProgramCommand = esc!('_'),
 
-    /// DECSC - Save cursor position
     DecSaveCursorPosition = esc!('7'),
-    /// DECSR - Restore saved cursor position
+
     DecRestoreCursorPosition = esc!('8'),
-    /// DECPAM - Application Keypad
+
     DecApplicationKeyPad = esc!('='),
-    /// DECPNM - Normal Keypad
+
     DecNormalKeyPad = esc!('>'),
 
-    /// Designate Character Set – DEC Line Drawing
     DecLineDrawing = esc!('(', '0'),
-    /// Designate Character Set – US ASCII
+
     AsciiCharacterSet = esc!('(', 'B'),
 
-    /// These are typically sent by the terminal when keys are pressed
     ApplicationModeArrowUpPress = esc!('O', 'A'),
     ApplicationModeArrowDownPress = esc!('O', 'B'),
     ApplicationModeArrowRightPress = esc!('O', 'C'),
@@ -103,10 +92,6 @@ impl Esc {
 }
 
 impl Display for Esc {
-    // TODO: data size optimization opportunity: if we could somehow know that we
-    // had a run of CSI instances being encoded in sequence, we could
-    // potentially collapse them together.  This is a few bytes difference in
-    // practice so it may not be worthwhile with modern networks.
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         f.write_char(0x1b as char)?;
         use self::Esc::*;

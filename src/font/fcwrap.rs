@@ -1,5 +1,3 @@
-//! Slightly higher level helper for fontconfig
-
 use failure::{self, Error};
 pub use fontconfig::fontconfig::*;
 use std::ffi::{CStr, CString};
@@ -71,8 +69,6 @@ impl FcResultWrap {
     }
 
     pub fn as_err(&self) -> Error {
-        // the compiler thinks we defined these globals, when all
-        // we did was import them from elsewhere
         #[allow(non_upper_case_globals)]
         match self.0 {
             FcResultMatch => failure::err_msg("FcResultMatch"),

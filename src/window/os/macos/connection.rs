@@ -1,4 +1,3 @@
-// let () = msg_send! is a common pattern for objc
 #![allow(clippy::let_unit_value)]
 
 use super::window::WindowInner;
@@ -26,8 +25,6 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn create_new() -> Fallible<Self> {
-        // Ensure that the SPAWN_QUEUE is created; it will have nothing
-        // to run right now.
         SPAWN_QUEUE.run();
 
         unsafe {

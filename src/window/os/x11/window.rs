@@ -101,11 +101,6 @@ impl WindowInner {
         Ok(())
     }
 
-    /// Add a region to the list of exposed/damaged/dirty regions.
-    /// Note that a window resize will likely invalidate the entire window.
-    /// If the new region intersects with the prior region, then we expand
-    /// it to encompass both.  This avoids bloating the list with a series
-    /// of increasing rectangles when resizing larger or smaller.
     fn expose(&mut self, x: u16, y: u16, width: u16, height: u16) {
         let expose = Rect::new(
             Point::new(x as isize, y as isize),
@@ -131,7 +126,6 @@ impl WindowInner {
         }
 
         let id_no = match cursor.unwrap_or(MouseCursor::Arrow) {
-            // `/usr/include/X11/cursorfont.h`
             MouseCursor::Arrow => 132,
             MouseCursor::Hand => 58,
             MouseCursor::Text => 152,
@@ -264,7 +258,6 @@ impl WindowInner {
     }
 }
 
-/// A Window!
 #[derive(Debug, Clone)]
 pub struct Window(xcb::xproto::Window);
 
@@ -273,8 +266,6 @@ impl Window {
         Self(id)
     }
 
-    /// Create a new window on the specified screen with the specified
-    /// dimensions
     pub fn new_window(
         _class_name: &str,
         name: &str,
@@ -303,16 +294,13 @@ impl Window {
                 xcb::COPY_FROM_PARENT as u8,
                 window_id,
                 screen.root(),
-                // x, y
                 0,
                 0,
-                // width, height
                 width.try_into()?,
                 height.try_into()?,
-                // border width
                 0,
                 xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
-                conn.visual.visual_id(), // screen.root_visual(),
+                conn.visual.visual_id(),
                 &[(
                     xcb::CW_EVENT_MASK,
                     xcb::EVENT_MASK_EXPOSURE
@@ -363,8 +351,6 @@ impl Window {
     }
 }
 
-/// The X protocol allows referencing a number of drawable
-/// objects.  This trait marks those objects here in code.
 pub trait Drawable {
     fn as_drawable(&self) -> xcb::xproto::Drawable;
 }
@@ -401,7 +387,6 @@ impl WindowOpsMut for WindowInner {
         );
     }
 
-    /// Change the title for the window manager
     fn set_title(&mut self, title: &str) {
         xcb_util::icccm::set_wm_name(self.conn.conn(), self.window_id, title);
     }

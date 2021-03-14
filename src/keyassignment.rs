@@ -1,13 +1,10 @@
 use crate::term::{KeyCode, KeyModifiers};
 use std::collections::HashMap;
 
-/// When spawning a tab, specify which domain should be used to
-/// host/spawn that tab.
 #[derive(Debug, Clone)]
 pub enum SpawnTabDomain {
-    /// Use the default domain
     DefaultDomain,
-    /// Use the domain from the current tab in the associated window
+
     CurrentTabDomain,
 }
 
@@ -44,16 +41,12 @@ impl KeyMap {
 
         let ctrl_shift = KeyModifiers::CTRL | KeyModifiers::SHIFT;
 
-        // Apply the default bindings; if the user has already mapped
-        // a given entry then that will take precedence.
         m!(
-            // Clipboard
             [KeyModifiers::SHIFT, KeyCode::Insert, Paste],
             [KeyModifiers::SUPER, KeyCode::Char('c'), Copy],
             [KeyModifiers::SUPER, KeyCode::Char('v'), Paste],
             [ctrl_shift, KeyCode::Char('c'), Copy],
             [ctrl_shift, KeyCode::Char('v'), Paste],
-            // Window management
             [KeyModifiers::ALT, KeyCode::Char('\n'), ToggleFullScreen],
             [KeyModifiers::ALT, KeyCode::Char('\r'), ToggleFullScreen],
             [KeyModifiers::ALT, KeyCode::Enter, ToggleFullScreen],
@@ -61,14 +54,12 @@ impl KeyMap {
             [KeyModifiers::SUPER, KeyCode::Char('n'), SpawnWindow],
             [ctrl_shift, KeyCode::Char('m'), Hide],
             [ctrl_shift, KeyCode::Char('n'), SpawnWindow],
-            // Font size manipulation
             [KeyModifiers::CTRL, KeyCode::Char('-'), DecreaseFontSize],
             [KeyModifiers::CTRL, KeyCode::Char('0'), ResetFontSize],
             [KeyModifiers::CTRL, KeyCode::Char('='), IncreaseFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('-'), DecreaseFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('0'), ResetFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('='), IncreaseFontSize],
-            // Tab navigation and management
             [KeyModifiers::SUPER, KeyCode::Char('t'), SpawnTab(SpawnTabDomain::DefaultDomain)],
             [ctrl_shift, KeyCode::Char('t'), SpawnTab(SpawnTabDomain::DefaultDomain)],
             [

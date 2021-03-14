@@ -1,5 +1,3 @@
-//! Higher level freetype bindings
-
 use failure::{bail, format_err, Error, Fallible, ResultExt};
 pub use freetype::freetype::*;
 use std::ffi::CString;
@@ -10,7 +8,6 @@ pub fn succeeded(error: FT_Error) -> bool {
     error == freetype::freetype::FT_Err_Ok as FT_Error
 }
 
-/// Translate an error and value into a result
 fn ft_result<T>(err: FT_Error, t: T) -> Result<T, Error> {
     if succeeded(err) {
         Ok(t)

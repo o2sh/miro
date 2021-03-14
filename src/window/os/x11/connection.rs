@@ -220,11 +220,6 @@ impl ConnectionOps for Connection {
                 paint_interval - diff
             };
 
-            // Process any events that might have accumulated in the local
-            // buffer (eg: due to a flush) before we potentially go to sleep.
-            // The locally queued events won't mark the fd as ready, so we
-            // could potentially sleep when there is work to be done if we
-            // relied solely on that.
             self.process_queued_xcb()?;
 
             let period = self
@@ -245,7 +240,6 @@ impl ConnectionOps for Connection {
                         } else {
                         }
                     }
-                    // self.process_sigchld();
                 }
 
                 Err(err) => {
@@ -298,10 +292,6 @@ impl Connection {
         } else {
             let r = event.response_type() & 0x7f;
             if r == self.kbd_ev {
-                // key press/release are not processed here.
-                // xkbcommon depends on those events in order to:
-                //    - update modifiers state
-                //    - update keymap/state on keyboard changes
                 self.keyboard.process_xkb_event(&self.conn, event)?;
             }
         }
@@ -409,7 +399,6 @@ impl Connection {
         self.atom_delete
     }
 
-    /// Run through all of the windows and cause them to paint if they need it.
     fn do_paint(&self) {
         for window in self.windows.borrow().values() {
             window.lock().unwrap().paint().unwrap();

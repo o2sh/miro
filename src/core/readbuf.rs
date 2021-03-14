@@ -1,5 +1,3 @@
-/// This is a simple, small, read buffer that always has the buffer
-/// contents available as a contiguous slice.
 #[derive(Debug)]
 pub struct ReadBuffer {
     storage: Vec<u8>,

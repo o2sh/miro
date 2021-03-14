@@ -43,9 +43,6 @@ impl TabStop {
         None
     }
 
-    /// Respond to the terminal resizing.
-    /// If the screen got bigger, we need to expand the tab stops
-    /// into the new columns with the appropriate width.
     fn resize(&mut self, screen_width: usize) {
         let current = self.tabs.len();
         if screen_width > current {
@@ -64,11 +61,10 @@ struct SavedCursor {
 }
 
 struct ScreenOrAlt {
-    /// The primary screen + scrollback
     screen: Screen,
-    /// The alternate screen; no scrollback
+
     alt_screen: Screen,
-    /// Tells us which screen is active
+
     alt_screen_is_active: bool,
     saved_cursor: Option<SavedCursor>,
     alt_saved_cursor: Option<SavedCursor>,
@@ -138,34 +134,21 @@ impl ScreenOrAlt {
 
 pub struct TerminalState {
     screen: ScreenOrAlt,
-    /// The current set of attributes in effect for the next
-    /// attempt to print to the display
+
     pen: CellAttributes,
-    /// The current cursor position, relative to the top left
-    /// of the screen.  0-based index.
+
     cursor: CursorPosition,
 
-    /// if true, implicitly move to the next line on the next
-    /// printed character
     wrap_next: bool,
 
-    /// If true, writing a character inserts a new cell
     insert: bool,
 
-    /// The scroll region
     scroll_region: Range<VisibleRowIndex>,
 
-    /// When set, modifies the sequence of bytes sent for keys
-    /// designated as cursor keys.  This includes various navigation
-    /// keys.  The code in key_down() is responsible for interpreting this.
     application_cursor_keys: bool,
 
-    /// When set, modifies the sequence of bytes sent for keys
-    /// in the numeric keypad portion of the keyboard.
     application_keypad: bool,
 
-    /// When set, pasting the clipboard should bracket the data with
-    /// designated marker characters.
     bracketed_paste: bool,
 
     sgr_mouse: bool,
@@ -175,34 +158,20 @@ pub struct TerminalState {
     cursor_visible: bool,
     dec_line_drawing_mode: bool,
 
-    /// Which hyperlink is considered to be highlighted, because the
-    /// mouse_position is over a cell with a Hyperlink attribute.
     current_highlight: Option<Arc<Hyperlink>>,
 
-    /// Keeps track of double and triple clicks
     last_mouse_click: Option<LastMouseClick>,
 
-    /// Used to compute the offset to the top of the viewport.
-    /// This is used to display the scrollback of the terminal.
-    /// It is distinct from the scroll_region in that the scroll region
-    /// afects how the terminal output is scrolled as data is output,
-    /// and the viewport_offset is used to index into the scrollback
-    /// purely for display purposes.
-    /// The offset is measured from the top of the physical viewable
-    /// screen with larger numbers going backwards.
     pub(crate) viewport_offset: VisibleRowIndex,
 
-    /// Remembers the starting coordinate of the selection prior to
-    /// dragging.
     selection_start: Option<SelectionCoordinate>,
-    /// Holds the not-normalized selection range.
+
     selection_range: Option<SelectionRange>,
 
     tabs: TabStop,
 
     hyperlink_rules: Vec<HyperlinkRule>,
 
-    /// The terminal title string
     title: String,
     palette: ColorPalette,
 
@@ -211,7 +180,6 @@ pub struct TerminalState {
 }
 
 fn is_double_click_word(s: &str) -> bool {
-    // TODO: add configuration for this
     if s.len() > 1 {
         true
     } else if s.len() == 1 {
@@ -301,7 +269,7 @@ impl TerminalState {
                 s.push_str(screen.lines[idx].columns_as_str(cols).trim_end());
 
                 let last_cell = &screen.lines[idx].cells()[last_col_idx];
-                // TODO: should really test for any unicode whitespace
+
                 last_was_wrapped = last_cell.attrs().wrapped() && last_cell.str() != " ";
             }
         }
@@ -309,7 +277,6 @@ impl TerminalState {
         s
     }
 
-    /// Dirty the lines in the current selection range
     fn dirty_selection_lines(&mut self) {
         if let Some(sel) = self.selection_range.as_ref().map(|r| r.normalize()) {
             let screen = self.screen_mut();
@@ -325,11 +292,6 @@ impl TerminalState {
         self.selection_start = None;
     }
 
-    /// If `cols` on the specified `row` intersect with the selection range,
-    /// clear the selection rnage.  This doesn't invalidate the selection,
-    /// it just cancels rendering the selected text.
-    /// Returns true if the selection is invalidated or not present, which
-    /// is useful to terminate a loop when there is no more work to be done.
     fn clear_selection_if_intersects(
         &mut self,
         cols: Range<usize>,
@@ -341,7 +303,6 @@ impl TerminalState {
                 let sel = sel.normalize();
                 let sel_cols = sel.cols_for_row(row);
                 if intersects_range(cols, sel_cols) {
-                    // Intersects, so clear the selection
                     self.clear_selection();
                     true
                 } else {
@@ -353,11 +314,6 @@ impl TerminalState {
         }
     }
 
-    /// If `rows` intersect with the selection range, clear the selection rnage.
-    /// This doesn't invalidate the selection, it just cancels rendering the
-    /// selected text.
-    /// Returns true if the selection is invalidated or not present, which
-    /// is useful to terminate a loop when there is no more work to be done.
     fn clear_selection_if_intersects_rows(
         &mut self,
         rows: Range<ScrollbackOrVisibleRowIndex>,
@@ -367,7 +323,6 @@ impl TerminalState {
             Some(sel) => {
                 let sel_rows = sel.rows();
                 if intersects_range(rows, sel_rows) {
-                    // Intersects, so clear the selection
                     self.clear_selection();
                     true
                 } else {
@@ -399,7 +354,6 @@ impl TerminalState {
         }
     }
 
-    /// Invalidate rows that have hyperlinks
     fn invalidate_hyperlinks(&mut self) {
         let screen = self.screen_mut();
         for line in &mut screen.lines {
@@ -409,8 +363,6 @@ impl TerminalState {
         }
     }
 
-    /// Called after a mouse move or viewport scroll to recompute the
-    /// current highlight
     fn recompute_highlight(&mut self) {
         let line_idx = self.mouse_position.y as ScrollbackOrVisibleRowIndex
             - self.viewport_offset as ScrollbackOrVisibleRowIndex;
@@ -419,14 +371,11 @@ impl TerminalState {
         self.invalidate_hyperlinks();
     }
 
-    /// Single click prepares the start of a new selection
     fn mouse_single_click_left(
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
-        // Prepare to start a new selection.
-        // We don't form the selection until the mouse drags.
         self.selection_range = None;
         self.selection_start = Some(SelectionCoordinate {
             x: event.x,
@@ -436,7 +385,6 @@ impl TerminalState {
         host.get_clipboard()?.set_contents(None)
     }
 
-    /// Double click to select a word on the current line
     fn mouse_double_click_left(
         &mut self,
         event: MouseEvent,
@@ -493,7 +441,6 @@ impl TerminalState {
         host.get_clipboard()?.set_contents(Some(text))
     }
 
-    /// triple click to select the current line
     fn mouse_triple_click_left(
         &mut self,
         event: MouseEvent,
@@ -529,7 +476,7 @@ impl TerminalState {
             Some(&LastMouseClick { streak: 3, .. }) => {
                 self.mouse_triple_click_left(event, host)?;
             }
-            // otherwise, clear out the selection
+
             _ => {
                 self.selection_range = None;
                 self.selection_start = None;
@@ -545,18 +492,13 @@ impl TerminalState {
         event: MouseEvent,
         host: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
-        // Finish selecting a region, update clipboard
         self.current_mouse_button = MouseButton::None;
         if let Some(&LastMouseClick { streak: 1, .. }) = self.last_mouse_click.as_ref() {
-            // Only consider a drag selection if we have a streak==1.
-            // The double/triple click cases are handled above.
             let text = self.get_selection_text();
             if !text.is_empty() {
                 debug!("finish drag selection {:?} '{}'", self.selection_range, text);
                 host.get_clipboard()?.set_contents(Some(text))?;
             } else if let Some(link) = self.current_highlight() {
-                // If the button release wasn't a drag, consider
-                // whether it was a click on a hyperlink
                 host.click_link(&link);
             }
             Ok(())
@@ -570,8 +512,6 @@ impl TerminalState {
     }
 
     fn mouse_drag_left(&mut self, event: MouseEvent) -> Result<(), Error> {
-        // dragging out the selection region
-        // TODO: may drag and change the viewport
         self.dirty_selection_lines();
         let end = SelectionCoordinate {
             x: event.x,
@@ -583,7 +523,7 @@ impl TerminalState {
             Some(sel) => sel.extend(end),
         };
         self.selection_range = Some(sel);
-        // Dirty lines again to reflect new range
+
         self.dirty_selection_lines();
         Ok(())
     }
@@ -604,7 +544,6 @@ impl TerminalState {
                 format!("\x1b[<{};{};{}M", report_button, event.x + 1, event.y + 1).as_bytes(),
             )?;
         } else if self.screen.is_alt_screen_active() {
-            // Send cursor keys instead (equivalent to xterm's alternateScroll mode)
             self.key_down(key, KeyModifiers::default(), writer)?;
         } else {
             self.scroll_viewport(scroll_delta)
@@ -675,17 +614,9 @@ impl TerminalState {
         mut event: MouseEvent,
         host: &mut dyn TerminalHost,
     ) -> Result<(), Error> {
-        // Clamp the mouse coordinates to the size of the model.
-        // This situation can trigger for example when the
-        // window is resized and leaves a partial row at the bottom of the
-        // terminal.  The mouse can move over that portion and the gui layer
-        // can thus send us out-of-bounds row or column numbers.  We want to
-        // make sure that we clamp this and handle it nicely at the model layer.
         event.y = event.y.min(self.screen().physical_rows as i64 - 1);
         event.x = event.x.min(self.screen().physical_cols - 1);
 
-        // Remember the last reported mouse position so that we can use it
-        // for highlighting clickable things elsewhere.
         let new_position = CursorPosition { x: event.x, y: event.y as VisibleRowIndex };
 
         if new_position != self.mouse_position {
@@ -693,10 +624,8 @@ impl TerminalState {
             self.recompute_highlight();
         }
 
-        // First pass to figure out if we're messing with the selection
         let send_event = self.sgr_mouse && !event.modifiers.contains(KeyModifiers::SHIFT);
 
-        // Perform click counting
         if event.kind == MouseEventKind::Press {
             let click = match self.last_mouse_click.take() {
                 None => LastMouseClick::new(event.button),
@@ -736,9 +665,6 @@ impl TerminalState {
         }
     }
 
-    /// Send text to the terminal that is the result of pasting.
-    /// If bracketed paste mode is enabled, the paste is enclosed
-    /// in the bracketing, otherwise it is fed to the pty as-is.
     pub fn send_paste(&mut self, text: &str, writer: &mut dyn std::io::Write) -> Result<(), Error> {
         if self.bracketed_paste {
             let buf = format!("\x1b[200~{}\x1b[201~", text);
@@ -749,10 +675,6 @@ impl TerminalState {
         Ok(())
     }
 
-    /// Processes a key_down event generated by the gui/render layer
-    /// that is embedding the Terminal.  This method translates the
-    /// keycode into a sequence of bytes to send to the slave end
-    /// of the pty via the `Write`-able object provided by the caller.
     pub fn key_down(
         &mut self,
         key: KeyCode,
@@ -772,14 +694,7 @@ impl TerminalState {
 
         let mut buf = String::new();
 
-        // TODO: also respect self.application_keypad
-
         let to_send = match (key, ctrl, alt, shift, self.application_cursor_keys) {
-            // When alt is pressed, send escape first to indicate to the peer that
-            // ALT is pressed.  We do this only for ascii alnum characters because
-            // eg: on macOS generates altgr style glyphs and keeps the ALT key
-            // in the modifier set.  This confuses eg: zsh which then just displays
-            // <fffffffff> as the input, so we want to avoid that.
             (Char(c), _, ALT, ..) if c.is_ascii_alphanumeric() || c.is_ascii_punctuation() => {
                 buf.push(0x1b as char);
                 buf.push(c);
@@ -795,19 +710,15 @@ impl TerminalState {
             (Enter, ..) => "\r",
             (Backspace, ..) => "\x08",
             (Escape, ..) => "\x1b",
-            // Delete
+
             (Char('\x7f'), _, _, _, false) | (Delete, _, _, _, false) => "\x7f",
-            (Char('\x7f'), _, _, _, true) | (Delete, _, _, _, true) => "\x7f", // "\x1b[3~"
+            (Char('\x7f'), _, _, _, true) | (Delete, _, _, _, true) => "\x7f",
 
             (Char(c), CTRL, _, SHIFT, _) if c <= 0xff as char && c > 0x40 as char => {
-                // If shift is held we have C == 0x43 and want to translate
-                // that into 0x03
                 buf.push((c as u8 - 0x40) as char);
                 buf.as_str()
             }
             (Char(c), CTRL, ..) if c <= 0xff as char && c > 0x60 as char => {
-                // If shift is not held we have C == 0x63 and want to translate
-                // that into 0x03
                 buf.push((c as u8 - 0x60) as char);
                 buf.as_str()
             }
@@ -861,7 +772,6 @@ impl TerminalState {
                 };
 
                 if modifier.is_empty() && n < 5 {
-                    // F1-F4 are encoded using SS3 if there are no modifiers
                     match n {
                         1 => "\x1bOP",
                         2 => "\x1bOQ",
@@ -870,8 +780,6 @@ impl TerminalState {
                         _ => unreachable!("wat?"),
                     }
                 } else {
-                    // Higher numbered F-keys plus modified F-keys are encoded
-                    // using CSI instead of SS3.
                     let intro = match n {
                         1 => "\x1b[11",
                         2 => "\x1b[12",
@@ -892,7 +800,6 @@ impl TerminalState {
                 }
             }
 
-            // TODO: emit numpad sequences
             (Numpad0, ..)
             | (Numpad1, ..)
             | (Numpad2, ..)
@@ -910,7 +817,6 @@ impl TerminalState {
             | (Decimal, ..)
             | (Divide, ..) => "",
 
-            // Modifier keys pressed on their own don't expand to anything
             (Control, ..)
             | (LeftControl, ..)
             | (RightControl, ..)
@@ -960,12 +866,9 @@ impl TerminalState {
             | (InternalPasteEnd, ..) => "",
         };
 
-        // debug!("sending {:?}, {:?}", to_send, key);
         writer.write_all(to_send.as_bytes())?;
 
-        // Reset the viewport if we sent data to the parser
         if !to_send.is_empty() && self.viewport_offset != 0 {
-            // TODO: some folks like to configure this behavior.
             self.set_scroll_viewport(0);
         }
 
@@ -985,11 +888,10 @@ impl TerminalState {
         self.pixel_width = pixel_width;
         self.tabs.resize(physical_cols);
         self.set_scroll_viewport(0);
-        // Ensure that the cursor is within the new bounds of the screen
+
         self.set_cursor_pos(&Position::Relative(0), &Position::Relative(0));
     }
 
-    /// Returns true if any of the visible lines are marked dirty
     pub fn has_dirty_lines(&self) -> bool {
         let screen = self.screen();
         let height = screen.physical_rows;
@@ -1004,11 +906,6 @@ impl TerminalState {
         false
     }
 
-    /// Returns the set of visible lines that are dirty.
-    /// The return value is a Vec<(line_idx, line, selrange)>, where
-    /// line_idx is relative to the top of the viewport.
-    /// The selrange value is the column range representing the selected
-    /// columns on this line.
     pub fn get_dirty_lines(&self) -> Vec<(usize, &Line, Range<usize>)> {
         let mut res = Vec::new();
 
@@ -1020,16 +917,12 @@ impl TerminalState {
 
         for (i, line) in screen.lines.iter().skip(len - height).enumerate() {
             if i >= height {
-                // When scrolling back, make sure we don't emit lines that
-                // are below the bottom of the viewport
                 break;
             }
             if line.is_dirty() {
                 let selrange = match selection {
                     None => 0..0,
                     Some(sel) => {
-                        // i is relative to the viewport, convert it back to
-                        // something we can relate to the selection
                         let row = (i as ScrollbackOrVisibleRowIndex)
                             - self.viewport_offset as ScrollbackOrVisibleRowIndex;
                         sel.cols_for_row(row)
@@ -1046,7 +939,6 @@ impl TerminalState {
         self.viewport_offset
     }
 
-    /// Clear the dirty flag for all dirty lines
     pub fn clean_dirty_lines(&mut self) {
         let screen = self.screen_mut();
         for line in &mut screen.lines {
@@ -1054,7 +946,6 @@ impl TerminalState {
         }
     }
 
-    /// When dealing with selection, mark a range of lines as dirty
     pub fn make_all_lines_dirty(&mut self) {
         let screen = self.screen_mut();
         for line in &mut screen.lines {
@@ -1062,21 +953,14 @@ impl TerminalState {
         }
     }
 
-    /// Returns the 0-based cursor position relative to the top left of
-    /// the visible screen
     pub fn cursor_pos(&self) -> CursorPosition {
-        // TODO: figure out how to expose cursor visibility; Option<CursorPosition>?
         CursorPosition { x: self.cursor.x, y: self.cursor.y + self.viewport_offset }
     }
 
-    /// Returns the currently highlighted hyperlink
     pub fn current_highlight(&self) -> Option<Arc<Hyperlink>> {
         self.current_highlight.as_ref().cloned()
     }
 
-    /// Sets the cursor position. x and y are 0-based and relative to the
-    /// top left of the visible screen.
-    /// TODO: DEC origin mode impacts the interpreation of these
     fn set_cursor_pos(&mut self, x: &Position, y: &Position) {
         let x = match *x {
             Position::Relative(x) => (self.cursor.x as i64 + x).max(0),
@@ -1121,8 +1005,6 @@ impl TerminalState {
         self.recompute_highlight();
     }
 
-    /// Adjust the scroll position of the viewport by delta.
-    /// Dirties the lines that are now in view.
     pub fn scroll_viewport(&mut self, delta: VisibleRowIndex) {
         let position = self.viewport_offset - delta;
         self.set_scroll_viewport(position);
@@ -1152,8 +1034,6 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Absolute(y as i64));
     }
 
-    /// Moves the cursor down one line in the same column.
-    /// If the cursor is at the bottom margin, the page scrolls up.
     fn c1_index(&mut self) {
         let y = self.cursor.y;
         let y = if y == self.scroll_region.end - 1 {
@@ -1165,20 +1045,14 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Relative(0), &Position::Absolute(y as i64));
     }
 
-    /// Moves the cursor to the first position on the next line.
-    /// If the cursor is at the bottom margin, the page scrolls up.
     fn c1_nel(&mut self) {
         self.new_line(true);
     }
 
-    /// Sets a horizontal tab stop at the column where the cursor is.
     fn c1_hts(&mut self) {
         self.tabs.set_tab_stop(self.cursor.x);
     }
 
-    /// Moves the cursor to the next tab stop. If there are no more tab stops,
-    /// the cursor moves to the right margin. HT does not cause text to auto
-    /// wrap.
     fn c0_horizontal_tab(&mut self) {
         let x = match self.tabs.find_next_tab_stop(self.cursor.x) {
             Some(x) => x,
@@ -1187,8 +1061,6 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Relative(0));
     }
 
-    /// Move the cursor up 1 line.  If the position is at the top scroll margin,
-    /// scroll the region down.
     fn c1_reverse_index(&mut self) {
         let y = self.cursor.y;
         let y = if y == self.scroll_region.start {
@@ -1212,7 +1084,6 @@ impl TerminalState {
             Device::DeviceAttributes(a) => error!("unhandled: {:?}", a),
             Device::SoftReset => {
                 self.pen = CellAttributes::default();
-                // TODO: see https://vt100.net/docs/vt510-rm/DECSTR.html
             }
             Device::RequestPrimaryDeviceAttributes => {
                 host.writer().write(DEVICE_IDENT).ok();
@@ -1501,8 +1372,7 @@ impl TerminalState {
             Edit::InsertCharacter(n) => {
                 let y = self.cursor.y;
                 let x = self.cursor.x;
-                // TODO: this limiting behavior may not be correct.  There's also a
-                // SEM sequence that impacts the scope of ICH and ECH to consider.
+
                 let limit = (x + n as usize).min(self.screen().physical_cols);
                 {
                     let screen = self.screen_mut();
@@ -1607,10 +1477,7 @@ impl TerminalState {
             Cursor::PrecedingLine(n) => {
                 self.set_cursor_pos(&Position::Absolute(0), &Position::Relative(-(i64::from(n))))
             }
-            Cursor::ActivePositionReport { .. } => {
-                // This is really a response from the terminal, and
-                // we don't need to process it as a terminal command
-            }
+            Cursor::ActivePositionReport { .. } => {}
             Cursor::RequestActivePositionReport => {
                 let line = OneBased::from_zero_based(self.cursor.y as u32);
                 let col = OneBased::from_zero_based(self.cursor.x as u32);
@@ -1683,8 +1550,6 @@ impl TerminalState {
     }
 }
 
-/// A helper struct for implementing `vtparse::VTActor` while compartmentalizing
-/// the terminal state and the embedding/host terminal interface
 pub(crate) struct Performer<'a> {
     pub state: &'a mut TerminalState,
     pub host: &'a mut dyn TerminalHost,
@@ -1753,11 +1618,7 @@ impl<'a> Performer<'a> {
             let width = self.screen().physical_cols;
 
             let mut pen = self.pen.clone();
-            // the max(1) here is to ensure that we advance to the next cell
-            // position for zero-width graphemes.  We want to make sure that
-            // they occupy a cell so that we can re-emit them when we output them.
-            // If we didn't do this, then we'd effectively filter them out from
-            // the model, which seems like a lossy design choice.
+
             let print_width = unicode_column_width(g).max(1);
 
             if !self.insert && x + print_width >= width {
@@ -1773,7 +1634,6 @@ impl<'a> Performer<'a> {
                 }
             }
 
-            // Assign the cell
             self.screen_mut().set_cell(x + x_offset, y, &cell);
 
             self.clear_selection_if_intersects(
@@ -1804,9 +1664,7 @@ impl<'a> Performer<'a> {
         }
     }
 
-    /// Draw a character to the screen
     fn print(&mut self, c: char) {
-        // We buffer up the chars to increase the chances of correctly grouping graphemes into cells
         self.print.get_or_insert_with(String::new).push(c);
     }
 
@@ -1847,10 +1705,7 @@ impl<'a> Performer<'a> {
     fn esc_dispatch(&mut self, esc: Esc) {
         self.flush_print();
         match esc {
-            Esc::Code(EscCode::StringTerminator) => {
-                // String Terminator (ST); explicitly has nothing to do here, as its purpose is
-                // handled implicitly through a state transition in the vtparse state tables.
-            }
+            Esc::Code(EscCode::StringTerminator) => {}
             Esc::Code(EscCode::DecApplicationKeyPad) => {
                 debug!("DECKPAM on");
                 self.application_keypad = true;

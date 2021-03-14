@@ -1,4 +1,3 @@
-//! Higher level harfbuzz bindings
 #![allow(dead_code)]
 #[cfg(target_os = "macos")]
 use core_text::font::{CTFont, CTFontRef};
@@ -121,29 +120,17 @@ impl Face {
 
 impl Font {
     #[cfg(not(target_os = "macos"))]
-    /// Create a harfbuzz face from a freetype font
+
     pub fn new(face: freetype::freetype::FT_Face) -> Font {
-        // hb_ft_font_create_referenced always returns a
-        // pointer to something, or derefs a nullptr internally
-        // if everything fails, so there's nothing for us to
-        // test here.
         Font { font: unsafe { hb_ft_font_create_referenced(face) } }
     }
     #[cfg(target_os = "macos")]
-    /// Create a harfbuzz face from a freetype font
+
     pub fn new_coretext(ct_font: &CTFont) -> Font {
-        // hb_ft_font_create_referenced always returns a
-        // pointer to something, or derefs a nullptr internally
-        // if everything fails, so there's nothing for us to
-        // test here.
         use core_foundation::base::TCFType;
         Font { font: unsafe { hb_coretext_font_create(ct_font.as_concrete_TypeRef()) } }
     }
 
-    /// Create a font from raw data
-    /// Harfbuzz doesn't know how to interpret this without registering
-    /// some callbacks
-    /// FIXME: need to specialize this for rusttype
     pub fn new_from_slice(data: &[u8], idx: u32) -> Result<Font, Error> {
         let blob = Blob::from_slice(data)?;
         let face = Face::from_blob(&blob, idx)?;
@@ -159,8 +146,6 @@ impl Font {
         }
     }
 
-    /// Perform shaping.  On entry, Buffer holds the text to shape.
-    /// Once done, Buffer holds the output glyph and position info
     pub fn shape(&mut self, buf: &mut Buffer, features: Option<&[hb_feature_t]>) {
         unsafe {
             if let Some(features) = features {
@@ -185,14 +170,12 @@ impl Drop for Buffer {
 }
 
 impl Buffer {
-    /// Create a new buffer
     pub fn new() -> Result<Buffer, Error> {
         let buf = unsafe { hb_buffer_create() };
         ensure!(unsafe { hb_buffer_allocation_successful(buf) } != 0, "hb_buffer_create failed");
         Ok(Buffer { buf })
     }
 
-    /// Reset the buffer back to its initial post-creation state
     #[allow(dead_code)]
     pub fn reset(&mut self) {
         unsafe {
@@ -241,8 +224,6 @@ impl Buffer {
         self.add_utf8(s.as_bytes())
     }
 
-    /// Returns glyph information.  This is only valid after calling
-    /// font->shape() on this buffer instance.
     pub fn glyph_infos(&self) -> &[hb_glyph_info_t] {
         unsafe {
             let mut len: u32 = 0;
@@ -251,8 +232,6 @@ impl Buffer {
         }
     }
 
-    /// Returns glyph positions.  This is only valid after calling
-    /// font->shape() on this buffer instance.
     pub fn glyph_positions(&self) -> &[hb_glyph_position_t] {
         unsafe {
             let mut len: u32 = 0;

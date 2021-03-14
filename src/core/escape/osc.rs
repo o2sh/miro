@@ -163,7 +163,7 @@ impl OperatingSystemCommand {
     fn parse_change_color_number(osc: &[&[u8]]) -> Fallible<Self> {
         let mut pairs = vec![];
         let mut iter = osc.iter();
-        iter.next(); // skip the command word that we already know is present
+        iter.next();
 
         while let (Some(index), Some(spec)) = (iter.next(), iter.next()) {
             let index: u8 = str::from_utf8(index)?.parse()?;
@@ -254,12 +254,12 @@ pub enum OperatingSystemCommandCode {
     SetWindowTitle = 2,
     SetXWindowProperty = 3,
     ChangeColorNumber = 4,
-    /// iTerm2
+
     ChangeTitleTabColor = 6,
     SetCurrentWorkingDirectory = 7,
-    /// See https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+
     SetHyperlink = 8,
-    /// iTerm2
+
     SystemNotification = 9,
     SetTextForegroundColor = 10,
     SetTextBackgroundColor = 11,

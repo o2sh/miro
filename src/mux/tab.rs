@@ -39,7 +39,6 @@ fn schedule_next_paste(paste: &Arc<Mutex<Paste>>) {
         tab.send_paste(text_slice).unwrap();
 
         if chunk < remain {
-            // There is more to send
             locked.offset += chunk;
             schedule_next_paste(&paste);
         }
@@ -63,17 +62,12 @@ pub trait Tab: Downcast {
     fn palette(&self) -> ColorPalette;
     fn domain_id(&self) -> DomainId;
 
-    /// Returns the selection range adjusted to the viewport
-    /// (eg: it has been normalized and had clip_to_viewport called
-    /// on it prior to being returned)
     fn selection_range(&self) -> Option<SelectionRange>;
 
     fn trickle_paste(&self, text: String) -> Fallible<()> {
         if text.len() <= PASTE_CHUNK_SIZE {
-            // Send it all now
             self.send_paste(&text)?;
         } else {
-            // It's pretty heavy, so we trickle it into the pty
             self.send_paste(&text[0..PASTE_CHUNK_SIZE])?;
 
             let paste = Arc::new(Mutex::new(Paste {
@@ -189,7 +183,6 @@ impl LocalTab {
 
 impl Drop for LocalTab {
     fn drop(&mut self) {
-        // Avoid lingering zombies
         self.process.borrow_mut().kill().ok();
         self.process.borrow_mut().wait().ok();
     }

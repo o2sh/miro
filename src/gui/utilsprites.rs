@@ -159,9 +159,6 @@ impl<T: Texture2d> UtilSprites<T> {
         })
     }
 
-    /// Figure out what we're going to draw for the underline.
-    /// If the current cell is part of the current URL highlight
-    /// then we want to show the underline.
     pub fn select_sprite(
         &self,
         is_highlited_hyperlink: bool,
