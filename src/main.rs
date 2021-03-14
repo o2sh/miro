@@ -19,7 +19,6 @@ mod core;
 mod font;
 mod gui;
 mod keyassignment;
-mod localtab;
 mod mux;
 mod pty;
 mod ratelim;

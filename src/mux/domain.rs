@@ -1,6 +1,5 @@
 use crate::config::Config;
-use crate::localtab::LocalTab;
-use crate::mux::tab::Tab;
+use crate::mux::tab::{LocalTab, Tab};
 use crate::mux::window::WindowId;
 use crate::mux::Mux;
 use crate::pty::unix;
