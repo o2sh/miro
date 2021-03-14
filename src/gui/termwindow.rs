@@ -6,7 +6,7 @@ use crate::config::{Config, TextStyle};
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
-use crate::frontend::{executor, front_end};
+use crate::gui::{executor, front_end};
 use crate::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
 use crate::mux::renderable::Renderable;
 use crate::mux::tab::{Tab, TabId};

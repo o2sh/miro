@@ -1,4 +1,4 @@
-use crate::frontend::executor;
+use crate::gui::executor;
 use crate::mux::domain::DomainId;
 use crate::mux::renderable::Renderable;
 use crate::mux::Mux;

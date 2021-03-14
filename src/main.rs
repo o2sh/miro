@@ -17,7 +17,7 @@ mod clipboard;
 mod config;
 mod core;
 mod font;
-mod frontend;
+mod gui;
 mod keyassignment;
 mod localtab;
 mod mux;
@@ -33,7 +33,7 @@ fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
     let mux = Rc::new(mux::Mux::new(&config, Some(domain.clone())));
     Mux::set_mux(&mux);
 
-    let gui = frontend::try_new()?;
+    let gui = gui::try_new()?;
 
     let window_id = mux.new_empty_window();
     let tab = mux.default_domain().spawn(PtySize::default(), window_id)?;

@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::core::hyperlink::Hyperlink;
 use crate::core::promise::Future;
-use crate::frontend::executor;
+use crate::gui::executor;
 use crate::mux::pollable::PollableSender;
 use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::{Window, WindowId};
