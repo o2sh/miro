@@ -134,47 +134,29 @@ impl ScreenOrAlt {
 
 pub struct TerminalState {
     screen: ScreenOrAlt,
-
     pen: CellAttributes,
-
     cursor: CursorPosition,
-
     wrap_next: bool,
-
     insert: bool,
-
     scroll_region: Range<VisibleRowIndex>,
-
     application_cursor_keys: bool,
-
     application_keypad: bool,
-
     bracketed_paste: bool,
-
     sgr_mouse: bool,
     button_event_mouse: bool,
     current_mouse_button: MouseButton,
     mouse_position: CursorPosition,
     cursor_visible: bool,
     dec_line_drawing_mode: bool,
-
     current_highlight: Option<Arc<Hyperlink>>,
-
     last_mouse_click: Option<LastMouseClick>,
-
     pub(crate) viewport_offset: VisibleRowIndex,
-
     selection_start: Option<SelectionCoordinate>,
-
     selection_range: Option<SelectionRange>,
-
     tabs: TabStop,
-
     hyperlink_rules: Vec<HyperlinkRule>,
-
     title: String,
     palette: ColorPalette,
-
     pixel_width: usize,
     pixel_height: usize,
 }

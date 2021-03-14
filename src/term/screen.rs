@@ -5,11 +5,8 @@ use std::collections::VecDeque;
 #[derive(Debug, Clone)]
 pub struct Screen {
     pub lines: VecDeque<Line>,
-
     pub scrollback_size: usize,
-
     pub physical_rows: usize,
-
     pub physical_cols: usize,
 }
 

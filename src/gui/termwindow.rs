@@ -758,18 +758,13 @@ impl TermWindow {
 
     fn paint_tab_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         let palette = tab.palette();
-
-        let gl_state = self.render_state.opengl();
-
         let mut term = tab.renderer();
         let cursor = term.get_cursor_position();
-
         let dirty_lines = term.get_dirty_lines();
-
         for (line_idx, line, selrange) in dirty_lines {
             self.render_screen_line_opengl(line_idx, &line, selrange, &cursor, &*term, &palette)?;
         }
-
+        let gl_state = self.render_state.opengl();
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
@@ -864,7 +859,6 @@ impl TermWindow {
             let pixel_rect = slice.pixel_rect(texture);
             let texture_rect = texture.texture.to_texture_coords(pixel_rect);
 
-            let left = if glyph_idx == 0 { left } else { 0.0 };
             let bottom = (pixel_rect.size.height as f32 * glyph.scale as f32) + top
                 - self.render_metrics.cell_size.height as f32;
             let right =
