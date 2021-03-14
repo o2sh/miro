@@ -7,6 +7,9 @@ use std::str;
 pub mod input;
 pub use input::*;
 
+pub mod clipboard;
+pub mod keyassignment;
+
 pub use crate::core::cell::{self, *};
 
 pub use crate::core::surface::line::*;

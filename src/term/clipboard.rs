@@ -1,7 +1,11 @@
-use crate::term::terminal::Clipboard;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use failure::{format_err, Fallible};
 use std::sync::Mutex;
+
+pub trait Clipboard {
+    fn get_contents(&self) -> Fallible<String>;
+    fn set_contents(&self, data: Option<String>) -> Fallible<()>;
+}
 
 pub struct SystemClipboard {
     inner: Mutex<Inner>,

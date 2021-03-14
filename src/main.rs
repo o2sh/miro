@@ -13,15 +13,12 @@ use crate::mux::Mux;
 use crate::pty::PtySize;
 use crate::term::color::RgbColor;
 
-mod clipboard;
 mod config;
 mod core;
 mod font;
 mod gui;
-mod keyassignment;
 mod mux;
 mod pty;
-mod ratelim;
 mod term;
 mod window;
 

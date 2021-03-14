@@ -6,5 +6,6 @@ pub mod hyperlink;
 pub mod input;
 pub mod keymap;
 pub mod promise;
+pub mod ratelim;
 pub mod readbuf;
 pub mod surface;

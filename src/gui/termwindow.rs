@@ -1,19 +1,19 @@
 use super::quad::*;
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
-use crate::clipboard::SystemClipboard;
 use crate::config::{Config, TextStyle};
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
 use crate::gui::{executor, front_end};
-use crate::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
 use crate::mux::renderable::Renderable;
 use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::WindowId as MuxWindowId;
 use crate::mux::Mux;
 use crate::term;
+use crate::term::clipboard::{Clipboard, SystemClipboard};
 use crate::term::color::ColorPalette;
+use crate::term::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
 use crate::term::{CursorPosition, Line};
 use crate::window;
 use crate::window::bitmaps::atlas::{OutOfTextureSpace, SpriteSlice};
@@ -36,7 +36,7 @@ pub struct TermWindow {
     mux_window_id: MuxWindowId,
     render_metrics: RenderMetrics,
     render_state: RenderState,
-    clipboard: Arc<dyn term::Clipboard>,
+    clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
     sys: System,
@@ -45,7 +45,7 @@ pub struct TermWindow {
 struct Host<'a> {
     writer: &'a mut dyn std::io::Write,
     context: &'a dyn WindowOps,
-    clipboard: &'a Arc<dyn term::Clipboard>,
+    clipboard: &'a Arc<dyn Clipboard>,
 }
 
 impl<'a> term::TerminalHost for Host<'a> {
@@ -53,7 +53,7 @@ impl<'a> term::TerminalHost for Host<'a> {
         self.writer
     }
 
-    fn get_clipboard(&mut self) -> Fallible<Arc<dyn term::Clipboard>> {
+    fn get_clipboard(&mut self) -> Fallible<Arc<dyn Clipboard>> {
         Ok(Arc::clone(self.clipboard))
     }
 

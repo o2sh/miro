@@ -1,13 +1,12 @@
 use crate::config::Config;
 use crate::core::hyperlink::Hyperlink;
 use crate::core::promise::Future;
+use crate::core::ratelim::RateLimiter;
 use crate::gui::executor;
 use crate::mux::pollable::PollableSender;
 use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::{Window, WindowId};
-use crate::pty::ExitStatus;
-use crate::ratelim::RateLimiter;
-use crate::term::terminal::Clipboard;
+use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
 use domain::{Domain, DomainId};
 use failure::{bail, format_err, Error, Fallible};
@@ -244,15 +243,4 @@ impl Mux {
     pub fn is_empty(&self) -> bool {
         self.tabs.borrow().is_empty()
     }
-}
-
-#[derive(Debug, Fail)]
-#[allow(dead_code)]
-pub enum SessionTerminated {
-    #[fail(display = "Process exited: {:?}", status)]
-    ProcessStatus { status: ExitStatus },
-    #[fail(display = "Error: {:?}", err)]
-    Error { err: Error },
-    #[fail(display = "Window Closed")]
-    WindowClosed,
 }
