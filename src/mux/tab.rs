@@ -61,7 +61,6 @@ pub trait Tab: Downcast {
     fn is_dead(&self) -> bool;
     fn palette(&self) -> ColorPalette;
     fn domain_id(&self) -> DomainId;
-
     fn selection_range(&self) -> Option<SelectionRange>;
 
     fn trickle_paste(&self, text: String) -> Fallible<()> {
@@ -80,6 +79,7 @@ pub trait Tab: Downcast {
         Ok(())
     }
 }
+
 impl_downcast!(Tab);
 
 pub struct LocalTab {

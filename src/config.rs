@@ -1,14 +1,11 @@
 use crate::core::hyperlink;
-use crate::core::input::{KeyCode, Modifiers};
 use crate::term;
 use crate::term::color::RgbColor;
 use regex::Regex;
-use serde::{Deserialize, Deserializer};
 use serde_derive::*;
 use serde_json::Value;
 use std;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Theme {
@@ -29,210 +26,20 @@ impl Default for Theme {
 pub struct Config {
     #[serde(default = "default_font_size")]
     pub font_size: f64,
-
     #[serde(default = "default_dpi")]
     pub dpi: f64,
-
     #[serde(default)]
     pub font: TextStyle,
-
     #[serde(default = "default_hyperlink_rules")]
     pub hyperlink_rules: Vec<hyperlink::Rule>,
-
-    #[serde(default = "UnixDomain::default_unix_domains")]
-    pub unix_domains: Vec<UnixDomain>,
-
     pub ratelimit_output_bytes_per_second: Option<u32>,
-
-    pub ratelimit_mux_output_pushes_per_second: Option<u32>,
-
-    pub ratelimit_mux_output_scans_per_second: Option<u32>,
-
     #[serde(default)]
     pub font_rules: Vec<StyleRule>,
-
     pub colors: Option<Palette>,
-
     pub scrollback_lines: Option<usize>,
-
-    #[serde(default = "default_term")]
-    pub term: String,
-
-    #[serde(default)]
-    pub keys: Vec<Key>,
-
     #[serde(default)]
     pub send_composed_key_when_alt_is_pressed: bool,
-
     pub theme: Theme,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct Key {
-    #[serde(deserialize_with = "de_keycode")]
-    pub key: KeyCode,
-    #[serde(deserialize_with = "de_modifiers")]
-    pub mods: Modifiers,
-    pub action: KeyAction,
-    pub arg: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub enum KeyAction {
-    SpawnTab,
-    SpawnTabInCurrentTabDomain,
-    SpawnTabInDomain,
-    SpawnWindow,
-    ToggleFullScreen,
-    Copy,
-    Paste,
-    ActivateTabRelative,
-    IncreaseFontSize,
-    DecreaseFontSize,
-    ResetFontSize,
-    ActivateTab,
-    SendString,
-    Nop,
-    Hide,
-    Show,
-    CloseCurrentTab,
-}
-
-fn de_keycode<'de, D>(deserializer: D) -> Result<KeyCode, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-
-    macro_rules! m {
-        ($($val:ident),* $(,)?) => {
-            $(
-            if s == stringify!($val) {
-                return Ok(KeyCode::$val);
-            }
-            )*
-        }
-    }
-
-    m!(
-        Hyper,
-        Super,
-        Meta,
-        Cancel,
-        Backspace,
-        Tab,
-        Clear,
-        Enter,
-        Shift,
-        Escape,
-        LeftShift,
-        RightShift,
-        Control,
-        LeftControl,
-        RightControl,
-        Alt,
-        LeftAlt,
-        RightAlt,
-        Menu,
-        LeftMenu,
-        RightMenu,
-        Pause,
-        CapsLock,
-        PageUp,
-        PageDown,
-        End,
-        Home,
-        LeftArrow,
-        RightArrow,
-        UpArrow,
-        DownArrow,
-        Select,
-        Print,
-        Execute,
-        PrintScreen,
-        Insert,
-        Delete,
-        Help,
-        LeftWindows,
-        RightWindows,
-        Applications,
-        Sleep,
-        Numpad0,
-        Numpad1,
-        Numpad2,
-        Numpad3,
-        Numpad4,
-        Numpad5,
-        Numpad6,
-        Numpad7,
-        Numpad8,
-        Numpad9,
-        Multiply,
-        Add,
-        Separator,
-        Subtract,
-        Decimal,
-        Divide,
-        NumLock,
-        ScrollLock,
-        BrowserBack,
-        BrowserForward,
-        BrowserRefresh,
-        BrowserStop,
-        BrowserSearch,
-        BrowserFavorites,
-        BrowserHome,
-        VolumeMute,
-        VolumeDown,
-        VolumeUp,
-        MediaNextTrack,
-        MediaPrevTrack,
-        MediaStop,
-        MediaPlayPause,
-        ApplicationLeftArrow,
-        ApplicationRightArrow,
-        ApplicationUpArrow,
-        ApplicationDownArrow,
-    );
-
-    if s.len() > 1 && s.starts_with('F') {
-        let num: u8 = s[1..].parse().map_err(|_| {
-            serde::de::Error::custom(format!("expected F<NUMBER> function key string, got: {}", s))
-        })?;
-        return Ok(KeyCode::Function(num));
-    }
-
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() == 1 {
-        Ok(KeyCode::Char(chars[0]))
-    } else {
-        Err(serde::de::Error::custom(format!("invalid KeyCode string {}", s)))
-    }
-}
-
-fn de_modifiers<'de, D>(deserializer: D) -> Result<Modifiers, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    let mut mods = Modifiers::NONE;
-    for ele in s.split('|') {
-        if ele == "SHIFT" {
-            mods |= Modifiers::SHIFT;
-        } else if ele == "ALT" || ele == "OPT" || ele == "META" {
-            mods |= Modifiers::ALT;
-        } else if ele == "CTRL" {
-            mods |= Modifiers::CTRL;
-        } else if ele == "SUPER" || ele == "CMD" || ele == "WIN" {
-            mods |= Modifiers::SUPER;
-        } else {
-            return Err(serde::de::Error::custom(format!(
-                "invalid modifier name {} in {}",
-                ele, s
-            )));
-        }
-    }
-    Ok(mods)
 }
 
 fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
@@ -242,10 +49,6 @@ fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
         // implicit mailto link
         hyperlink::Rule::new(r"\b\w+@[\w-]+(\.[\w-]+)+\b", "mailto:$0").unwrap(),
     ]
-}
-
-fn default_term() -> String {
-    "xterm-256color".into()
 }
 
 fn default_font_size() -> f64 {
@@ -262,16 +65,11 @@ impl Default for Config {
             font_size: default_font_size(),
             dpi: default_dpi(),
             font: TextStyle::default(),
-            ratelimit_mux_output_scans_per_second: None,
             ratelimit_output_bytes_per_second: None,
             font_rules: Vec::new(),
-            ratelimit_mux_output_pushes_per_second: None,
             colors: None,
             hyperlink_rules: default_hyperlink_rules(),
             scrollback_lines: None,
-            unix_domains: UnixDomain::default_unix_domains(),
-            term: default_term(),
-            keys: vec![],
             send_composed_key_when_alt_is_pressed: false,
             theme: Theme::default(),
         }
@@ -307,7 +105,6 @@ fn empty_font_attributes() -> Vec<FontAttributes> {
 pub struct TextStyle {
     #[serde(default = "empty_font_attributes")]
     pub font: Vec<FontAttributes>,
-
     pub foreground: Option<RgbColor>,
 }
 
@@ -382,19 +179,12 @@ impl TextStyle {
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct StyleRule {
     pub intensity: Option<term::Intensity>,
-
     pub underline: Option<term::Underline>,
-
     pub italic: Option<bool>,
-
     pub blink: Option<term::Blink>,
-
     pub reverse: Option<bool>,
-
     pub strikethrough: Option<bool>,
-
     pub invisible: Option<bool>,
-
     pub font: TextStyle,
 }
 
@@ -438,44 +228,15 @@ impl Config {
     }
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
-pub struct UnixDomain {
-    pub name: String,
-
-    pub socket_path: Option<PathBuf>,
-
-    #[serde(default)]
-    pub connect_automatically: bool,
-
-    #[serde(default)]
-    pub no_serve_automatically: bool,
-
-    pub serve_command: Option<Vec<String>>,
-
-    #[serde(default)]
-    pub skip_permissions_check: bool,
-}
-
-impl UnixDomain {
-    fn default_unix_domains() -> Vec<Self> {
-        vec![UnixDomain::default()]
-    }
-}
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct Palette {
     pub foreground: Option<RgbColor>,
-
     pub background: Option<RgbColor>,
-
     pub cursor_fg: Option<RgbColor>,
     pub cursor_bg: Option<RgbColor>,
-
     pub selection_fg: Option<RgbColor>,
     pub selection_bg: Option<RgbColor>,
-
     pub ansi: Option<[RgbColor; 8]>,
-
     pub brights: Option<[RgbColor; 8]>,
 }
 

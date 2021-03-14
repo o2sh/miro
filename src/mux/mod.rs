@@ -3,7 +3,6 @@ use crate::core::hyperlink::Hyperlink;
 use crate::core::promise::Future;
 use crate::core::ratelim::RateLimiter;
 use crate::gui::executor;
-use crate::mux::pollable::PollableSender;
 use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::{Window, WindowId};
 use crate::term::clipboard::Clipboard;
@@ -19,15 +18,9 @@ use std::sync::Arc;
 use std::thread;
 
 pub mod domain;
-pub mod pollable;
 pub mod renderable;
 pub mod tab;
 pub mod window;
-
-#[derive(Clone, Debug)]
-pub enum MuxNotification {
-    TabOutput(TabId),
-}
 
 pub struct Mux {
     tabs: RefCell<HashMap<TabId, Rc<dyn Tab>>>,
@@ -35,7 +28,6 @@ pub struct Mux {
     config: Arc<Config>,
     default_domain: RefCell<Option<Arc<dyn Domain>>>,
     domains: RefCell<HashMap<DomainId, Arc<dyn Domain>>>,
-    subscribers: RefCell<HashMap<usize, PollableSender<MuxNotification>>>,
 }
 
 fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std::io::Read>) {
@@ -62,7 +54,6 @@ fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std
                     let mux = Mux::get().unwrap();
                     if let Some(tab) = mux.get_tab(tab_id) {
                         tab.advance_bytes(&data, &mut Host { writer: &mut *tab.writer() });
-                        mux.notify(MuxNotification::TabOutput(tab_id));
                     }
                     Ok(())
                 });
@@ -120,13 +111,7 @@ impl Mux {
             config: Arc::clone(config),
             default_domain: RefCell::new(default_domain),
             domains: RefCell::new(domains),
-            subscribers: RefCell::new(HashMap::new()),
         }
-    }
-
-    pub fn notify(&self, notification: MuxNotification) {
-        let mut subscribers = self.subscribers.borrow_mut();
-        subscribers.retain(|_, tx| tx.send(notification.clone()).is_ok());
     }
 
     pub fn default_domain(&self) -> Arc<dyn Domain> {

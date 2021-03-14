@@ -7,19 +7,14 @@ use std::sync::Arc;
 
 pub trait Renderable: Downcast {
     fn get_cursor_position(&self) -> CursorPosition;
-
     fn get_dirty_lines(&self) -> Vec<(usize, Cow<Line>, Range<usize>)>;
-
     fn has_dirty_lines(&self) -> bool;
-
     fn make_all_lines_dirty(&mut self);
-
     fn clean_dirty_lines(&mut self);
-
     fn current_highlight(&self) -> Option<Arc<Hyperlink>>;
-
     fn physical_dimensions(&self) -> (usize, usize);
 }
+
 impl_downcast!(Renderable);
 
 impl Renderable for Terminal {
