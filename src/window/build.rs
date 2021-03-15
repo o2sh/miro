@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/window/build.rs");
     let dest = PathBuf::from(&env::var("OUT_DIR").unwrap());
     let target = env::var("TARGET").unwrap();
     if !target.contains("macos") {
