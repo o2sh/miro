@@ -1,12 +1,10 @@
 use crate::core::promise::{BasicExecutor, SpawnFunc};
-#[cfg(windows)]
-use crate::os::windows::event::EventHandle;
 #[cfg(target_os = "macos")]
 use core_foundation::runloop::*;
 use failure::Fallible;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 use {
     filedescriptor::{FileDescriptor, Pipe},
     mio::unix::EventedFd,
@@ -20,13 +18,9 @@ lazy_static::lazy_static! {
 
 pub(crate) struct SpawnQueue {
     spawned_funcs: Mutex<VecDeque<SpawnFunc>>,
-
-    #[cfg(windows)]
-    pub event_handle: EventHandle,
-
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     write: Mutex<FileDescriptor>,
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(not(target_os = "macos"))]
     read: Mutex<FileDescriptor>,
 }
 
@@ -48,28 +42,7 @@ impl SpawnQueue {
     }
 }
 
-#[cfg(windows)]
-impl SpawnQueue {
-    fn new_impl() -> Fallible<Self> {
-        let spawned_funcs = Mutex::new(VecDeque::new());
-        let event_handle = EventHandle::new_manual_reset().expect("EventHandle creation failed");
-        Ok(Self { spawned_funcs, event_handle })
-    }
-
-    fn spawn_impl(&self, f: SpawnFunc) {
-        self.spawned_funcs.lock().unwrap().push_back(f);
-        self.event_handle.set_event();
-    }
-
-    fn run_impl(&self) {
-        self.event_handle.reset_event();
-        while let Some(func) = self.pop_func() {
-            func();
-        }
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 impl SpawnQueue {
     fn new_impl() -> Fallible<Self> {
         let pipe = match Pipe::new() {
@@ -102,7 +75,7 @@ impl SpawnQueue {
     }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 impl Evented for SpawnQueue {
     fn register(
         &self,

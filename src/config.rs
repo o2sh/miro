@@ -79,15 +79,13 @@ impl Default for Config {
 #[cfg(target_os = "macos")]
 const FONT_FAMILY: &str = "Menlo";
 
-#[cfg(all(not(target_os = "macos"), not(windows)))]
+#[cfg(not(target_os = "macos"))]
 const FONT_FAMILY: &str = "monospace";
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct FontAttributes {
     pub family: String,
-
     pub bold: Option<bool>,
-
     pub italic: Option<bool>,
 }
 
@@ -162,14 +160,7 @@ impl TextStyle {
         font.push(FontAttributes { family: "Zapf Dingbats".into(), bold: None, italic: None });
         #[cfg(target_os = "macos")]
         font.push(FontAttributes { family: "Apple LiGothic".into(), bold: None, italic: None });
-        #[cfg(windows)]
-        font.push(FontAttributes { family: "Segoe UI".into(), bold: None, italic: None });
-        #[cfg(windows)]
-        font.push(FontAttributes { family: "Segoe UI Emoji".into(), bold: None, italic: None });
-        #[cfg(windows)]
-        font.push(FontAttributes { family: "Segoe UI Symbol".into(), bold: None, italic: None });
-
-        #[cfg(all(unix, not(target_os = "macos")))]
+        #[cfg(not(target_os = "macos"))]
         font.push(FontAttributes { family: "Noto Color Emoji".into(), bold: None, italic: None });
 
         font
