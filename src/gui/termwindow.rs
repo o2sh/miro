@@ -299,9 +299,7 @@ impl WindowCallbacks for TermWindow {
         };
 
         self.update_text_cursor(&tab);
-        self.clear(&tab, frame);
-        self.paint_tab_opengl(&tab, frame).expect("error while painting tab");
-        self.paint_header_opengl(&tab, frame).expect("error while painting sprite");
+        self.paint_screen_opengl(&tab, frame).expect("failed to paint screen");
         self.update_title();
     }
 }
@@ -711,6 +709,13 @@ impl TermWindow {
         )?;
 
         gl_state.slide_sprite(w);
+        Ok(())
+    }
+
+    fn paint_screen_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+        self.clear(tab, frame);
+        self.paint_header_opengl(tab, frame)?;
+        self.paint_tab_opengl(tab, frame)?;
         Ok(())
     }
 

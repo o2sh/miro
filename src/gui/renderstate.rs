@@ -545,7 +545,7 @@ impl OpenGLRenderState {
 
         if vert[V_TOP_LEFT].position.0 > width {
             vert[V_TOP_LEFT].position.0 = -width - sprite_width;
-            vert[V_TOP_RIGHT].position.0 = -width ;
+            vert[V_TOP_RIGHT].position.0 = -width;
             vert[V_BOT_LEFT].position.0 = -width - sprite_width;
             vert[V_BOT_RIGHT].position.0 = -width;
         } else {
