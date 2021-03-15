@@ -242,16 +242,15 @@ impl OpenGLRenderState {
 
     pub fn change_header_scaling(
         &mut self,
-        dpi: f32,
+        new_dpi: f32,
         metrics: &RenderMetrics,
         pixel_width: usize,
         pixel_height: usize,
     ) -> Fallible<()> {
-        self.dpi = dpi;
-        let dpi = dpi / 96.;
-        self.sprite_size = (self.sprite_size.0 * dpi, self.sprite_size.1 * dpi);
-        self.header_height = self.header_height * dpi;
-        self.sprite_speed = self.sprite_speed * dpi;
+        self.dpi = new_dpi;
+        self.sprite_size = (self.sprite_size.0 * self.dpi, self.sprite_size.1 * self.dpi);
+        self.header_height = self.header_height * self.dpi;
+        self.sprite_speed = self.sprite_speed * self.dpi;
 
         let (header_rect_vertex_buffer, header_rect_index_buffer) =
             Self::compute_header_rect_vertices(

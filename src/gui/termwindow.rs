@@ -640,10 +640,10 @@ impl TermWindow {
 
         let palette = tab.palette();
 
-        let dpi = self.render_state.opengl().dpi;
-        if self.dimensions.dpi as f32 != dpi {
+        let new_dpi = self.dimensions.dpi as f32 / 96.;
+        if new_dpi != self.render_state.opengl().dpi {
             self.render_state.change_header_scaling(
-                self.dimensions.dpi as f32,
+                new_dpi,
                 &self.render_metrics,
                 self.dimensions.pixel_width,
                 self.dimensions.pixel_height,
