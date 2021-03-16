@@ -587,6 +587,12 @@ impl TermWindow {
                 self.fonts.change_scaling(font_scale, new_dpi);
                 self.render_metrics = RenderMetrics::new(&self.fonts);
                 self.recreate_texture_atlas(None).expect("failed to recreate atlas");
+                self.render_state.change_header_scaling(
+                    new_dpi as f32,
+                    &self.render_metrics,
+                    self.dimensions.pixel_width,
+                    self.dimensions.pixel_height,
+                ).expect("failed to rescale header");
             }
 
             self.dimensions = dimensions;
@@ -640,15 +646,6 @@ impl TermWindow {
 
         let palette = tab.palette();
 
-        let new_dpi = self.dimensions.dpi as f32 / 96.;
-        if new_dpi != self.render_state.opengl().dpi {
-            self.render_state.change_header_scaling(
-                new_dpi,
-                &self.render_metrics,
-                self.dimensions.pixel_width,
-                self.dimensions.pixel_height,
-            )?;
-        }
         let gl_state = self.render_state.opengl();
 
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
@@ -715,11 +712,11 @@ impl TermWindow {
     fn paint_screen_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.clear(tab, frame);
         self.paint_header_opengl(tab, frame)?;
-        self.paint_tab_opengl(tab, frame)?;
+        self.paint_term_opengl(tab, frame)?;
         Ok(())
     }
 
-    fn paint_tab_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_term_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         let palette = tab.palette();
         let mut term = tab.renderer();
         let cursor = term.get_cursor_position();

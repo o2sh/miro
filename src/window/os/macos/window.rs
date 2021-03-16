@@ -287,27 +287,35 @@ impl Window {
             let window = Window(window_id);
             inner.borrow_mut().callbacks.created(&window);
 
-            let mut do_resize = true;
-            conn.schedule_timer(std::time::Duration::from_millis(100), move || {
-                let mut inner = inner.borrow_mut();
-
-                if do_resize {
-                    inner.callbacks.resize(Dimensions {
-                        pixel_width: width as usize,
-                        pixel_height: height as usize,
-                        dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
-                    });
-                    do_resize = false;
-                }
-                if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
-                    let mut frame = glium::Frame::new(
-                        Rc::clone(&gl_context_pair.context),
-                        (width as u32, height as u32),
-                    );
-                    inner.callbacks.paint_opengl(&mut frame);
-                    frame.finish().expect("frame.finish failed and we don't know how to recover");
-                }
+            inner.borrow_mut().callbacks.resize(Dimensions {
+                pixel_width: width as usize,
+                pixel_height: height as usize,
+                dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
             });
+
+            conn.schedule_timer(std::time::Duration::from_millis(100), move || {
+                Connection::with_window_inner(window_id, move |inner| {
+                    let frame = NSView::frame(*inner.view as *mut _);
+                    let backing_frame = NSView::convertRectToBacking(*inner.view as *mut _, frame);
+                    if let Some(window_view) = WindowView::get_this(&**inner.view) {
+                        let mut inner = window_view.inner.borrow_mut();
+                        let width = backing_frame.size.width;
+                        let height = backing_frame.size.height;
+                        println!("width: {}, height: {}", width, height);
+                        if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
+                            let mut frame = glium::Frame::new(
+                                Rc::clone(&gl_context_pair.context),
+                                (width as u32, height as u32),
+                            );
+                            inner.callbacks.paint_opengl(&mut frame);
+                            frame
+                                .finish()
+                                .expect("frame.finish failed and we don't know how to recover");
+                        }
+                    }
+                });
+            });
+
             Ok(window)
         }
     }
@@ -893,7 +901,6 @@ impl WindowView {
                 keycodes::kVK_ANSI_Slash => KeyCode::Char('/'),
                 keycodes::kVK_ANSI_Period => KeyCode::Char('.'),
                 keycodes::kVK_ANSI_Grave => KeyCode::Char('`'),
-
                 keycodes::kVK_Delete => KeyCode::Char('\x08'),
                 keycodes::kVK_ForwardDelete => KeyCode::Char('\x7f'),
                 _ => kc,
@@ -910,13 +917,6 @@ impl WindowView {
 
             let event = KeyEvent { key, raw_key, modifiers, repeat_count: 1, key_is_down };
 
-            /*
-            eprintln!(
-                "key_common {:?} (chars={:?} unmod={:?} modifiers={:?}",
-                event, chars, unmod, modifiers
-            );
-            */
-
             if let Some(myself) = Self::get_this(this) {
                 let mut inner = myself.inner.borrow_mut();
                 let window = Window(inner.window_id);
@@ -928,12 +928,6 @@ impl WindowView {
     extern "C" fn key_down(this: &mut Object, _sel: Sel, nsevent: id) {
         Self::key_common(this, nsevent, true);
     }
-
-    /*
-    extern "C" fn key_up(this: &mut Object, _sel: Sel, nsevent: id) {
-        Self::key_common(this, nsevent, false);
-    }
-    */
 
     extern "C" fn did_resize(this: &mut Object, _sel: Sel, _notification: id) {
         if let Some(this) = Self::get_this(this) {
