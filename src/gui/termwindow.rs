@@ -587,12 +587,14 @@ impl TermWindow {
                 self.fonts.change_scaling(font_scale, new_dpi);
                 self.render_metrics = RenderMetrics::new(&self.fonts);
                 self.recreate_texture_atlas(None).expect("failed to recreate atlas");
-                self.render_state.change_header_scaling(
-                    new_dpi as f32,
-                    &self.render_metrics,
-                    self.dimensions.pixel_width,
-                    self.dimensions.pixel_height,
-                ).expect("failed to rescale header");
+                self.render_state
+                    .change_header_scaling(
+                        new_dpi as f32,
+                        &self.render_metrics,
+                        self.dimensions.pixel_width,
+                        self.dimensions.pixel_height,
+                    )
+                    .expect("failed to rescale header");
             }
 
             self.dimensions = dimensions;

@@ -278,35 +278,34 @@ impl Window {
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
             window.setContentView_(*view);
             window.setDelegate_(*view);
-            let frame = NSView::frame(*view);
-            let backing_frame = NSView::convertRectToBacking(*view, frame);
-            let width = backing_frame.size.width;
-            let height = backing_frame.size.height;
             let window_inner = Rc::new(RefCell::new(WindowInner { window_id, window, view }));
             conn.windows.borrow_mut().insert(window_id, Rc::clone(&window_inner));
             let window = Window(window_id);
             inner.borrow_mut().callbacks.created(&window);
 
-            inner.borrow_mut().callbacks.resize(Dimensions {
-                pixel_width: width as usize,
-                pixel_height: height as usize,
-                dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
-            });
-
+            let mut only_once = true;
             conn.schedule_timer(std::time::Duration::from_millis(100), move || {
                 Connection::with_window_inner(window_id, move |inner| {
-                    let frame = NSView::frame(*inner.view as *mut _);
-                    let backing_frame = NSView::convertRectToBacking(*inner.view as *mut _, frame);
+                    let nsframe = NSView::frame(*inner.view as *mut _);
+                    let backing_frame =
+                        NSView::convertRectToBacking(*inner.view as *mut _, nsframe);
                     if let Some(window_view) = WindowView::get_this(&**inner.view) {
                         let mut inner = window_view.inner.borrow_mut();
                         let width = backing_frame.size.width;
                         let height = backing_frame.size.height;
-                        println!("width: {}, height: {}", width, height);
                         if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
                             let mut frame = glium::Frame::new(
                                 Rc::clone(&gl_context_pair.context),
                                 (width as u32, height as u32),
                             );
+                            if only_once {
+                                inner.callbacks.resize(Dimensions {
+                                    pixel_width: width as usize,
+                                    pixel_height: height as usize,
+                                    dpi: (96.0 * (backing_frame.size.width / nsframe.size.width))
+                                        as usize,
+                                });
+                            }
                             inner.callbacks.paint_opengl(&mut frame);
                             frame
                                 .finish()
@@ -314,6 +313,7 @@ impl Window {
                         }
                     }
                 });
+                only_once = false;
             });
 
             Ok(window)
