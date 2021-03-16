@@ -291,10 +291,10 @@ impl Window {
 
             inner.borrow_mut().enable_opengl()?;
 
-            inner.callbacks.resize(Dimensions {
+            inner.borrow_mut().callbacks.resize(Dimensions {
                 pixel_width: width as usize,
                 pixel_height: height as usize,
-                dpi: (96.0 * (backing_frame.size.width / nsframe.size.width)) as usize,
+                dpi: (96.0 * (backing_frame.size.width / frame.size.width)) as usize,
             });
 
             conn.schedule_timer(std::time::Duration::from_millis(100), move || {
@@ -446,11 +446,11 @@ struct Inner {
 }
 
 impl Inner {
-    fn enable_opengl(&mut self) -> anyhow::Result<()> {
+    fn enable_opengl(&mut self) -> Fallible<()> {
         let window = Window(self.window_id);
 
         let view = self.view_id.as_ref().unwrap().load();
-        let glium_context = GlContextPair::create(*view)?;
+        let glium_context = opengl::GlContextPair::create(*view)?;
 
         self.gl_context_pair.replace(glium_context.clone());
 
