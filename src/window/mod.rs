@@ -1,3 +1,4 @@
+use failure::Fallible;
 use std::any::Any;
 pub mod bitmaps;
 pub mod color;
@@ -76,7 +77,13 @@ pub trait WindowCallbacks: Any {
     fn mouse_event(&mut self, event: &MouseEvent, context: &dyn WindowOps) {
         context.set_cursor(Some(MouseCursor::Arrow));
     }
-    fn created(&mut self, window: &Window) {}
+    fn created(
+        &mut self,
+        _window: &Window,
+        _context: std::rc::Rc<glium::backend::Context>,
+    ) -> Fallible<()> {
+        Ok(())
+    }
     fn as_any(&mut self) -> &mut dyn Any;
 }
 
@@ -91,19 +98,6 @@ pub trait WindowOps {
     fn set_text_cursor_position(&self, _cursor: Rect) {}
     fn apply<F: Send + 'static + Fn(&mut dyn Any, &dyn WindowOps)>(&self, func: F)
     where
-        Self: Sized;
-    fn enable_opengl<
-        F: Send
-            + 'static
-            + Fn(
-                &mut dyn Any,
-                &dyn WindowOps,
-                failure::Fallible<std::rc::Rc<glium::backend::Context>>,
-            ),
-    >(
-        &self,
-        func: F,
-    ) where
         Self: Sized;
 }
 

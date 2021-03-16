@@ -3,7 +3,6 @@ use crate::window::{Operator, Point, Rect, Size};
 use glium::texture::SrgbTexture2d;
 use palette::LinSrgba;
 use rgb::FromSlice;
-use std::cell::RefCell;
 
 pub mod atlas;
 
@@ -85,61 +84,6 @@ impl Texture2d for SrgbTexture2d {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-mod avx {
-    use super::*;
-    #[inline]
-    fn align_lo(size: usize, align: usize) -> usize {
-        size & !(align - 1)
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    fn is_aligned(size: usize, align: usize) -> bool {
-        size == align_lo(size, align)
-    }
-
-    #[allow(clippy::cast_ptr_alignment)]
-    pub unsafe fn fill_pixel(
-        mut dest: *mut u8,
-        stride_bytes: usize,
-        width_pixels: usize,
-        height_pixels: usize,
-        color: Color,
-    ) {
-        let bgra256 = std::arch::x86_64::_mm256_set1_epi32(color.0 as _);
-        let aligned_width = align_lo(width_pixels, 8);
-
-        if is_aligned(dest as usize, 32) && is_aligned(stride_bytes, 32) {
-            for _row in 0..height_pixels {
-                for col in (0..aligned_width).step_by(8) {
-                    std::arch::x86_64::_mm256_store_si256(dest.add(4 * col) as *mut _, bgra256);
-                }
-                if width_pixels != aligned_width {
-                    std::arch::x86_64::_mm256_storeu_si256(
-                        dest.add(4 * (width_pixels - 8)) as *mut _,
-                        bgra256,
-                    );
-                }
-                dest = dest.add(stride_bytes);
-            }
-        } else {
-            for _row in 0..height_pixels {
-                for col in (0..aligned_width).step_by(8) {
-                    std::arch::x86_64::_mm256_storeu_si256(dest.add(4 * col) as *mut _, bgra256);
-                }
-                if width_pixels != aligned_width {
-                    std::arch::x86_64::_mm256_storeu_si256(
-                        dest.add(4 * (width_pixels - 8)) as *mut _,
-                        bgra256,
-                    );
-                }
-                dest = dest.add(stride_bytes);
-            }
-        }
-    }
-}
-
 pub trait BitmapImage {
     unsafe fn pixel_data(&self) -> *const u8;
 
@@ -202,18 +146,6 @@ pub trait BitmapImage {
     }
 
     fn clear(&mut self, color: Color) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let (width, height) = self.image_dimensions();
-
-            if is_x86_feature_detected!("avx") && width >= 8 {
-                unsafe {
-                    avx::fill_pixel(self.pixel_data_mut(), width * 4, width, height, color);
-                }
-                return;
-            }
-        }
-
         for c in self.pixels_mut() {
             *c = color.0;
         }
@@ -229,22 +161,6 @@ pub trait BitmapImage {
             return;
         }
         let dest_y = rect.origin.y.max(0) as usize;
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx") && (max_x - dest_x) >= 8 {
-                unsafe {
-                    avx::fill_pixel(
-                        self.pixel_data_mut().add(4 * ((dest_y * dim_width) + dest_x)),
-                        dim_width * 4,
-                        max_x - dest_x,
-                        max_y - dest_y,
-                        color,
-                    );
-                }
-                return;
-            }
-        }
 
         for y in dest_y..max_y {
             let range = self.horizontal_pixel_range_mut(dest_x, max_x, y);
@@ -399,37 +315,5 @@ impl BitmapImage for Image {
 
     fn image_dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
-    }
-}
-
-pub struct ImageTexture {
-    pub image: RefCell<Image>,
-}
-
-impl ImageTexture {
-    pub fn new(width: usize, height: usize) -> Self {
-        let im = Image::new(width, height);
-        Self { image: RefCell::new(im) }
-    }
-}
-
-impl Texture2d for ImageTexture {
-    fn write(&self, rect: Rect, im: &dyn BitmapImage) {
-        let mut image = self.image.borrow_mut();
-        image.draw_image(rect.origin, None, im, Operator::Source);
-    }
-
-    fn read(&self, _rect: Rect, _im: &mut dyn BitmapImage) {
-        unimplemented!();
-    }
-
-    fn width(&self) -> usize {
-        let (width, _height) = self.image.borrow().image_dimensions();
-        width
-    }
-
-    fn height(&self) -> usize {
-        let (_width, height) = self.image.borrow().image_dimensions();
-        height
     }
 }

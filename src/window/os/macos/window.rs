@@ -278,17 +278,29 @@ impl Window {
             view.setAutoresizingMask_(NSViewHeightSizable | NSViewWidthSizable);
             window.setContentView_(*view);
             window.setDelegate_(*view);
+
+            let frame = NSView::frame(*view);
+            let backing_frame = NSView::convertRectToBacking(*view, frame);
+            let width = backing_frame.size.width;
+            let height = backing_frame.size.height;
+
             let window_inner = Rc::new(RefCell::new(WindowInner { window_id, window, view }));
+
             conn.windows.borrow_mut().insert(window_id, Rc::clone(&window_inner));
             let window = Window(window_id);
-            inner.borrow_mut().callbacks.created(&window);
 
-            let mut only_once = true;
+            inner.borrow_mut().enable_opengl()?;
+
+            inner.callbacks.resize(Dimensions {
+                pixel_width: width as usize,
+                pixel_height: height as usize,
+                dpi: (96.0 * (backing_frame.size.width / nsframe.size.width)) as usize,
+            });
+
             conn.schedule_timer(std::time::Duration::from_millis(100), move || {
                 Connection::with_window_inner(window_id, move |inner| {
-                    let nsframe = NSView::frame(*inner.view as *mut _);
-                    let backing_frame =
-                        NSView::convertRectToBacking(*inner.view as *mut _, nsframe);
+                    let frame = NSView::frame(*inner.view as *mut _);
+                    let backing_frame = NSView::convertRectToBacking(*inner.view as *mut _, frame);
                     if let Some(window_view) = WindowView::get_this(&**inner.view) {
                         let mut inner = window_view.inner.borrow_mut();
                         let width = backing_frame.size.width;
@@ -298,14 +310,6 @@ impl Window {
                                 Rc::clone(&gl_context_pair.context),
                                 (width as u32, height as u32),
                             );
-                            if only_once {
-                                inner.callbacks.resize(Dimensions {
-                                    pixel_width: width as usize,
-                                    pixel_height: height as usize,
-                                    dpi: (96.0 * (backing_frame.size.width / nsframe.size.width))
-                                        as usize,
-                                });
-                            }
                             inner.callbacks.paint_opengl(&mut frame);
                             frame
                                 .finish()
@@ -313,7 +317,6 @@ impl Window {
                         }
                     }
                 });
-                only_once = false;
             });
 
             Ok(window)
@@ -362,38 +365,6 @@ impl WindowOps for Window {
 
             if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
                 func(window_view.inner.borrow_mut().callbacks.as_any(), &window);
-            }
-        });
-    }
-
-    fn enable_opengl<
-        F: Send
-            + 'static
-            + Fn(
-                &mut dyn Any,
-                &dyn WindowOps,
-                failure::Fallible<std::rc::Rc<glium::backend::Context>>,
-            ),
-    >(
-        &self,
-        func: F,
-    ) where
-        Self: Sized,
-    {
-        Connection::with_window_inner(self.0, move |inner| {
-            let window = Window(inner.window_id);
-
-            let glium_context = opengl::GlContextPair::create(*inner.view);
-
-            if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
-                window_view.inner.borrow_mut().gl_context_pair =
-                    glium_context.as_ref().map(Clone::clone).ok();
-
-                func(
-                    window_view.inner.borrow_mut().callbacks.as_any(),
-                    &window,
-                    glium_context.map(|pair| pair.context),
-                );
             }
         });
     }
@@ -472,6 +443,19 @@ struct Inner {
     window_id: usize,
     gl_context_pair: Option<opengl::GlContextPair>,
     text_cursor_position: Rect,
+}
+
+impl Inner {
+    fn enable_opengl(&mut self) -> anyhow::Result<()> {
+        let window = Window(self.window_id);
+
+        let view = self.view_id.as_ref().unwrap().load();
+        let glium_context = GlContextPair::create(*view)?;
+
+        self.gl_context_pair.replace(glium_context.clone());
+
+        self.callbacks.created(&window, glium_context.context)
+    }
 }
 
 const CLS_NAME: &str = "MiroWindowView";

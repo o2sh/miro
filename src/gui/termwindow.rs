@@ -28,6 +28,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use sysinfo::{ProcessorExt, System, SystemExt};
 
+const ATLAS_SIZE: usize = 4096;
+
 pub struct TermWindow {
     window: Option<Window>,
     fonts: Rc<FontConfiguration>,
@@ -35,7 +37,7 @@ pub struct TermWindow {
     dimensions: Dimensions,
     mux_window_id: MuxWindowId,
     render_metrics: RenderMetrics,
-    render_state: RenderState,
+    render_state: Option<OpenGLRenderState>,
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
@@ -74,8 +76,30 @@ impl<'a> term::TerminalHost for Host<'a> {
 }
 
 impl WindowCallbacks for TermWindow {
-    fn created(&mut self, window: &Window) {
+    fn created(
+        &mut self,
+        window: &Window,
+        ctx: std::rc::Rc<glium::backend::Context>,
+    ) -> Fallible<()> {
         self.window.replace(window.clone());
+
+        self.render_state = Some(OpenGLRenderState::new(
+            ctx,
+            &self.fonts,
+            &self.render_metrics,
+            ATLAS_SIZE,
+            self.dimensions.pixel_width,
+            self.dimensions.pixel_height,
+            &self.config.theme,
+        )?);
+
+        window.show();
+
+        if self.render_state.is_none() {
+            panic!("No OpenGL");
+        }
+
+        Ok(())
     }
 
     fn can_close(&mut self) -> bool {
@@ -319,13 +343,6 @@ impl TermWindow {
         let width = render_metrics.cell_size.width as usize * physical_cols;
         let height = render_metrics.cell_size.height as usize * physical_rows;
 
-        const ATLAS_SIZE: usize = 4096;
-        let render_state = RenderState::Software(SoftwareRenderState::new(
-            fontconfig,
-            &render_metrics,
-            ATLAS_SIZE,
-        )?);
-
         let sys = System::new();
 
         let window = Window::new_window(
@@ -340,7 +357,7 @@ impl TermWindow {
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
                 dimensions: Dimensions { pixel_width: width, pixel_height: height, dpi: 96 },
-                render_state,
+                render_state: None,
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
                 frame_count: 0,
@@ -364,47 +381,7 @@ impl TermWindow {
             },
         );
 
-        if super::is_opengl_enabled() {
-            window.enable_opengl(|any, window, maybe_ctx| {
-                let mut termwindow = any.downcast_mut::<TermWindow>().expect("to be TermWindow");
-                match maybe_ctx {
-                    Ok(ctx) => {
-                        match OpenGLRenderState::new(
-                            ctx,
-                            &termwindow.fonts,
-                            &termwindow.render_metrics,
-                            ATLAS_SIZE,
-                            termwindow.dimensions.pixel_width,
-                            termwindow.dimensions.pixel_height,
-                            &termwindow.config.theme,
-                        ) {
-                            Ok(gl) => {
-                                log::error!(
-                                    "OpenGL initialized! {} {}",
-                                    gl.context.get_opengl_renderer_string(),
-                                    gl.context.get_opengl_version_string()
-                                );
-                                termwindow.render_state = RenderState::GL(gl);
-                            }
-                            Err(err) => {
-                                log::error!("OpenGL init failed: {}", err);
-                            }
-                        }
-                    }
-                    Err(err) => log::error!("OpenGL init failed: {}", err),
-                };
-
-                window.show();
-            });
-        } else {
-            window.show();
-        }
-
         Ok(())
-    }
-
-    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> Fallible<()> {
-        self.render_state.recreate_texture_atlas(&self.fonts, &self.render_metrics, size)
     }
 
     fn update_title(&mut self) {
@@ -576,6 +553,7 @@ impl TermWindow {
     fn scaling_changed(&mut self, dimensions: Dimensions, font_scale: f64) {
         let mux = Mux::get().unwrap();
         if let Some(window) = mux.get_window(self.mux_window_id) {
+            let gl_state = self.render_state.as_mut().unwrap();
             let cols = self.dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
             let rows = self.dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
 
@@ -586,8 +564,8 @@ impl TermWindow {
                 let new_dpi = dimensions.dpi as f64 / 96.;
                 self.fonts.change_scaling(font_scale, new_dpi);
                 self.render_metrics = RenderMetrics::new(&self.fonts);
-                self.recreate_texture_atlas(None).expect("failed to recreate atlas");
-                self.render_state
+                //self.recreate_texture_atlas(None).expect("failed to recreate atlas");
+                gl_state
                     .change_header_scaling(
                         new_dpi as f32,
                         &self.render_metrics,
@@ -599,7 +577,7 @@ impl TermWindow {
 
             self.dimensions = dimensions;
 
-            self.render_state
+            gl_state
                 .advise_of_window_size_change(
                     &self.render_metrics,
                     dimensions.pixel_width,
@@ -647,7 +625,7 @@ impl TermWindow {
 
         let palette = tab.palette();
 
-        let gl_state = self.render_state.opengl();
+        let gl_state = self.render_state.as_ref().unwrap();
 
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
@@ -725,7 +703,8 @@ impl TermWindow {
         for (line_idx, line, selrange) in dirty_lines {
             self.render_screen_line_opengl(line_idx, &line, selrange, &cursor, &*term, &palette)?;
         }
-        let gl_state = self.render_state.opengl();
+        let gl_state = self.render_state.as_ref().unwrap();
+
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
@@ -770,7 +749,7 @@ impl TermWindow {
     }
 
     fn render_header_line_opengl(&self, palette: &ColorPalette) -> Fallible<()> {
-        let gl_state = self.render_state.opengl();
+        let gl_state = self.render_state.as_ref().unwrap();
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
         let cpu_load = format!("{}", self.sys.get_global_processor_info().get_cpu_usage().round());
@@ -846,7 +825,7 @@ impl TermWindow {
         terminal: &dyn Renderable,
         palette: &ColorPalette,
     ) -> Fallible<()> {
-        let gl_state = self.render_state.opengl();
+        let gl_state = self.render_state.as_ref().unwrap();
 
         let (_num_rows, num_cols) = terminal.physical_dimensions();
         let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();

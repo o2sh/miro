@@ -74,14 +74,33 @@ impl<'a> PaintContext for X11GraphicsContext<'a> {
 }
 
 impl WindowInner {
-    pub fn paint(&mut self) -> Fallible<()> {
-        let window_dimensions =
-            Rect::from_size(Size::new(self.width as isize, self.height as isize));
+    fn enable_opengl(&mut self) -> Fallible<()> {
+        let gl_state = crate::window::egl::GlState::create(
+            Some(self.conn.display as *const _),
+            self.window_id as *mut _,
+        );
 
+        let gl_state = gl_state.map(Rc::new).and_then(|state| unsafe {
+            Ok(glium::backend::Context::new(
+                Rc::clone(&state),
+                true,
+                if cfg!(debug_assertions) {
+                    glium::debug::DebugCallbackBehavior::DebugMessageOnError
+                } else {
+                    glium::debug::DebugCallbackBehavior::Ignore
+                },
+            )?)
+        })?;
+
+        self.gl_state.replace(gl_state.clone());
+        let window_handle = Window::from_id(self.window_id);
+        self.callbacks.created(&window_handle, gl_state)
+    }
+
+    pub fn paint(&mut self) -> Fallible<()> {
         if self.paint_all {
             self.paint_all = false;
             self.expose.clear();
-            self.expose.push_back(window_dimensions);
         }
 
         if let Some(gl_context) = self.gl_state.as_ref() {
@@ -339,7 +358,7 @@ impl Window {
 
         let window_handle = Window::from_id(window_id);
 
-        window.lock().unwrap().callbacks.created(&window_handle);
+        window.lock().unwrap().enable_opengl()?;
 
         conn.windows.borrow_mut().insert(window_id, window.clone());
 
@@ -425,46 +444,6 @@ impl WindowOps for Window {
         Connection::with_window_inner(self.0, move |inner| {
             let window = Window(inner.window_id);
             func(inner.callbacks.as_any(), &window);
-        });
-    }
-
-    fn enable_opengl<
-        F: Send
-            + 'static
-            + Fn(
-                &mut dyn Any,
-                &dyn WindowOps,
-                failure::Fallible<std::rc::Rc<glium::backend::Context>>,
-            ),
-    >(
-        &self,
-        func: F,
-    ) where
-        Self: Sized,
-    {
-        Connection::with_window_inner(self.0, move |inner| {
-            let window = Window(inner.window_id);
-
-            let gl_state = crate::window::egl::GlState::create(
-                Some(inner.conn.display as *const _),
-                inner.window_id as *mut _,
-            )
-            .map(Rc::new)
-            .and_then(|state| unsafe {
-                Ok(glium::backend::Context::new(
-                    Rc::clone(&state),
-                    true,
-                    if cfg!(debug_assertions) {
-                        glium::debug::DebugCallbackBehavior::DebugMessageOnError
-                    } else {
-                        glium::debug::DebugCallbackBehavior::Ignore
-                    },
-                )?)
-            });
-
-            inner.gl_state = gl_state.as_ref().map(Rc::clone).ok();
-
-            func(inner.callbacks.as_any(), &window, gl_state);
         });
     }
 }

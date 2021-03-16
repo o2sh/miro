@@ -81,10 +81,6 @@ where
 
         Ok(Sprite { texture: Rc::clone(&self.texture), coords: rect })
     }
-
-    pub fn size(&self) -> usize {
-        self.side
-    }
 }
 
 pub struct Sprite<T>

@@ -10,7 +10,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use failure::{Error, Fallible};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -28,10 +28,6 @@ pub struct GuiFrontEnd {
 lazy_static::lazy_static! {
 static ref USE_OPENGL: AtomicBool = AtomicBool::new(true);
 static ref EXECUTOR: Mutex<Option<Box<dyn Executor>>> = Mutex::new(None);
-}
-
-pub fn is_opengl_enabled() -> bool {
-    USE_OPENGL.load(Ordering::Acquire)
 }
 
 thread_local! {

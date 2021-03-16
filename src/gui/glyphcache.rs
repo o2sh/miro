@@ -1,7 +1,7 @@
 use crate::config::TextStyle;
 use crate::font::{FontConfiguration, GlyphInfo};
 use crate::window::bitmaps::atlas::{Atlas, Sprite};
-use crate::window::bitmaps::{Image, ImageTexture, Texture2d};
+use crate::window::bitmaps::{Image, Texture2d};
 use failure::Fallible;
 use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;
@@ -29,15 +29,6 @@ pub struct GlyphCache<T: Texture2d> {
     glyph_cache: HashMap<GlyphKey, Rc<CachedGlyph<T>>>,
     pub atlas: Atlas<T>,
     fonts: Rc<FontConfiguration>,
-}
-
-impl GlyphCache<ImageTexture> {
-    pub fn new(fonts: &Rc<FontConfiguration>, size: usize) -> Self {
-        let surface = Rc::new(ImageTexture::new(size, size));
-        let atlas = Atlas::new(&surface).expect("failed to create new texture atlas");
-
-        Self { fonts: Rc::clone(fonts), glyph_cache: HashMap::new(), atlas }
-    }
 }
 
 impl GlyphCache<SrgbTexture2d> {

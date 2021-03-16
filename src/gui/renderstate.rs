@@ -4,7 +4,6 @@ use super::spritesheet::*;
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::config::Theme;
 use crate::font::FontConfiguration;
-use crate::window::bitmaps::ImageTexture;
 use crate::window::color::Color;
 use failure::Fallible;
 use glium::backend::Context as GliumContext;
@@ -19,23 +18,6 @@ const SPRITE_SPEED: f32 = 10.0;
 lazy_static! {
     static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
     static ref CPU_LOAD_LENGTH: usize = "CPU:000%".chars().count();
-}
-
-pub struct SoftwareRenderState {
-    pub glyph_cache: RefCell<GlyphCache<ImageTexture>>,
-    pub util_sprites: UtilSprites<ImageTexture>,
-}
-
-impl SoftwareRenderState {
-    pub fn new(
-        fonts: &Rc<FontConfiguration>,
-        metrics: &RenderMetrics,
-        size: usize,
-    ) -> Fallible<Self> {
-        let glyph_cache = RefCell::new(GlyphCache::new(fonts, size));
-        let util_sprites = UtilSprites::new(&mut glyph_cache.borrow_mut(), metrics)?;
-        Ok(Self { glyph_cache, util_sprites })
-    }
 }
 
 pub struct OpenGLRenderState {
@@ -552,69 +534,6 @@ impl OpenGLRenderState {
             vert[V_TOP_RIGHT].position.0 += delta;
             vert[V_BOT_LEFT].position.0 += delta;
             vert[V_BOT_RIGHT].position.0 += delta;
-        }
-    }
-}
-
-#[allow(clippy::large_enum_variant)]
-pub enum RenderState {
-    Software(SoftwareRenderState),
-    GL(OpenGLRenderState),
-}
-
-impl RenderState {
-    pub fn recreate_texture_atlas(
-        &mut self,
-        fonts: &Rc<FontConfiguration>,
-        metrics: &RenderMetrics,
-        size: Option<usize>,
-    ) -> Fallible<()> {
-        match self {
-            RenderState::Software(software) => {
-                let size = size.unwrap_or_else(|| software.glyph_cache.borrow().atlas.size());
-                let mut glyph_cache = GlyphCache::new(fonts, size);
-                software.util_sprites = UtilSprites::new(&mut glyph_cache, metrics)?;
-                *software.glyph_cache.borrow_mut() = glyph_cache;
-            }
-            RenderState::GL(gl) => {
-                let size = size.unwrap_or_else(|| gl.glyph_cache.borrow().atlas.size());
-                let mut glyph_cache = GlyphCache::new_gl(&gl.context, fonts, size)?;
-                gl.util_sprites = UtilSprites::new(&mut glyph_cache, metrics)?;
-                *gl.glyph_cache.borrow_mut() = glyph_cache;
-            }
-        };
-        Ok(())
-    }
-
-    pub fn advise_of_window_size_change(
-        &mut self,
-        metrics: &RenderMetrics,
-        pixel_width: usize,
-        pixel_height: usize,
-    ) -> Fallible<()> {
-        if let RenderState::GL(gl) = self {
-            gl.advise_of_window_size_change(metrics, pixel_width, pixel_height)?;
-        }
-        Ok(())
-    }
-
-    pub fn change_header_scaling(
-        &mut self,
-        dpi: f32,
-        metrics: &RenderMetrics,
-        pixel_width: usize,
-        pixel_height: usize,
-    ) -> Fallible<()> {
-        if let RenderState::GL(gl) = self {
-            gl.change_header_scaling(dpi, metrics, pixel_width, pixel_height)?;
-        }
-        Ok(())
-    }
-
-    pub fn opengl(&self) -> &OpenGLRenderState {
-        match self {
-            RenderState::GL(gl) => gl,
-            _ => panic!("only valid for opengl render mode"),
         }
     }
 }
