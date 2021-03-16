@@ -2,12 +2,13 @@ use crate::config::{Config, TextStyle};
 use crate::font::hbwrap as harfbuzz;
 use crate::font::system::{FallbackIdx, Font, FontMetrics, GlyphInfo, RasterizedGlyph};
 use crate::font::{shape_with_harfbuzz, FontSystem, NamedFont};
+use cocoa::appkit::CGPoint;
 use core::cell::RefCell;
 use core_graphics::base::{kCGBitmapByteOrder32Big, kCGImageAlphaPremultipliedLast};
 use core_graphics::color_space::CGColorSpace;
 use core_graphics::context::CGContext;
 use core_graphics::font::CGGlyph;
-use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+use core_graphics::geometry::{CGRect, CGSize};
 use core_text::font::{new_from_descriptor, CTFont};
 use core_text::font_collection::create_for_family;
 use core_text::font_descriptor::{

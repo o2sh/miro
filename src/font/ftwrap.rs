@@ -113,6 +113,7 @@ impl Drop for Library {
 }
 
 impl Library {
+    #[allow(dead_code)]
     pub fn new() -> Result<Library, Error> {
         let mut lib = ptr::null_mut();
         let res = unsafe { FT_Init_FreeType(&mut lib as *mut _) };
@@ -151,6 +152,7 @@ impl Library {
         })
     }
 
+    #[allow(dead_code)]
     pub fn set_lcd_filter(&mut self, filter: FT_LcdFilter) -> Result<(), Error> {
         unsafe { ft_result(FT_Library_SetLcdFilter(self.lib, filter), ()) }
     }

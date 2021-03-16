@@ -18,6 +18,7 @@ pub struct FreeTypeFontImpl {
 }
 
 impl FreeTypeFontImpl {
+    #[allow(dead_code)]
     pub fn with_face_size_and_dpi(
         mut face: ftwrap::Face,
         size: f64,
@@ -72,6 +73,7 @@ impl FreeTypeFontImpl {
 }
 
 impl Font for FreeTypeFontImpl {
+    #[allow(unused_variables)]
     fn harfbuzz_shape(
         &self,
         buf: &mut harfbuzz::Buffer,

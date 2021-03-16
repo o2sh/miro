@@ -638,7 +638,6 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    #[allow(unused_variables)]
     fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.frame_count += 1;
 
