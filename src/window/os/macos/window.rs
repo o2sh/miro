@@ -1,7 +1,6 @@
 #![allow(clippy::let_unit_value)]
-
 use super::{nsstring, nsstring_to_str};
-use crate::window::connection::ConnectionOps;
+use crate::window::connection::{ConnectionOps, FPS};
 use crate::window::{
     BitmapImage, Color, Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons,
     MouseCursor, MouseEvent, MouseEventKind, MousePress, Operator, PaintContext, Point, Rect, Size,
