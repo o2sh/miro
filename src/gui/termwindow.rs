@@ -41,6 +41,7 @@ pub struct TermWindow {
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
+    count: u32,
     sys: System,
 }
 
@@ -361,6 +362,7 @@ impl TermWindow {
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
                 frame_count: 0,
+                count: 0,
                 sys,
             }),
         )?;
@@ -617,15 +619,19 @@ impl TermWindow {
     }
 
     fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+        let gl_state = self.render_state.as_ref().unwrap();
+        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
         self.frame_count += 1;
+        if self.frame_count % 6 == 0 {
+            self.count += 1;
+            gl_state.slide_sprite(w);
+        }
 
-        if self.frame_count % 5 == 0 {
+        if self.frame_count % 30 == 0 {
             self.sys.refresh_system();
         }
 
         let palette = tab.palette();
-
-        let gl_state = self.render_state.as_ref().unwrap();
 
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
             -(self.dimensions.pixel_width as f32) / 2.0,
@@ -668,8 +674,7 @@ impl TermWindow {
 
         let number_of_sprites = gl_state.spritesheet.sprites.len();
         let sprite =
-            &gl_state.spritesheet.sprites[(self.frame_count % number_of_sprites as u32) as usize];
-        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
+            &gl_state.spritesheet.sprites[(self.count % number_of_sprites as u32) as usize];
         frame.draw(
             &*gl_state.sprite_vertex_buffer.borrow(),
             &gl_state.sprite_index_buffer,
@@ -684,7 +689,6 @@ impl TermWindow {
             &draw_params,
         )?;
 
-        gl_state.slide_sprite(w);
         Ok(())
     }
 

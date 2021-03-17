@@ -1,6 +1,6 @@
 use super::keyboard::Keyboard;
 use crate::core::promise::BasicExecutor;
-use crate::window::connection::ConnectionOps;
+use crate::window::connection::{ConnectionOps, FPS};
 use crate::window::os::x11::WindowInner;
 use crate::window::spawn::*;
 use crate::window::tasks::{Task, Tasks};
@@ -204,7 +204,7 @@ impl ConnectionOps for Connection {
         poll.register(self, tok_xcb, Ready::readable(), PollOpt::level())?;
         poll.register(&*SPAWN_QUEUE, tok_spawn, Ready::readable(), PollOpt::level())?;
 
-        let paint_interval = Duration::from_millis(100);
+        let paint_interval = Duration::from_micros(1_000_000 / FPS as u64);
         let mut last_interval = Instant::now();
 
         while !*self.should_terminate.borrow() {

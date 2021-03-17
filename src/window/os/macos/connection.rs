@@ -1,5 +1,4 @@
 #![allow(clippy::let_unit_value)]
-
 use super::window::WindowInner;
 use crate::core::promise::BasicExecutor;
 use crate::window::connection::ConnectionOps;

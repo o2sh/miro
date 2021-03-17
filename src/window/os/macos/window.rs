@@ -297,27 +297,31 @@ impl Window {
                 dpi: (96.0 * (backing_frame.size.width / nsframe.size.width)) as usize,
             });
 
-            conn.schedule_timer(std::time::Duration::from_millis(100), move || {
-                Connection::with_window_inner(window_id, move |inner| {
-                    let frame = NSView::frame(*inner.view as *mut _);
-                    let backing_frame = NSView::convertRectToBacking(*inner.view as *mut _, frame);
-                    if let Some(window_view) = WindowView::get_this(&**inner.view) {
-                        let mut inner = window_view.inner.borrow_mut();
-                        let width = backing_frame.size.width;
-                        let height = backing_frame.size.height;
-                        if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
-                            let mut frame = glium::Frame::new(
-                                Rc::clone(&gl_context_pair.context),
-                                (width as u32, height as u32),
-                            );
-                            inner.callbacks.paint_opengl(&mut frame);
-                            frame
-                                .finish()
-                                .expect("frame.finish failed and we don't know how to recover");
+            conn.schedule_timer(
+                std::time::Duration::from_micros(1_000_000 / FPS as u64),
+                move || {
+                    Connection::with_window_inner(window_id, move |inner| {
+                        let frame = NSView::frame(*inner.view as *mut _);
+                        let backing_frame =
+                            NSView::convertRectToBacking(*inner.view as *mut _, frame);
+                        if let Some(window_view) = WindowView::get_this(&**inner.view) {
+                            let mut inner = window_view.inner.borrow_mut();
+                            let width = backing_frame.size.width;
+                            let height = backing_frame.size.height;
+                            if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
+                                let mut frame = glium::Frame::new(
+                                    Rc::clone(&gl_context_pair.context),
+                                    (width as u32, height as u32),
+                                );
+                                inner.callbacks.paint_opengl(&mut frame);
+                                frame
+                                    .finish()
+                                    .expect("frame.finish failed and we don't know how to recover");
+                            }
                         }
-                    }
-                });
-            });
+                    });
+                },
+            );
 
             Ok(window)
         }

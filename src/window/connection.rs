@@ -3,6 +3,8 @@ use failure::Fallible;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+pub const FPS: u32 = 60;
+
 thread_local! {
     static CONN: RefCell<Option<Rc<Connection>>> = RefCell::new(None);
 }
