@@ -89,7 +89,6 @@ impl OpenGLRenderState {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &context,
-            header_height + 1.0,
             metrics,
             pixel_width as f32,
             pixel_height as f32,
@@ -248,7 +247,6 @@ impl OpenGLRenderState {
 
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
-            self.header_height + 1.0,
             metrics,
             pixel_width as f32,
             pixel_height as f32,
@@ -279,7 +277,6 @@ impl OpenGLRenderState {
     ) -> Fallible<()> {
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
-            self.header_height + 1.0,
             metrics,
             pixel_width as f32,
             pixel_height as f32,
@@ -355,7 +352,6 @@ impl OpenGLRenderState {
 
     fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
-        top_padding: f32,
         metrics: &RenderMetrics,
         width: f32,
         height: f32,
@@ -370,7 +366,7 @@ impl OpenGLRenderState {
 
         for y in 0..num_rows {
             for x in 0..num_cols {
-                let y_pos = top_padding + (height / -2.0) + (y as f32 * cell_height);
+                let y_pos = (height / -2.0) + (y as f32 * cell_height);
                 let x_pos = (width / -2.0) + (x as f32 * cell_width);
 
                 let idx = verts.len() as u32;

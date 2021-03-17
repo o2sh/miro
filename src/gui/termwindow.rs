@@ -43,6 +43,7 @@ pub struct TermWindow {
     frame_count: u32,
     count: u32,
     sys: System,
+    header_line_offset: usize,
 }
 
 struct Host<'a> {
@@ -122,16 +123,22 @@ impl WindowCallbacks for TermWindow {
     }
 
     fn mouse_event(&mut self, event: &MouseEvent, context: &dyn WindowOps) {
+        use term::input::MouseButton as TMB;
+        use term::input::MouseEventKind as TMEK;
+        use window::MouseButtons as WMB;
+        use window::MouseEventKind as WMEK;
+
         let mux = Mux::get().unwrap();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
             Some(tab) => tab,
             None => return,
         };
 
-        use term::input::MouseButton as TMB;
-        use term::input::MouseEventKind as TMEK;
-        use window::MouseButtons as WMB;
-        use window::MouseEventKind as WMEK;
+        let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
+        let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
+
+        let y = y.saturating_sub(self.header_line_offset as i64);
+
         tab.mouse_event(
             term::MouseEvent {
                 kind: match event.kind {
@@ -165,8 +172,8 @@ impl WindowCallbacks for TermWindow {
                     }
                     WMEK::HorzWheel(_) => TMB::None,
                 },
-                x: (event.x as isize / self.render_metrics.cell_size.width) as usize,
-                y: (event.y as isize / self.render_metrics.cell_size.height) as i64,
+                x,
+                y,
                 modifiers: window_mods_to_termwiz_mods(event.modifiers),
             },
             &mut Host { writer: &mut *tab.writer(), context, clipboard: &self.clipboard },
@@ -178,6 +185,8 @@ impl WindowCallbacks for TermWindow {
             _ => context.invalidate(),
         }
 
+        // When hovering over a hyperlink, show an appropriate
+        // mouse cursor to give the cue that it is clickable
         context.set_cursor(Some(if tab.renderer().current_highlight().is_some() {
             MouseCursor::Hand
         } else {
@@ -364,6 +373,7 @@ impl TermWindow {
                 frame_count: 0,
                 count: 0,
                 sys,
+                header_line_offset: 2,
             }),
         )?;
 
@@ -463,13 +473,14 @@ impl TermWindow {
     }
 
     fn spawn_tab(&mut self, domain: &SpawnTabDomain) -> Fallible<TabId> {
-        let rows = (self.dimensions.pixel_height as usize + 1)
-            / self.render_metrics.cell_size.height as usize;
-        let cols = (self.dimensions.pixel_width as usize + 1)
-            / self.render_metrics.cell_size.width as usize;
+        let rows =
+            (self.dimensions.pixel_height as usize) / self.render_metrics.cell_size.height as usize;
+        let cols =
+            (self.dimensions.pixel_width as usize) / self.render_metrics.cell_size.width as usize;
+        let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
 
         let size = crate::pty::PtySize {
-            rows: rows as u16,
+            rows: tab_bar_adjusted_rows as u16,
             cols: cols as u16,
             pixel_width: self.dimensions.pixel_width as u16,
             pixel_height: self.dimensions.pixel_height as u16,
@@ -556,8 +567,6 @@ impl TermWindow {
         let mux = Mux::get().unwrap();
         if let Some(window) = mux.get_window(self.mux_window_id) {
             let gl_state = self.render_state.as_mut().unwrap();
-            let cols = self.dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-            let rows = self.dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
 
             let scale_changed =
                 dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
@@ -587,16 +596,19 @@ impl TermWindow {
                 )
                 .expect("failed to advise of resize");
 
+            let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
+            let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
+            let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
             let size = crate::pty::PtySize {
-                rows: dimensions.pixel_height as u16 / self.render_metrics.cell_size.height as u16,
-                cols: dimensions.pixel_width as u16 / self.render_metrics.cell_size.width as u16,
+                rows: tab_bar_adjusted_rows as u16,
+                cols: cols as u16,
                 pixel_height: dimensions.pixel_height as u16,
                 pixel_width: dimensions.pixel_width as u16,
             };
             for tab in window.iter() {
                 tab.resize(size).ok();
             }
-
+            self.update_title();
             if scale_changed {
                 if let Some(window) = self.window.as_ref() {
                     window.set_inner_size(
@@ -694,18 +706,35 @@ impl TermWindow {
 
     fn paint_screen_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.clear(tab, frame);
-        self.paint_header_opengl(tab, frame)?;
         self.paint_term_opengl(tab, frame)?;
+        self.paint_header_opengl(tab, frame)?;
         Ok(())
     }
 
     fn paint_term_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         let palette = tab.palette();
         let mut term = tab.renderer();
-        let cursor = term.get_cursor_position();
+
+        let cursor = {
+            let cursor = term.get_cursor_position();
+            CursorPosition { x: cursor.x, y: cursor.y + self.header_line_offset as i64 }
+        };
+
+        let empty_line = crate::core::surface::Line::from("");
+        for i in 0..=self.header_line_offset - 1 {
+            self.render_screen_line_opengl(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
+        }
+
         let dirty_lines = term.get_dirty_lines();
         for (line_idx, line, selrange) in dirty_lines {
-            self.render_screen_line_opengl(line_idx, &line, selrange, &cursor, &*term, &palette)?;
+            self.render_screen_line_opengl(
+                line_idx + self.header_line_offset,
+                &line,
+                selrange,
+                &cursor,
+                &*term,
+                &palette,
+            )?;
         }
         let gl_state = self.render_state.as_ref().unwrap();
 
