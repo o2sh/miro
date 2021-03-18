@@ -12,7 +12,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 mod glyphcache;
 mod quad;
@@ -104,34 +103,12 @@ impl FrontEnd for GuiFrontEnd {
     }
 
     fn run_forever(&self) -> Fallible<()> {
-        struct State {
-            when: Option<Instant>,
-        }
-
-        impl State {
-            fn mark(&mut self, is_empty: bool) {
-                if is_empty {
-                    let now = Instant::now();
-                    if let Some(start) = self.when.as_ref() {
-                        let diff = now - *start;
-                        if diff > Duration::new(5, 0) {
-                            Connection::get().unwrap().terminate_message_loop();
-                        }
-                    } else {
-                        self.when = Some(now);
-                    }
-                } else {
-                    self.when = None;
-                }
-            }
-        }
-
-        let state = Arc::new(Mutex::new(State { when: None }));
-
         self.connection.schedule_timer(std::time::Duration::from_millis(200), move || {
             let mux = Mux::get().unwrap();
             mux.prune_dead_windows();
-            state.lock().unwrap().mark(mux.is_empty());
+            if mux.is_empty() {
+                Connection::get().unwrap().terminate_message_loop();
+            }
         });
 
         self.connection.run_message_loop()

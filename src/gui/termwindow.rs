@@ -355,7 +355,7 @@ impl TermWindow {
 
         let sys = System::new();
 
-        let window = Window::new_window(
+        Window::new_window(
             "miro",
             "miro",
             width,
@@ -376,22 +376,6 @@ impl TermWindow {
                 header_line_offset: 2,
             }),
         )?;
-
-        let cloned_window = window.clone();
-
-        Connection::get().unwrap().schedule_timer(
-            std::time::Duration::from_millis(35),
-            move || {
-                let mux = Mux::get().unwrap();
-                if let Some(tab) = mux.get_active_tab_for_window(mux_window_id) {
-                    if tab.renderer().has_dirty_lines() {
-                        cloned_window.invalidate();
-                    }
-                } else {
-                    cloned_window.close();
-                }
-            },
-        );
 
         Ok(())
     }
