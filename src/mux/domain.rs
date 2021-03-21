@@ -10,16 +10,8 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
-static DOMAIN_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
-pub type DomainId = usize;
-
-pub fn alloc_domain_id() -> DomainId {
-    DOMAIN_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
-}
-
 pub trait Domain: Downcast {
     fn spawn(&self, size: PtySize) -> Result<Rc<dyn Tab>, Error>;
-    fn domain_id(&self) -> DomainId;
     fn domain_name(&self) -> &str;
     fn detach(&self) -> Fallible<()>;
 }
@@ -28,7 +20,6 @@ impl_downcast!(Domain);
 pub struct LocalDomain {
     pty_system: Box<dyn PtySystem>,
     config: Arc<Config>,
-    id: DomainId,
     name: String,
 }
 
@@ -44,8 +35,7 @@ impl LocalDomain {
         pty_system: Box<dyn PtySystem>,
     ) -> Self {
         let config = Arc::clone(config);
-        let id = alloc_domain_id();
-        Self { pty_system, config, id, name: name.to_string() }
+        Self { pty_system, config, name: name.to_string() }
     }
 }
 
@@ -70,16 +60,12 @@ impl Domain for LocalDomain {
             *terminal.palette_mut() = palette.clone().into();
         }
 
-        let tab: Rc<dyn Tab> = Rc::new(LocalTab::new(terminal, child, pair.master, self.id));
+        let tab: Rc<dyn Tab> = Rc::new(LocalTab::new(terminal, child, pair.master));
 
         mux.add_tab(&tab)?;
         mux.add_tab_to_window(&tab)?;
 
         Ok(tab)
-    }
-
-    fn domain_id(&self) -> DomainId {
-        self.id
     }
 
     fn domain_name(&self) -> &str {

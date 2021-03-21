@@ -1,5 +1,4 @@
 use crate::gui::executor;
-use crate::mux::domain::DomainId;
 use crate::mux::renderable::Renderable;
 use crate::mux::Mux;
 use crate::pty::{Child, MasterPty, PtySize};
@@ -60,7 +59,6 @@ pub trait Tab: Downcast {
     fn advance_bytes(&self, buf: &[u8], host: &mut dyn TerminalHost);
     fn is_dead(&self) -> bool;
     fn palette(&self) -> ColorPalette;
-    fn domain_id(&self) -> DomainId;
     fn selection_range(&self) -> Option<SelectionRange>;
 
     fn trickle_paste(&self, text: String) -> Fallible<()> {
@@ -87,7 +85,6 @@ pub struct LocalTab {
     terminal: RefCell<Terminal>,
     process: RefCell<Box<dyn Child>>,
     pty: RefCell<Box<dyn MasterPty>>,
-    domain_id: DomainId,
 }
 
 impl Tab for LocalTab {
@@ -152,10 +149,6 @@ impl Tab for LocalTab {
         self.terminal.borrow().palette().clone()
     }
 
-    fn domain_id(&self) -> DomainId {
-        self.domain_id
-    }
-
     fn selection_range(&self) -> Option<SelectionRange> {
         let terminal = self.terminal.borrow();
         let rows = terminal.screen().physical_rows;
@@ -164,19 +157,13 @@ impl Tab for LocalTab {
 }
 
 impl LocalTab {
-    pub fn new(
-        terminal: Terminal,
-        process: Box<dyn Child>,
-        pty: Box<dyn MasterPty>,
-        domain_id: DomainId,
-    ) -> Self {
+    pub fn new(terminal: Terminal, process: Box<dyn Child>, pty: Box<dyn MasterPty>) -> Self {
         let tab_id = alloc_tab_id();
         Self {
             tab_id,
             terminal: RefCell::new(terminal),
             process: RefCell::new(process),
             pty: RefCell::new(pty),
-            domain_id,
         }
     }
 }

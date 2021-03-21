@@ -7,7 +7,7 @@ use crate::mux::tab::{Tab, TabId};
 use crate::mux::window::Window;
 use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
-use domain::{Domain, DomainId};
+use domain::Domain;
 use failure::{bail, Error, Fallible};
 use log::{debug, error};
 use std::cell::{Ref, RefCell, RefMut};
@@ -26,8 +26,7 @@ pub struct Mux {
     tabs: RefCell<HashMap<TabId, Rc<dyn Tab>>>,
     window: RefCell<Window>,
     config: Arc<Config>,
-    default_domain: RefCell<Option<Arc<dyn Domain>>>,
-    domains: RefCell<HashMap<DomainId, Arc<dyn Domain>>>,
+    domain: RefCell<Arc<dyn Domain>>,
 }
 
 fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std::io::Read>) {
@@ -95,31 +94,17 @@ thread_local! {
 }
 
 impl Mux {
-    pub fn new(config: &Arc<Config>, default_domain: Option<Arc<dyn Domain>>) -> Self {
-        let mut domains = HashMap::new();
-        let mut domains_by_name = HashMap::new();
-        if let Some(default_domain) = default_domain.as_ref() {
-            domains.insert(default_domain.domain_id(), Arc::clone(default_domain));
-
-            domains_by_name
-                .insert(default_domain.domain_name().to_string(), Arc::clone(default_domain));
-        }
-
+    pub fn new(config: &Arc<Config>, domain: Arc<dyn Domain>) -> Self {
         Self {
             tabs: RefCell::new(HashMap::new()),
             window: RefCell::new(Window::new()),
             config: Arc::clone(config),
-            default_domain: RefCell::new(default_domain),
-            domains: RefCell::new(domains),
+            domain: RefCell::new(domain),
         }
     }
 
-    pub fn default_domain(&self) -> Arc<dyn Domain> {
-        self.default_domain.borrow().as_ref().map(Arc::clone).unwrap()
-    }
-
-    pub fn get_domain(&self, id: DomainId) -> Option<Arc<dyn Domain>> {
-        self.domains.borrow().get(&id).cloned()
+    pub fn get_domain(&self) -> Ref<Arc<dyn Domain>> {
+        self.domain.borrow()
     }
 
     pub fn config(&self) -> &Arc<Config> {

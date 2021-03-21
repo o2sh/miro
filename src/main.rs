@@ -26,12 +26,12 @@ fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
     let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
 
     let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local", &config)?);
-    let mux = Rc::new(mux::Mux::new(&config, Some(domain.clone())));
+    let mux = Rc::new(mux::Mux::new(&config, domain.clone()));
     Mux::set_mux(&mux);
 
     let gui = gui::try_new()?;
 
-    let tab = mux.default_domain().spawn(PtySize::default())?;
+    let tab = mux.get_domain().spawn(PtySize::default())?;
     gui.spawn_new_window(mux.config(), &fontconfig, &tab)?;
 
     gui.run_forever()

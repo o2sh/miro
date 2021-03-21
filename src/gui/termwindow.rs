@@ -12,7 +12,7 @@ use crate::mux::Mux;
 use crate::term;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
 use crate::term::color::ColorPalette;
-use crate::term::keyassignment::{KeyAssignment, KeyMap, SpawnTabDomain};
+use crate::term::keyassignment::{KeyAssignment, KeyMap};
 use crate::term::{CursorPosition, Line};
 use crate::window;
 use crate::window::bitmaps::atlas::SpriteSlice;
@@ -442,7 +442,7 @@ impl TermWindow {
         self.activate_tab(tab as usize % max)
     }
 
-    fn spawn_tab(&mut self, domain: &SpawnTabDomain) -> Fallible<TabId> {
+    fn spawn_tab(&mut self) -> Fallible<TabId> {
         let rows =
             (self.dimensions.pixel_height as usize) / self.render_metrics.cell_size.height as usize;
         let cols =
@@ -458,15 +458,7 @@ impl TermWindow {
 
         let mux = Mux::get().unwrap();
 
-        let domain = match domain {
-            SpawnTabDomain::DefaultDomain => mux.default_domain().clone(),
-            SpawnTabDomain::CurrentTabDomain => {
-                let tab = mux.get_active_tab_for_window();
-                mux.get_domain(tab.unwrap().domain_id()).ok_or_else(|| {
-                    failure::format_err!("current tab has unresolvable domain id!?")
-                })?
-            }
-        };
+        let domain = mux.get_domain().clone();
         let tab = domain.spawn(size)?;
         let tab_id = tab.tab_id();
 
@@ -486,8 +478,8 @@ impl TermWindow {
     ) -> Fallible<()> {
         use KeyAssignment::*;
         match assignment {
-            SpawnTab(spawn_where) => {
-                self.spawn_tab(spawn_where)?;
+            SpawnTab => {
+                self.spawn_tab()?;
             }
             ToggleFullScreen => {}
             Copy => {}

@@ -2,14 +2,8 @@ use crate::term::{KeyCode, KeyModifiers};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub enum SpawnTabDomain {
-    DefaultDomain,
-    CurrentTabDomain,
-}
-
-#[derive(Debug, Clone)]
 pub enum KeyAssignment {
-    SpawnTab(SpawnTabDomain),
+    SpawnTab,
     ToggleFullScreen,
     Copy,
     Paste,
@@ -56,13 +50,7 @@ impl KeyMap {
             [KeyModifiers::SUPER, KeyCode::Char('-'), DecreaseFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('0'), ResetFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('='), IncreaseFontSize],
-            [KeyModifiers::SUPER, KeyCode::Char('t'), SpawnTab(SpawnTabDomain::DefaultDomain)],
-            [ctrl_shift, KeyCode::Char('t'), SpawnTab(SpawnTabDomain::DefaultDomain)],
-            [
-                KeyModifiers::SUPER | KeyModifiers::SHIFT,
-                KeyCode::Char('T'),
-                SpawnTab(SpawnTabDomain::CurrentTabDomain)
-            ],
+            [KeyModifiers::SUPER, KeyCode::Char('t'), SpawnTab],
             [KeyModifiers::SUPER, KeyCode::Char('1'), ActivateTab(0)],
             [KeyModifiers::SUPER, KeyCode::Char('2'), ActivateTab(1)],
             [KeyModifiers::SUPER, KeyCode::Char('3'), ActivateTab(2)],
