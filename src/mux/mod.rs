@@ -4,11 +4,11 @@ use crate::core::promise::Future;
 use crate::core::ratelim::RateLimiter;
 use crate::gui::executor;
 use crate::mux::tab::{Tab, TabId};
-use crate::mux::window::{Window, WindowId};
+use crate::mux::window::Window;
 use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
 use domain::{Domain, DomainId};
-use failure::{bail, format_err, Error, Fallible};
+use failure::{bail, Error, Fallible};
 use log::{debug, error};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub mod window;
 
 pub struct Mux {
     tabs: RefCell<HashMap<TabId, Rc<dyn Tab>>>,
-    windows: RefCell<HashMap<WindowId, Window>>,
+    window: RefCell<Window>,
     config: Arc<Config>,
     default_domain: RefCell<Option<Arc<dyn Domain>>>,
     domains: RefCell<HashMap<DomainId, Arc<dyn Domain>>>,
@@ -107,7 +107,7 @@ impl Mux {
 
         Self {
             tabs: RefCell::new(HashMap::new()),
-            windows: RefCell::new(HashMap::new()),
+            window: RefCell::new(Window::new()),
             config: Arc::clone(config),
             default_domain: RefCell::new(default_domain),
             domains: RefCell::new(domains),
@@ -160,67 +160,23 @@ impl Mux {
     pub fn remove_tab(&self, tab_id: TabId) {
         debug!("removing tab {}", tab_id);
         self.tabs.borrow_mut().remove(&tab_id);
-        self.prune_dead_windows();
     }
 
-    pub fn prune_dead_windows(&self) {
-        let live_tab_ids: Vec<TabId> = self.tabs.borrow().keys().cloned().collect();
-        let mut windows = self.windows.borrow_mut();
-        let mut dead_windows = vec![];
-        for (window_id, win) in windows.iter_mut() {
-            win.prune_dead_tabs(&live_tab_ids);
-            if win.is_empty() {
-                dead_windows.push(*window_id);
-            }
-        }
-
-        let dead_tab_ids: Vec<TabId> = self
-            .tabs
-            .borrow()
-            .iter()
-            .filter_map(|(&id, tab)| if tab.is_dead() { Some(id) } else { None })
-            .collect();
-
-        for tab_id in dead_tab_ids {
-            self.tabs.borrow_mut().remove(&tab_id);
-        }
-
-        for window_id in dead_windows {
-            error!("removing window {}", window_id);
-            windows.remove(&window_id);
-        }
+    pub fn get_window(&self) -> Ref<Window> {
+        self.window.borrow()
     }
 
-    pub fn get_window(&self, window_id: WindowId) -> Option<Ref<Window>> {
-        if !self.windows.borrow().contains_key(&window_id) {
-            return None;
-        }
-        Some(Ref::map(self.windows.borrow(), |windows| windows.get(&window_id).unwrap()))
+    pub fn get_window_mut(&self) -> RefMut<Window> {
+        self.window.borrow_mut()
     }
 
-    pub fn get_window_mut(&self, window_id: WindowId) -> Option<RefMut<Window>> {
-        if !self.windows.borrow().contains_key(&window_id) {
-            return None;
-        }
-        Some(RefMut::map(self.windows.borrow_mut(), |windows| windows.get_mut(&window_id).unwrap()))
-    }
-
-    pub fn get_active_tab_for_window(&self, window_id: WindowId) -> Option<Rc<dyn Tab>> {
-        let window = self.get_window(window_id)?;
+    pub fn get_active_tab_for_window(&self) -> Option<Rc<dyn Tab>> {
+        let window = self.get_window();
         window.get_active().map(Rc::clone)
     }
 
-    pub fn new_empty_window(&self) -> WindowId {
-        let window = Window::new();
-        let window_id = window.window_id();
-        self.windows.borrow_mut().insert(window_id, window);
-        window_id
-    }
-
-    pub fn add_tab_to_window(&self, tab: &Rc<dyn Tab>, window_id: WindowId) -> Fallible<()> {
-        let mut window = self
-            .get_window_mut(window_id)
-            .ok_or_else(|| format_err!("add_tab_to_window: no such window_id {}", window_id))?;
+    pub fn add_tab_to_window(&self, tab: &Rc<dyn Tab>) -> Fallible<()> {
+        let mut window = self.get_window_mut();
         window.push(tab);
         Ok(())
     }

@@ -2,8 +2,6 @@ use crate::config::Config;
 use crate::core::promise::{BasicExecutor, Executor, SpawnFunc};
 use crate::font::FontConfiguration;
 use crate::mux::tab::Tab;
-use crate::mux::window::WindowId;
-use crate::mux::window::WindowId as MuxWindowId;
 use crate::mux::Mux;
 use crate::window::*;
 use downcast_rs::{impl_downcast, Downcast};
@@ -41,16 +39,6 @@ pub fn executor() -> Box<dyn Executor> {
     }
 }
 
-pub fn front_end() -> Option<Rc<dyn FrontEnd>> {
-    let mut res = None;
-    FRONT_END.with(|f| {
-        if let Some(me) = &*f.borrow() {
-            res = Some(Rc::clone(me));
-        }
-    });
-    res
-}
-
 pub fn try_new() -> Result<Rc<dyn FrontEnd>, Error> {
     let front_end = GuiFrontEnd::try_new()?;
 
@@ -68,7 +56,6 @@ pub trait FrontEnd: Downcast {
         config: &Arc<Config>,
         fontconfig: &Rc<FontConfiguration>,
         tab: &Rc<dyn Tab>,
-        window_id: WindowId,
     ) -> Fallible<()>;
 
     fn executor(&self) -> Box<dyn Executor>;
@@ -105,7 +92,6 @@ impl FrontEnd for GuiFrontEnd {
     fn run_forever(&self) -> Fallible<()> {
         self.connection.schedule_timer(std::time::Duration::from_millis(200), move || {
             let mux = Mux::get().unwrap();
-            mux.prune_dead_windows();
             if mux.is_empty() {
                 Connection::get().unwrap().terminate_message_loop();
             }
@@ -119,8 +105,7 @@ impl FrontEnd for GuiFrontEnd {
         config: &Arc<Config>,
         fontconfig: &Rc<FontConfiguration>,
         tab: &Rc<dyn Tab>,
-        window_id: MuxWindowId,
     ) -> Fallible<()> {
-        termwindow::TermWindow::new_window(config, fontconfig, tab, window_id)
+        termwindow::TermWindow::new_window(config, fontconfig, tab)
     }
 }

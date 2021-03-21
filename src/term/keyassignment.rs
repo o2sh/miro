@@ -10,7 +10,6 @@ pub enum SpawnTabDomain {
 #[derive(Debug, Clone)]
 pub enum KeyAssignment {
     SpawnTab(SpawnTabDomain),
-    SpawnWindow,
     ToggleFullScreen,
     Copy,
     Paste,
@@ -50,9 +49,7 @@ impl KeyMap {
             [KeyModifiers::ALT, KeyCode::Char('\r'), ToggleFullScreen],
             [KeyModifiers::ALT, KeyCode::Enter, ToggleFullScreen],
             [KeyModifiers::SUPER, KeyCode::Char('m'), Hide],
-            [KeyModifiers::SUPER, KeyCode::Char('n'), SpawnWindow],
             [ctrl_shift, KeyCode::Char('m'), Hide],
-            [ctrl_shift, KeyCode::Char('n'), SpawnWindow],
             [KeyModifiers::CTRL, KeyCode::Char('-'), DecreaseFontSize],
             [KeyModifiers::CTRL, KeyCode::Char('0'), ResetFontSize],
             [KeyModifiers::CTRL, KeyCode::Char('='), IncreaseFontSize],

@@ -31,9 +31,8 @@ fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
 
     let gui = gui::try_new()?;
 
-    let window_id = mux.new_empty_window();
-    let tab = mux.default_domain().spawn(PtySize::default(), window_id)?;
-    gui.spawn_new_window(mux.config(), &fontconfig, &tab, window_id)?;
+    let tab = mux.default_domain().spawn(PtySize::default())?;
+    gui.spawn_new_window(mux.config(), &fontconfig, &tab)?;
 
     gui.run_forever()
 }

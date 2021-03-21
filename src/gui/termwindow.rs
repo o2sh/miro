@@ -5,10 +5,9 @@ use crate::config::{Config, TextStyle};
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
-use crate::gui::{executor, front_end};
+use crate::gui::executor;
 use crate::mux::renderable::Renderable;
 use crate::mux::tab::{Tab, TabId};
-use crate::mux::window::WindowId as MuxWindowId;
 use crate::mux::Mux;
 use crate::term;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
@@ -35,7 +34,6 @@ pub struct TermWindow {
     fonts: Rc<FontConfiguration>,
     config: Arc<Config>,
     dimensions: Dimensions,
-    mux_window_id: MuxWindowId,
     render_metrics: RenderMetrics,
     render_state: Option<OpenGLRenderState>,
     clipboard: Arc<dyn Clipboard>,
@@ -106,16 +104,14 @@ impl WindowCallbacks for TermWindow {
 
     fn can_close(&mut self) -> bool {
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+        let tab = match mux.get_active_tab_for_window() {
             Some(tab) => tab,
             None => return true,
         };
         mux.remove_tab(tab.tab_id());
-        if let Some(mut win) = mux.get_window_mut(self.mux_window_id) {
-            win.remove_by_id(tab.tab_id());
-            return win.is_empty();
-        };
-        true
+        let mut win = mux.get_window_mut();
+        win.remove_by_id(tab.tab_id());
+        return win.is_empty();
     }
 
     fn as_any(&mut self) -> &mut dyn Any {
@@ -129,7 +125,7 @@ impl WindowCallbacks for TermWindow {
         use window::MouseEventKind as WMEK;
 
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+        let tab = match mux.get_active_tab_for_window() {
             Some(tab) => tab,
             None => return,
         };
@@ -281,7 +277,7 @@ impl WindowCallbacks for TermWindow {
         }
 
         let mux = Mux::get().unwrap();
-        if let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) {
+        if let Some(tab) = mux.get_active_tab_for_window() {
             let modifiers = window_mods_to_termwiz_mods(key.modifiers);
 
             if let Some(key) = &key.raw_key {
@@ -324,7 +320,7 @@ impl WindowCallbacks for TermWindow {
 
     fn paint_opengl(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+        let tab = match mux.get_active_tab_for_window() {
             Some(tab) => tab,
             None => {
                 frame.clear_color(0., 0., 0., 1.);
@@ -343,9 +339,7 @@ impl TermWindow {
         config: &Arc<Config>,
         fontconfig: &Rc<FontConfiguration>,
         tab: &Rc<dyn Tab>,
-        mux_window_id: MuxWindowId,
     ) -> Fallible<()> {
-        log::error!("TermWindow::new_window called with mux_window_id {}", mux_window_id);
         let (physical_rows, physical_cols) = tab.renderer().physical_dimensions();
 
         let render_metrics = RenderMetrics::new(fontconfig);
@@ -362,7 +356,6 @@ impl TermWindow {
             height,
             Box::new(Self {
                 window: None,
-                mux_window_id,
                 config: Arc::clone(config),
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
@@ -382,10 +375,7 @@ impl TermWindow {
 
     fn update_title(&mut self) {
         let mux = Mux::get().unwrap();
-        let window = match mux.get_window(self.mux_window_id) {
-            Some(window) => window,
-            _ => return,
-        };
+        let window = mux.get_window();
         let num_tabs = window.len();
 
         if num_tabs == 0 {
@@ -426,9 +416,7 @@ impl TermWindow {
 
     fn activate_tab(&mut self, tab_idx: usize) -> Fallible<()> {
         let mux = Mux::get().unwrap();
-        let mut window = mux
-            .get_window_mut(self.mux_window_id)
-            .ok_or_else(|| failure::format_err!("no such window"))?;
+        let mut window = mux.get_window_mut();
 
         let max = window.len();
         if tab_idx < max {
@@ -442,9 +430,7 @@ impl TermWindow {
 
     fn activate_tab_relative(&mut self, delta: isize) -> Fallible<()> {
         let mux = Mux::get().unwrap();
-        let window = mux
-            .get_window(self.mux_window_id)
-            .ok_or_else(|| failure::format_err!("no such window"))?;
+        let window = mux.get_window();
 
         let max = window.len();
         failure::ensure!(max > 0, "no more tabs");
@@ -475,22 +461,17 @@ impl TermWindow {
         let domain = match domain {
             SpawnTabDomain::DefaultDomain => mux.default_domain().clone(),
             SpawnTabDomain::CurrentTabDomain => {
-                let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                    Some(tab) => tab,
-                    None => failure::bail!("window has no tabs?"),
-                };
-                mux.get_domain(tab.domain_id()).ok_or_else(|| {
+                let tab = mux.get_active_tab_for_window();
+                mux.get_domain(tab.unwrap().domain_id()).ok_or_else(|| {
                     failure::format_err!("current tab has unresolvable domain id!?")
                 })?
             }
         };
-        let tab = domain.spawn(size, self.mux_window_id)?;
+        let tab = domain.spawn(size)?;
         let tab_id = tab.tab_id();
 
         let len = {
-            let window = mux
-                .get_window(self.mux_window_id)
-                .ok_or_else(|| failure::format_err!("no such window!?"))?;
+            let window = mux.get_window();
             window.len()
         };
         self.activate_tab(len - 1)?;
@@ -507,9 +488,6 @@ impl TermWindow {
         match assignment {
             SpawnTab(spawn_where) => {
                 self.spawn_tab(spawn_where)?;
-            }
-            SpawnWindow => {
-                self.spawn_new_window();
             }
             ToggleFullScreen => {}
             Copy => {}
@@ -534,74 +512,61 @@ impl TermWindow {
         Ok(())
     }
 
-    pub fn spawn_new_window(&mut self) {
-        promise::Future::with_executor(executor(), move || {
-            let mux = Mux::get().unwrap();
-            let fonts = Rc::new(FontConfiguration::new(Arc::clone(mux.config())));
-            let window_id = mux.new_empty_window();
-            let tab = mux.default_domain().spawn(crate::pty::PtySize::default(), window_id)?;
-            let front_end = front_end().expect("to be called on gui thread");
-            front_end.spawn_new_window(mux.config(), &fonts, &tab, window_id)?;
-            Ok(())
-        });
-    }
-
     #[allow(clippy::float_cmp)]
     fn scaling_changed(&mut self, dimensions: Dimensions, font_scale: f64) {
         let mux = Mux::get().unwrap();
-        if let Some(window) = mux.get_window(self.mux_window_id) {
-            let gl_state = self.render_state.as_mut().unwrap();
+        let window = mux.get_window();
+        let gl_state = self.render_state.as_mut().unwrap();
 
-            let scale_changed =
-                dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
+        let scale_changed =
+            dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
 
-            if scale_changed {
-                let new_dpi = dimensions.dpi as f64 / 96.;
-                self.fonts.change_scaling(font_scale, new_dpi);
-                self.render_metrics = RenderMetrics::new(&self.fonts);
-                //self.recreate_texture_atlas(None).expect("failed to recreate atlas");
-                gl_state
-                    .change_header_scaling(
-                        new_dpi as f32,
-                        &self.render_metrics,
-                        self.dimensions.pixel_width,
-                        self.dimensions.pixel_height,
-                    )
-                    .expect("failed to rescale header");
-            }
-
-            self.dimensions = dimensions;
-
+        if scale_changed {
+            let new_dpi = dimensions.dpi as f64 / 96.;
+            self.fonts.change_scaling(font_scale, new_dpi);
+            self.render_metrics = RenderMetrics::new(&self.fonts);
+            //self.recreate_texture_atlas(None).expect("failed to recreate atlas");
             gl_state
-                .advise_of_window_size_change(
+                .change_header_scaling(
+                    new_dpi as f32,
                     &self.render_metrics,
-                    dimensions.pixel_width,
-                    dimensions.pixel_height,
+                    self.dimensions.pixel_width,
+                    self.dimensions.pixel_height,
                 )
-                .expect("failed to advise of resize");
+                .expect("failed to rescale header");
+        }
 
-            let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
-            let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-            let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
-            let size = crate::pty::PtySize {
-                rows: tab_bar_adjusted_rows as u16,
-                cols: cols as u16,
-                pixel_height: dimensions.pixel_height as u16,
-                pixel_width: dimensions.pixel_width as u16,
-            };
-            for tab in window.iter() {
-                tab.resize(size).ok();
-            }
-            self.update_title();
-            if scale_changed {
-                if let Some(window) = self.window.as_ref() {
-                    window.set_inner_size(
-                        cols * self.render_metrics.cell_size.width as usize,
-                        rows * self.render_metrics.cell_size.height as usize,
-                    );
-                }
-            }
+        self.dimensions = dimensions;
+
+        gl_state
+            .advise_of_window_size_change(
+                &self.render_metrics,
+                dimensions.pixel_width,
+                dimensions.pixel_height,
+            )
+            .expect("failed to advise of resize");
+
+        let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
+        let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
+        let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
+        let size = crate::pty::PtySize {
+            rows: tab_bar_adjusted_rows as u16,
+            cols: cols as u16,
+            pixel_height: dimensions.pixel_height as u16,
+            pixel_width: dimensions.pixel_width as u16,
         };
+        for tab in window.iter() {
+            tab.resize(size).ok();
+        }
+        self.update_title();
+        if scale_changed {
+            if let Some(window) = self.window.as_ref() {
+                window.set_inner_size(
+                    cols * self.render_metrics.cell_size.width as usize,
+                    rows * self.render_metrics.cell_size.height as usize,
+                );
+            }
+        }
     }
 
     fn decrease_font_size(&mut self) {

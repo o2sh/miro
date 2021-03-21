@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::mux::tab::{LocalTab, Tab};
-use crate::mux::window::WindowId;
 use crate::mux::Mux;
 use crate::pty::unix;
 use crate::pty::{PtySize, PtySystem};
@@ -19,12 +18,9 @@ pub fn alloc_domain_id() -> DomainId {
 }
 
 pub trait Domain: Downcast {
-    fn spawn(&self, size: PtySize, window: WindowId) -> Result<Rc<dyn Tab>, Error>;
-
+    fn spawn(&self, size: PtySize) -> Result<Rc<dyn Tab>, Error>;
     fn domain_id(&self) -> DomainId;
-
     fn domain_name(&self) -> &str;
-
     fn detach(&self) -> Fallible<()>;
 }
 impl_downcast!(Domain);
@@ -54,7 +50,7 @@ impl LocalDomain {
 }
 
 impl Domain for LocalDomain {
-    fn spawn(&self, size: PtySize, window: WindowId) -> Result<Rc<dyn Tab>, Error> {
+    fn spawn(&self, size: PtySize) -> Result<Rc<dyn Tab>, Error> {
         let pair = self.pty_system.openpty(size)?;
         let child = pair.slave.spawn_command(Command::new(crate::pty::get_shell()?))?;
         info!("spawned: {:?}", child);
@@ -77,7 +73,7 @@ impl Domain for LocalDomain {
         let tab: Rc<dyn Tab> = Rc::new(LocalTab::new(terminal, child, pair.master, self.id));
 
         mux.add_tab(&tab)?;
-        mux.add_tab_to_window(&tab, window)?;
+        mux.add_tab_to_window(&tab)?;
 
         Ok(tab)
     }

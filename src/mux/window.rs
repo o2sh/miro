@@ -1,26 +1,14 @@
 use crate::mux::{Tab, TabId};
 use std::rc::Rc;
 
-static WIN_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
-pub type WindowId = usize;
-
 pub struct Window {
-    id: WindowId,
     tabs: Vec<Rc<dyn Tab>>,
     active: usize,
 }
 
 impl Window {
     pub fn new() -> Self {
-        Self {
-            id: WIN_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed),
-            tabs: vec![],
-            active: 0,
-        }
-    }
-
-    pub fn window_id(&self) -> WindowId {
-        self.id
+        Self { tabs: vec![], active: 0 }
     }
 
     pub fn push(&mut self, tab: &Rc<dyn Tab>) {
@@ -83,31 +71,5 @@ impl Window {
 
     pub fn iter(&self) -> impl Iterator<Item = &Rc<dyn Tab>> {
         self.tabs.iter()
-    }
-
-    pub fn prune_dead_tabs(&mut self, live_tab_ids: &[TabId]) {
-        let dead: Vec<TabId> = self
-            .tabs
-            .iter()
-            .filter_map(|tab| if tab.is_dead() { Some(tab.tab_id()) } else { None })
-            .collect();
-        for tab_id in dead {
-            self.remove_by_id(tab_id);
-        }
-
-        let dead: Vec<TabId> = self
-            .tabs
-            .iter()
-            .filter_map(|tab| {
-                if live_tab_ids.iter().find(|&&id| id == tab.tab_id()).is_none() {
-                    Some(tab.tab_id())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for tab_id in dead {
-            self.remove_by_id(tab_id);
-        }
     }
 }
