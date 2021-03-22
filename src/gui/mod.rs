@@ -12,10 +12,10 @@ use std::sync::Mutex;
 mod glyphcache;
 mod header;
 mod quad;
-mod renderstate;
+mod renderer;
 mod spritesheet;
-mod termwindow;
 mod utilsprites;
+mod window;
 
 pub struct GuiFrontEnd {
     connection: Rc<Connection>,
@@ -93,6 +93,6 @@ impl FrontEnd for GuiFrontEnd {
     }
 
     fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
-        termwindow::TermWindow::new_window(fontconfig)
+        window::TermWindow::new_window(fontconfig)
     }
 }

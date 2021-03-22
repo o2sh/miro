@@ -1,5 +1,5 @@
 use super::quad::Quad;
-use super::renderstate::OpenGLRenderState;
+use super::renderer::OpenGLRenderer;
 use super::utilsprites::RenderMetrics;
 use crate::config::TextStyle;
 use crate::core::color::RgbColor;
@@ -29,7 +29,7 @@ impl Header {
 
     pub fn paint(
         &mut self,
-        gl_state: &OpenGLRenderState,
+        gl_state: &OpenGLRenderer,
         palette: &ColorPalette,
         dimensions: &Dimensions,
         frame_count: u32,
@@ -108,7 +108,7 @@ impl Header {
 
     fn render_header_line_opengl(
         &self,
-        gl_state: &OpenGLRenderState,
+        gl_state: &OpenGLRenderer,
         render_metrics: &RenderMetrics,
         fonts: &FontConfiguration,
         palette: &ColorPalette,

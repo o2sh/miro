@@ -20,7 +20,7 @@ lazy_static! {
     static ref CPU_LOAD_LENGTH: usize = "CPU:000%".chars().count();
 }
 
-pub struct OpenGLRenderState {
+pub struct OpenGLRenderer {
     pub context: Rc<GliumContext>,
     pub glyph_cache: RefCell<GlyphCache<SrgbTexture2d>>,
     pub util_sprites: UtilSprites<SrgbTexture2d>,
@@ -44,7 +44,7 @@ pub struct OpenGLRenderState {
     pub dpi: f32,
 }
 
-impl OpenGLRenderState {
+impl OpenGLRenderer {
     pub fn new(
         context: Rc<GliumContext>,
         fonts: &Rc<FontConfiguration>,

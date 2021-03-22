@@ -1,6 +1,6 @@
 use super::header::Header;
 use super::quad::*;
-use super::renderstate::*;
+use super::renderer::OpenGLRenderer;
 use super::utilsprites::RenderMetrics;
 use crate::core::color::RgbColor;
 use crate::core::promise;
@@ -33,7 +33,7 @@ pub struct TermWindow {
     fonts: Rc<FontConfiguration>,
     dimensions: Dimensions,
     render_metrics: RenderMetrics,
-    render_state: Option<OpenGLRenderState>,
+    render_state: Option<OpenGLRenderer>,
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
@@ -79,7 +79,7 @@ impl WindowCallbacks for TermWindow {
     ) -> Fallible<()> {
         self.window.replace(window.clone());
         let mux = Mux::get().unwrap();
-        self.render_state = Some(OpenGLRenderState::new(
+        self.render_state = Some(OpenGLRenderer::new(
             ctx,
             &self.fonts,
             &self.render_metrics,
@@ -481,7 +481,7 @@ impl TermWindow {
     fn paint_term_opengl(
         &self,
         tab: &Ref<Tab>,
-        gl_state: &OpenGLRenderState,
+        gl_state: &OpenGLRenderer,
         palette: &ColorPalette,
         frame: &mut glium::Frame,
     ) -> Fallible<()> {
