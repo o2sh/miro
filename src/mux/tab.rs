@@ -1,5 +1,4 @@
 use crate::gui::executor;
-use crate::mux::renderable::Renderable;
 use crate::mux::Mux;
 use crate::pty::{Child, MasterPty, PtySize};
 use crate::term::color::ColorPalette;
@@ -44,7 +43,7 @@ pub struct Tab {
 }
 
 impl Tab {
-    pub fn renderer(&self) -> RefMut<dyn Renderable> {
+    pub fn renderer(&self) -> RefMut<Terminal> {
         RefMut::map(self.terminal.borrow_mut(), |t| &mut *t)
     }
 

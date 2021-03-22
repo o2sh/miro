@@ -16,7 +16,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 
-pub mod renderable;
 pub mod tab;
 
 pub struct Mux {

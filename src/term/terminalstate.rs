@@ -1,4 +1,3 @@
-#![cfg_attr(feature = "cargo-clippy", allow(clippy::range_plus_one))]
 use super::*;
 use crate::core::escape::csi::{
     Cursor, DecPrivateMode, DecPrivateModeCode, Device, Edit, EraseInDisplay, EraseInLine, Mode,
@@ -866,20 +865,6 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Relative(0), &Position::Relative(0));
     }
 
-    pub fn has_dirty_lines(&self) -> bool {
-        let screen = self.screen();
-        let height = screen.physical_rows;
-        let len = screen.lines.len() - self.viewport_offset as usize;
-
-        for line in screen.lines.iter().skip(len - height) {
-            if line.is_dirty() {
-                return true;
-            }
-        }
-
-        false
-    }
-
     pub fn get_dirty_lines(&self) -> Vec<(usize, &Line, Range<usize>)> {
         let mut res = Vec::new();
 
@@ -921,6 +906,11 @@ impl TerminalState {
         for line in &mut screen.lines {
             line.set_dirty();
         }
+    }
+
+    pub fn physical_dimensions(&self) -> (usize, usize) {
+        let screen = self.screen();
+        (screen.physical_rows, screen.physical_cols)
     }
 
     pub fn cursor_pos(&self) -> CursorPosition {

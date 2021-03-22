@@ -7,13 +7,13 @@ use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
 use crate::gui::executor;
-use crate::mux::renderable::Renderable;
 use crate::mux::tab::Tab;
 use crate::mux::Mux;
 use crate::term;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
 use crate::term::color::ColorPalette;
 use crate::term::keyassignment::{KeyAssignment, KeyMap};
+use crate::term::Terminal;
 use crate::term::{CursorPosition, Line};
 use crate::window;
 use crate::window::bitmaps::atlas::SpriteSlice;
@@ -362,7 +362,7 @@ impl TermWindow {
 
     fn update_text_cursor(&mut self, tab: &Ref<Tab>) {
         let term = tab.renderer();
-        let cursor = term.get_cursor_position();
+        let cursor = term.cursor_pos();
         if let Some(win) = self.window.as_ref() {
             let r = Rect::new(
                 Point::new(
@@ -492,7 +492,7 @@ impl TermWindow {
         let mut term = tab.renderer();
 
         let cursor = {
-            let cursor = term.get_cursor_position();
+            let cursor = term.cursor_pos();
             CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
         };
 
@@ -562,7 +562,7 @@ impl TermWindow {
         line: &Line,
         selection: Range<usize>,
         cursor: &CursorPosition,
-        terminal: &dyn Renderable,
+        terminal: &Terminal,
         palette: &ColorPalette,
     ) -> Fallible<()> {
         let gl_state = self.render_state.as_ref().unwrap();

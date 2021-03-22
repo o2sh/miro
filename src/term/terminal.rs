@@ -10,12 +10,6 @@ pub trait TerminalHost {
     fn get_clipboard(&mut self) -> Fallible<Arc<dyn Clipboard>>;
     fn set_title(&mut self, title: &str);
     fn click_link(&mut self, link: &Arc<Hyperlink>);
-    fn activate_tab(&mut self, _tab: usize) {}
-    fn activate_tab_relative(&mut self, _delta: isize) {}
-    fn toggle_full_screen(&mut self) {}
-    fn increase_font_size(&mut self) {}
-    fn decrease_font_size(&mut self) {}
-    fn reset_font_size(&mut self) {}
 }
 
 pub struct Terminal {
@@ -61,9 +55,7 @@ impl Terminal {
 
     pub fn advance_bytes<B: AsRef<[u8]>>(&mut self, bytes: B, host: &mut dyn TerminalHost) {
         let bytes = bytes.as_ref();
-
         let mut performer = Performer::new(&mut self.state, host);
-
         self.parser.parse(bytes, |action| performer.perform(action));
     }
 }
