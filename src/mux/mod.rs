@@ -133,10 +133,10 @@ impl Mux {
     }
 
     pub fn close(&self) {
-        self.tab.borrow_mut().destroy()
+        self.tab.borrow_mut().close()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.tab.borrow().to_be_destroyed
+    pub fn can_close(&self) -> bool {
+        self.tab.borrow().can_close()
     }
 }

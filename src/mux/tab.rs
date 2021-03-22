@@ -40,7 +40,7 @@ pub struct Tab {
     terminal: RefCell<Terminal>,
     process: RefCell<Box<dyn Child>>,
     pty: RefCell<Box<dyn MasterPty>>,
-    pub to_be_destroyed: bool,
+    can_close: bool,
 }
 
 impl Tab {
@@ -103,15 +103,20 @@ impl Tab {
         self.terminal.borrow().palette().clone()
     }
 
-    pub fn destroy(&mut self) {
-        self.to_be_destroyed = true;
+    pub fn close(&mut self) {
+        self.can_close = true;
     }
+
+    pub fn can_close(&self) -> bool {
+        self.can_close
+    }
+
     pub fn new(terminal: Terminal, process: Box<dyn Child>, pty: Box<dyn MasterPty>) -> Self {
         Self {
             terminal: RefCell::new(terminal),
             process: RefCell::new(process),
             pty: RefCell::new(pty),
-            to_be_destroyed: false,
+            can_close: false,
         }
     }
 }

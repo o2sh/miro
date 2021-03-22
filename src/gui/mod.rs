@@ -85,7 +85,7 @@ impl FrontEnd for GuiFrontEnd {
     fn run_forever(&self) -> Fallible<()> {
         self.connection.schedule_timer(std::time::Duration::from_millis(200), move || {
             let mux = Mux::get().unwrap();
-            if mux.is_empty() {
+            if mux.can_close() {
                 Connection::get().unwrap().terminate_message_loop();
             }
         });
