@@ -3,15 +3,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum KeyAssignment {
-    SpawnTab,
     ToggleFullScreen,
     Copy,
     Paste,
-    ActivateTabRelative(isize),
     IncreaseFontSize,
     DecreaseFontSize,
     ResetFontSize,
-    ActivateTab(usize),
     Hide,
 }
 
@@ -50,37 +47,6 @@ impl KeyMap {
             [KeyModifiers::SUPER, KeyCode::Char('-'), DecreaseFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('0'), ResetFontSize],
             [KeyModifiers::SUPER, KeyCode::Char('='), IncreaseFontSize],
-            [KeyModifiers::SUPER, KeyCode::Char('t'), SpawnTab],
-            [KeyModifiers::SUPER, KeyCode::Char('1'), ActivateTab(0)],
-            [KeyModifiers::SUPER, KeyCode::Char('2'), ActivateTab(1)],
-            [KeyModifiers::SUPER, KeyCode::Char('3'), ActivateTab(2)],
-            [KeyModifiers::SUPER, KeyCode::Char('4'), ActivateTab(3)],
-            [KeyModifiers::SUPER, KeyCode::Char('5'), ActivateTab(4)],
-            [KeyModifiers::SUPER, KeyCode::Char('6'), ActivateTab(5)],
-            [KeyModifiers::SUPER, KeyCode::Char('7'), ActivateTab(6)],
-            [KeyModifiers::SUPER, KeyCode::Char('8'), ActivateTab(7)],
-            [KeyModifiers::SUPER, KeyCode::Char('9'), ActivateTab(8)],
-            [ctrl_shift, KeyCode::Char('1'), ActivateTab(0)],
-            [ctrl_shift, KeyCode::Char('2'), ActivateTab(1)],
-            [ctrl_shift, KeyCode::Char('3'), ActivateTab(2)],
-            [ctrl_shift, KeyCode::Char('4'), ActivateTab(3)],
-            [ctrl_shift, KeyCode::Char('5'), ActivateTab(4)],
-            [ctrl_shift, KeyCode::Char('6'), ActivateTab(5)],
-            [ctrl_shift, KeyCode::Char('7'), ActivateTab(6)],
-            [ctrl_shift, KeyCode::Char('8'), ActivateTab(7)],
-            [ctrl_shift, KeyCode::Char('9'), ActivateTab(8)],
-            [
-                KeyModifiers::SUPER | KeyModifiers::SHIFT,
-                KeyCode::Char('['),
-                ActivateTabRelative(-1)
-            ],
-            [
-                KeyModifiers::SUPER | KeyModifiers::SHIFT,
-                KeyCode::Char('{'),
-                ActivateTabRelative(-1)
-            ],
-            [KeyModifiers::SUPER | KeyModifiers::SHIFT, KeyCode::Char(']'), ActivateTabRelative(1)],
-            [KeyModifiers::SUPER | KeyModifiers::SHIFT, KeyCode::Char('}'), ActivateTabRelative(1)],
         );
 
         Self(map)

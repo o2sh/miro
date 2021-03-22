@@ -3,24 +3,14 @@ use crate::mux::renderable::Renderable;
 use crate::mux::Mux;
 use crate::pty::{Child, MasterPty, PtySize};
 use crate::term::color::ColorPalette;
-use crate::term::selection::SelectionRange;
 use crate::term::{KeyCode, KeyModifiers, MouseEvent, Terminal, TerminalHost};
-use downcast_rs::{impl_downcast, Downcast};
 use failure::{Error, Fallible};
 use std::cell::{RefCell, RefMut};
 use std::sync::{Arc, Mutex};
 
-static TAB_ID: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
-pub type TabId = usize;
-
-pub fn alloc_tab_id() -> TabId {
-    TAB_ID.fetch_add(1, ::std::sync::atomic::Ordering::Relaxed)
-}
-
 const PASTE_CHUNK_SIZE: usize = 1024;
 
 struct Paste {
-    tab_id: TabId,
     text: String,
     offset: usize,
 }
@@ -30,7 +20,7 @@ fn schedule_next_paste(paste: &Arc<Mutex<Paste>>) {
     crate::core::promise::Future::with_executor(executor(), move || {
         let mut locked = paste.lock().unwrap();
         let mux = Mux::get().unwrap();
-        let tab = mux.get_tab(locked.tab_id).unwrap();
+        let tab = mux.get_tab();
 
         let remain = locked.text.len() - locked.offset;
         let chunk = remain.min(PASTE_CHUNK_SIZE);
@@ -46,79 +36,43 @@ fn schedule_next_paste(paste: &Arc<Mutex<Paste>>) {
     });
 }
 
-pub trait Tab: Downcast {
-    fn tab_id(&self) -> TabId;
-    fn renderer(&self) -> RefMut<dyn Renderable>;
-    fn get_title(&self) -> String;
-    fn send_paste(&self, text: &str) -> Fallible<()>;
-    fn reader(&self) -> Fallible<Box<dyn std::io::Read + Send>>;
-    fn writer(&self) -> RefMut<dyn std::io::Write>;
-    fn resize(&self, size: PtySize) -> Fallible<()>;
-    fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> Fallible<()>;
-    fn mouse_event(&self, event: MouseEvent, host: &mut dyn TerminalHost) -> Fallible<()>;
-    fn advance_bytes(&self, buf: &[u8], host: &mut dyn TerminalHost);
-    fn is_dead(&self) -> bool;
-    fn palette(&self) -> ColorPalette;
-    fn selection_range(&self) -> Option<SelectionRange>;
+pub struct Tab {
+    terminal: RefCell<Terminal>,
+    process: RefCell<Box<dyn Child>>,
+    pty: RefCell<Box<dyn MasterPty>>,
+    pub to_be_destroyed: bool,
+}
 
-    fn trickle_paste(&self, text: String) -> Fallible<()> {
+impl Tab {
+    pub fn renderer(&self) -> RefMut<dyn Renderable> {
+        RefMut::map(self.terminal.borrow_mut(), |t| &mut *t)
+    }
+
+    pub fn trickle_paste(&self, text: String) -> Fallible<()> {
         if text.len() <= PASTE_CHUNK_SIZE {
             self.send_paste(&text)?;
         } else {
             self.send_paste(&text[0..PASTE_CHUNK_SIZE])?;
 
-            let paste = Arc::new(Mutex::new(Paste {
-                tab_id: self.tab_id(),
-                text,
-                offset: PASTE_CHUNK_SIZE,
-            }));
+            let paste = Arc::new(Mutex::new(Paste { text, offset: PASTE_CHUNK_SIZE }));
             schedule_next_paste(&paste);
         }
         Ok(())
     }
-}
 
-impl_downcast!(Tab);
-
-pub struct LocalTab {
-    tab_id: TabId,
-    terminal: RefCell<Terminal>,
-    process: RefCell<Box<dyn Child>>,
-    pty: RefCell<Box<dyn MasterPty>>,
-}
-
-impl Tab for LocalTab {
-    #[inline]
-    fn tab_id(&self) -> TabId {
-        self.tab_id
-    }
-
-    fn renderer(&self) -> RefMut<dyn Renderable> {
-        RefMut::map(self.terminal.borrow_mut(), |t| &mut *t)
-    }
-
-    fn is_dead(&self) -> bool {
-        if let Ok(None) = self.process.borrow_mut().try_wait() {
-            false
-        } else {
-            log::error!("is_dead: {:?}", self.tab_id);
-            true
-        }
-    }
-
-    fn advance_bytes(&self, buf: &[u8], host: &mut dyn TerminalHost) {
+    pub fn advance_bytes(&self, buf: &[u8], host: &mut dyn TerminalHost) {
         self.terminal.borrow_mut().advance_bytes(buf, host)
     }
 
-    fn mouse_event(&self, event: MouseEvent, host: &mut dyn TerminalHost) -> Result<(), Error> {
+    pub fn mouse_event(&self, event: MouseEvent, host: &mut dyn TerminalHost) -> Result<(), Error> {
         self.terminal.borrow_mut().mouse_event(event, host)
     }
 
-    fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> Result<(), Error> {
+    pub fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> Result<(), Error> {
         self.terminal.borrow_mut().key_down(key, mods, &mut *self.pty.borrow_mut())
     }
 
-    fn resize(&self, size: PtySize) -> Result<(), Error> {
+    pub fn resize(&self, size: PtySize) -> Result<(), Error> {
         self.pty.borrow_mut().resize(size)?;
         self.terminal.borrow_mut().resize(
             size.rows as usize,
@@ -129,11 +83,11 @@ impl Tab for LocalTab {
         Ok(())
     }
 
-    fn writer(&self) -> RefMut<dyn std::io::Write> {
+    pub fn writer(&self) -> RefMut<dyn std::io::Write> {
         self.pty.borrow_mut()
     }
 
-    fn reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
+    pub fn reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
         self.pty.borrow_mut().try_clone_reader()
     }
 
@@ -141,34 +95,28 @@ impl Tab for LocalTab {
         self.terminal.borrow_mut().send_paste(text, &mut *self.pty.borrow_mut())
     }
 
-    fn get_title(&self) -> String {
+    pub fn get_title(&self) -> String {
         self.terminal.borrow_mut().get_title().to_string()
     }
 
-    fn palette(&self) -> ColorPalette {
+    pub fn palette(&self) -> ColorPalette {
         self.terminal.borrow().palette().clone()
     }
 
-    fn selection_range(&self) -> Option<SelectionRange> {
-        let terminal = self.terminal.borrow();
-        let rows = terminal.screen().physical_rows;
-        terminal.selection_range().map(|r| r.clip_to_viewport(terminal.get_viewport_offset(), rows))
+    pub fn destroy(&mut self) {
+        self.to_be_destroyed = true;
     }
-}
-
-impl LocalTab {
     pub fn new(terminal: Terminal, process: Box<dyn Child>, pty: Box<dyn MasterPty>) -> Self {
-        let tab_id = alloc_tab_id();
         Self {
-            tab_id,
             terminal: RefCell::new(terminal),
             process: RefCell::new(process),
             pty: RefCell::new(pty),
+            to_be_destroyed: false,
         }
     }
 }
 
-impl Drop for LocalTab {
+impl Drop for Tab {
     fn drop(&mut self) {
         self.process.borrow_mut().kill().ok();
         self.process.borrow_mut().wait().ok();

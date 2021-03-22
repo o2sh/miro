@@ -20,7 +20,6 @@ pub trait TerminalHost {
 
 pub struct Terminal {
     state: TerminalState,
-
     parser: Parser,
 }
 

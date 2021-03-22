@@ -1,7 +1,5 @@
-use crate::config::Config;
 use crate::core::promise::{BasicExecutor, Executor, SpawnFunc};
 use crate::font::FontConfiguration;
-use crate::mux::tab::Tab;
 use crate::mux::Mux;
 use crate::window::*;
 use downcast_rs::{impl_downcast, Downcast};
@@ -9,7 +7,7 @@ use failure::{Error, Fallible};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 mod glyphcache;
 mod quad;
@@ -39,8 +37,8 @@ pub fn executor() -> Box<dyn Executor> {
     }
 }
 
-pub fn try_new() -> Result<Rc<dyn FrontEnd>, Error> {
-    let front_end = GuiFrontEnd::try_new()?;
+pub fn new() -> Result<Rc<dyn FrontEnd>, Error> {
+    let front_end = GuiFrontEnd::new()?;
 
     EXECUTOR.lock().unwrap().replace(front_end.executor());
     FRONT_END.with(|f| *f.borrow_mut() = Some(Rc::clone(&front_end)));
@@ -51,12 +49,7 @@ pub fn try_new() -> Result<Rc<dyn FrontEnd>, Error> {
 pub trait FrontEnd: Downcast {
     fn run_forever(&self) -> Result<(), Error>;
 
-    fn spawn_new_window(
-        &self,
-        config: &Arc<Config>,
-        fontconfig: &Rc<FontConfiguration>,
-        tab: &Rc<dyn Tab>,
-    ) -> Fallible<()>;
+    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()>;
 
     fn executor(&self) -> Box<dyn Executor>;
 }
@@ -64,7 +57,7 @@ pub trait FrontEnd: Downcast {
 impl_downcast!(FrontEnd);
 
 impl GuiFrontEnd {
-    pub fn try_new() -> Fallible<Rc<dyn FrontEnd>> {
+    pub fn new() -> Fallible<Rc<dyn FrontEnd>> {
         let connection = Connection::init()?;
         let front_end = Rc::new(GuiFrontEnd { connection });
         Ok(front_end)
@@ -100,12 +93,7 @@ impl FrontEnd for GuiFrontEnd {
         self.connection.run_message_loop()
     }
 
-    fn spawn_new_window(
-        &self,
-        config: &Arc<Config>,
-        fontconfig: &Rc<FontConfiguration>,
-        tab: &Rc<dyn Tab>,
-    ) -> Fallible<()> {
-        termwindow::TermWindow::new_window(config, fontconfig, tab)
+    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
+        termwindow::TermWindow::new_window(fontconfig)
     }
 }

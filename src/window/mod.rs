@@ -65,7 +65,7 @@ pub enum MouseCursor {
 
 #[allow(unused_variables)]
 pub trait WindowCallbacks: Any {
-    fn can_close(&mut self) -> bool {
+    fn can_close(&self) -> bool {
         true
     }
     fn destroy(&mut self) {}

@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use crate::config::Theme;
 use crate::font::FontConfiguration;
-use crate::mux::domain::{Domain, LocalDomain};
 use crate::mux::Mux;
 use crate::pty::PtySize;
 use crate::term::color::RgbColor;
@@ -22,24 +21,19 @@ mod pty;
 mod term;
 mod window;
 
-fn run_terminal_gui(config: Arc<config::Config>) -> Result<(), Error> {
-    let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
-
-    let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local", &config)?);
-    let mux = Rc::new(mux::Mux::new(&config, domain.clone()));
-    Mux::set_mux(&mux);
-
-    let gui = gui::try_new()?;
-
-    let tab = mux.get_domain().spawn(PtySize::default())?;
-    gui.spawn_new_window(mux.config(), &fontconfig, &tab)?;
-
-    gui.run_forever()
-}
-
 fn run(theme: Option<Theme>) -> Result<(), Error> {
     let config = Arc::new(config::Config::default_config(theme));
-    run_terminal_gui(config)
+    let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
+
+    let mux = Rc::new(mux::Mux::new(&config, PtySize::default())?);
+    Mux::set_mux(&mux);
+    mux.start()?;
+
+    let gui = gui::new()?;
+
+    gui.spawn_new_window(&fontconfig)?;
+
+    gui.run_forever()
 }
 
 fn main() -> Result<(), Error> {

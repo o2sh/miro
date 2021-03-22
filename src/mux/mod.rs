@@ -3,33 +3,28 @@ use crate::core::hyperlink::Hyperlink;
 use crate::core::promise::Future;
 use crate::core::ratelim::RateLimiter;
 use crate::gui::executor;
-use crate::mux::tab::{Tab, TabId};
-use crate::mux::window::Window;
+use crate::mux::tab::Tab;
+use crate::pty::{unix, PtySize, PtySystem};
 use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
-use domain::Domain;
 use failure::{bail, Error, Fallible};
-use log::{debug, error};
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
+use log::error;
+use std::cell::{Ref, RefCell};
 use std::io::Read;
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 
-pub mod domain;
 pub mod renderable;
 pub mod tab;
-pub mod window;
 
 pub struct Mux {
-    tabs: RefCell<HashMap<TabId, Rc<dyn Tab>>>,
-    window: RefCell<Window>,
+    tab: RefCell<Tab>,
     config: Arc<Config>,
-    domain: RefCell<Arc<dyn Domain>>,
 }
 
-fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std::io::Read>) {
+fn read_from_tab_pty(config: Arc<Config>, mut reader: Box<dyn std::io::Read>) {
     const BUFSIZE: usize = 32 * 1024;
     let mut buf = [0; BUFSIZE];
 
@@ -39,11 +34,9 @@ fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std
     loop {
         match reader.read(&mut buf) {
             Ok(size) if size == 0 => {
-                error!("read_pty EOF: tab_id {}", tab_id);
                 break;
             }
-            Err(err) => {
-                error!("read_pty failed: tab {} {:?}", tab_id, err);
+            Err(_) => {
                 break;
             }
             Ok(size) => {
@@ -51,19 +44,13 @@ fn read_from_tab_pty(config: Arc<Config>, tab_id: TabId, mut reader: Box<dyn std
                 let data = buf[0..size].to_vec();
                 Future::with_executor(executor(), move || {
                     let mux = Mux::get().unwrap();
-                    if let Some(tab) = mux.get_tab(tab_id) {
-                        tab.advance_bytes(&data, &mut Host { writer: &mut *tab.writer() });
-                    }
+                    let tab = mux.get_tab();
+                    tab.advance_bytes(&data, &mut Host { writer: &mut *tab.writer() });
                     Ok(())
                 });
             }
         }
     }
-    Future::with_executor(executor(), move || {
-        let mux = Mux::get().unwrap();
-        mux.remove_tab(tab_id);
-        Ok(())
-    });
 }
 
 struct Host<'a> {
@@ -94,17 +81,31 @@ thread_local! {
 }
 
 impl Mux {
-    pub fn new(config: &Arc<Config>, domain: Arc<dyn Domain>) -> Self {
-        Self {
-            tabs: RefCell::new(HashMap::new()),
-            window: RefCell::new(Window::new()),
-            config: Arc::clone(config),
-            domain: RefCell::new(domain),
-        }
+    pub fn new(config: &Arc<Config>, size: PtySize) -> Result<Self, Error> {
+        let pty_system = Box::new(unix::UnixPtySystem);
+        let pair = pty_system.openpty(size)?;
+        let child = pair.slave.spawn_command(Command::new(crate::pty::get_shell()?))?;
+
+        let terminal = crate::term::Terminal::new(
+            size.rows as usize,
+            size.cols as usize,
+            size.pixel_width as usize,
+            size.pixel_height as usize,
+            config.scrollback_lines.unwrap_or(3500),
+            config.hyperlink_rules.clone(),
+        );
+
+        let tab = Tab::new(terminal, child, pair.master);
+
+        Ok(Self { tab: RefCell::new(tab), config: Arc::clone(config) })
     }
 
-    pub fn get_domain(&self) -> Ref<Arc<dyn Domain>> {
-        self.domain.borrow()
+    pub fn start(&self) -> Result<(), Error> {
+        let reader = self.tab.borrow().reader()?;
+        let config = Arc::clone(&self.config);
+        thread::spawn(move || read_from_tab_pty(config, reader));
+
+        Ok(())
     }
 
     pub fn config(&self) -> &Arc<Config> {
@@ -127,46 +128,15 @@ impl Mux {
         res
     }
 
-    pub fn get_tab(&self, tab_id: TabId) -> Option<Rc<dyn Tab>> {
-        self.tabs.borrow().get(&tab_id).map(Rc::clone)
+    pub fn get_tab(&self) -> Ref<Tab> {
+        self.tab.borrow()
     }
 
-    pub fn add_tab(&self, tab: &Rc<dyn Tab>) -> Result<(), Error> {
-        self.tabs.borrow_mut().insert(tab.tab_id(), Rc::clone(tab));
-
-        let reader = tab.reader()?;
-        let tab_id = tab.tab_id();
-        let config = Arc::clone(&self.config);
-        thread::spawn(move || read_from_tab_pty(config, tab_id, reader));
-
-        Ok(())
-    }
-
-    pub fn remove_tab(&self, tab_id: TabId) {
-        debug!("removing tab {}", tab_id);
-        self.tabs.borrow_mut().remove(&tab_id);
-    }
-
-    pub fn get_window(&self) -> Ref<Window> {
-        self.window.borrow()
-    }
-
-    pub fn get_window_mut(&self) -> RefMut<Window> {
-        self.window.borrow_mut()
-    }
-
-    pub fn get_active_tab_for_window(&self) -> Option<Rc<dyn Tab>> {
-        let window = self.get_window();
-        window.get_active().map(Rc::clone)
-    }
-
-    pub fn add_tab_to_window(&self, tab: &Rc<dyn Tab>) -> Fallible<()> {
-        let mut window = self.get_window_mut();
-        window.push(tab);
-        Ok(())
+    pub fn close(&self) {
+        self.tab.borrow_mut().destroy()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tabs.borrow().is_empty()
+        self.tab.borrow().to_be_destroyed
     }
 }

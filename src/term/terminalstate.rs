@@ -223,10 +223,6 @@ impl TerminalState {
         &self.palette
     }
 
-    pub fn palette_mut(&mut self) -> &mut ColorPalette {
-        &mut self.palette
-    }
-
     pub fn screen(&self) -> &Screen {
         &self.screen
     }
@@ -487,10 +483,6 @@ impl TerminalState {
         } else {
             self.mouse_button_release(event, host.writer())
         }
-    }
-
-    pub fn selection_range(&self) -> Option<SelectionRange> {
-        self.selection_range.map(|r| r.normalize())
     }
 
     fn mouse_drag_left(&mut self, event: MouseEvent) -> Result<(), Error> {
@@ -915,10 +907,6 @@ impl TerminalState {
         }
 
         res
-    }
-
-    pub fn get_viewport_offset(&self) -> VisibleRowIndex {
-        self.viewport_offset
     }
 
     pub fn clean_dirty_lines(&mut self) {

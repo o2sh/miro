@@ -7,7 +7,7 @@ use crate::core::promise;
 use crate::font::FontConfiguration;
 use crate::gui::executor;
 use crate::mux::renderable::Renderable;
-use crate::mux::tab::{Tab, TabId};
+use crate::mux::tab::Tab;
 use crate::mux::Mux;
 use crate::term;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 use failure::Fallible;
 use glium::{uniform, Surface};
 use std::any::Any;
+use std::cell::Ref;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -102,18 +103,11 @@ impl WindowCallbacks for TermWindow {
         Ok(())
     }
 
-    fn can_close(&mut self) -> bool {
+    fn can_close(&self) -> bool {
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window() {
-            Some(tab) => tab,
-            None => return true,
-        };
-        mux.remove_tab(tab.tab_id());
-        let mut win = mux.get_window_mut();
-        win.remove_by_id(tab.tab_id());
-        return win.is_empty();
+        mux.close();
+        true
     }
-
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }
@@ -125,10 +119,7 @@ impl WindowCallbacks for TermWindow {
         use window::MouseEventKind as WMEK;
 
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window() {
-            Some(tab) => tab,
-            None => return,
-        };
+        let tab = mux.get_tab();
 
         let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
         let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
@@ -277,42 +268,41 @@ impl WindowCallbacks for TermWindow {
         }
 
         let mux = Mux::get().unwrap();
-        if let Some(tab) = mux.get_active_tab_for_window() {
-            let modifiers = window_mods_to_termwiz_mods(key.modifiers);
+        let tab = mux.get_tab();
+        let modifiers = window_mods_to_termwiz_mods(key.modifiers);
 
-            if let Some(key) = &key.raw_key {
-                if let Key::Code(key) = win_key_code_to_termwiz_key_code(&key) {
-                    if let Some(assignment) = self.keys.lookup(key, modifiers) {
-                        self.perform_key_assignment(&tab, &assignment).ok();
-                        return true;
-                    }
-
-                    if !self.config.send_composed_key_when_alt_is_pressed
-                        && modifiers.contains(crate::core::input::Modifiers::ALT)
-                    {
-                        if tab.key_down(key, modifiers).is_ok() {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            let key = win_key_code_to_termwiz_key_code(&key.key);
-            match key {
-                Key::Code(key) => {
-                    if let Some(assignment) = self.keys.lookup(key, modifiers) {
-                        self.perform_key_assignment(&tab, &assignment).ok();
-                        return true;
-                    } else if tab.key_down(key, modifiers).is_ok() {
-                        return true;
-                    }
-                }
-                Key::Composed(s) => {
-                    tab.writer().write_all(s.as_bytes()).ok();
+        if let Some(key) = &key.raw_key {
+            if let Key::Code(key) = win_key_code_to_termwiz_key_code(&key) {
+                if let Some(assignment) = self.keys.lookup(key, modifiers) {
+                    self.perform_key_assignment(&tab, &assignment).ok();
                     return true;
                 }
-                Key::None => {}
+
+                if !self.config.send_composed_key_when_alt_is_pressed
+                    && modifiers.contains(crate::core::input::Modifiers::ALT)
+                {
+                    if tab.key_down(key, modifiers).is_ok() {
+                        return true;
+                    }
+                }
             }
+        }
+
+        let key = win_key_code_to_termwiz_key_code(&key.key);
+        match key {
+            Key::Code(key) => {
+                if let Some(assignment) = self.keys.lookup(key, modifiers) {
+                    self.perform_key_assignment(&tab, &assignment).ok();
+                    return true;
+                } else if tab.key_down(key, modifiers).is_ok() {
+                    return true;
+                }
+            }
+            Key::Composed(s) => {
+                tab.writer().write_all(s.as_bytes()).ok();
+                return true;
+            }
+            Key::None => {}
         }
 
         false
@@ -320,13 +310,7 @@ impl WindowCallbacks for TermWindow {
 
     fn paint_opengl(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
-        let tab = match mux.get_active_tab_for_window() {
-            Some(tab) => tab,
-            None => {
-                frame.clear_color(0., 0., 0., 1.);
-                return;
-            }
-        };
+        let tab = mux.get_tab();
 
         self.update_text_cursor(&tab);
         self.paint_screen_opengl(&tab, frame).expect("failed to paint screen");
@@ -335,11 +319,10 @@ impl WindowCallbacks for TermWindow {
 }
 
 impl TermWindow {
-    pub fn new_window(
-        config: &Arc<Config>,
-        fontconfig: &Rc<FontConfiguration>,
-        tab: &Rc<dyn Tab>,
-    ) -> Fallible<()> {
+    pub fn new_window(fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+        let config = mux.config();
         let (physical_rows, physical_cols) = tab.renderer().physical_dimensions();
 
         let render_metrics = RenderMetrics::new(fontconfig);
@@ -375,31 +358,15 @@ impl TermWindow {
 
     fn update_title(&mut self) {
         let mux = Mux::get().unwrap();
-        let window = mux.get_window();
-        let num_tabs = window.len();
-
-        if num_tabs == 0 {
-            return;
-        }
-        let tab_no = window.get_active_idx();
-
-        let title = match window.get_active() {
-            Some(tab) => tab.get_title(),
-            None => return,
-        };
-
-        drop(window);
+        let tab = mux.get_tab();
+        let title = tab.get_title();
 
         if let Some(window) = self.window.as_ref() {
-            if num_tabs == 1 {
-                window.set_title(&title);
-            } else {
-                window.set_title(&format!("[{}/{}] {}", tab_no + 1, num_tabs, title));
-            }
+            window.set_title(&title);
         }
     }
 
-    fn update_text_cursor(&mut self, tab: &Rc<dyn Tab>) {
+    fn update_text_cursor(&mut self, tab: &Ref<Tab>) {
         let term = tab.renderer();
         let cursor = term.get_cursor_position();
         if let Some(win) = self.window.as_ref() {
@@ -414,87 +381,21 @@ impl TermWindow {
         }
     }
 
-    fn activate_tab(&mut self, tab_idx: usize) -> Fallible<()> {
-        let mux = Mux::get().unwrap();
-        let mut window = mux.get_window_mut();
-
-        let max = window.len();
-        if tab_idx < max {
-            window.set_active(tab_idx);
-
-            drop(window);
-            self.update_title();
-        }
-        Ok(())
-    }
-
-    fn activate_tab_relative(&mut self, delta: isize) -> Fallible<()> {
-        let mux = Mux::get().unwrap();
-        let window = mux.get_window();
-
-        let max = window.len();
-        failure::ensure!(max > 0, "no more tabs");
-
-        let active = window.get_active_idx() as isize;
-        let tab = active + delta;
-        let tab = if tab < 0 { max as isize + tab } else { tab };
-        drop(window);
-        self.activate_tab(tab as usize % max)
-    }
-
-    fn spawn_tab(&mut self) -> Fallible<TabId> {
-        let rows =
-            (self.dimensions.pixel_height as usize) / self.render_metrics.cell_size.height as usize;
-        let cols =
-            (self.dimensions.pixel_width as usize) / self.render_metrics.cell_size.width as usize;
-        let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
-
-        let size = crate::pty::PtySize {
-            rows: tab_bar_adjusted_rows as u16,
-            cols: cols as u16,
-            pixel_width: self.dimensions.pixel_width as u16,
-            pixel_height: self.dimensions.pixel_height as u16,
-        };
-
-        let mux = Mux::get().unwrap();
-
-        let domain = mux.get_domain().clone();
-        let tab = domain.spawn(size)?;
-        let tab_id = tab.tab_id();
-
-        let len = {
-            let window = mux.get_window();
-            window.len()
-        };
-        self.activate_tab(len - 1)?;
-        Ok(tab_id)
-    }
-
-    #[allow(dead_code)]
     fn perform_key_assignment(
         &mut self,
-        tab: &Rc<dyn Tab>,
+        tab: &Ref<Tab>,
         assignment: &KeyAssignment,
     ) -> Fallible<()> {
         use KeyAssignment::*;
         match assignment {
-            SpawnTab => {
-                self.spawn_tab()?;
-            }
             ToggleFullScreen => {}
             Copy => {}
             Paste => {
                 tab.trickle_paste(self.clipboard.get_contents()?)?;
             }
-            ActivateTabRelative(n) => {
-                self.activate_tab_relative(*n)?;
-            }
             DecreaseFontSize => self.decrease_font_size(),
             IncreaseFontSize => self.increase_font_size(),
             ResetFontSize => self.reset_font_size(),
-            ActivateTab(n) => {
-                self.activate_tab(*n)?;
-            }
             Hide => {
                 if let Some(w) = self.window.as_ref() {
                     w.hide();
@@ -507,7 +408,7 @@ impl TermWindow {
     #[allow(clippy::float_cmp)]
     fn scaling_changed(&mut self, dimensions: Dimensions, font_scale: f64) {
         let mux = Mux::get().unwrap();
-        let window = mux.get_window();
+        let tab = mux.get_tab();
         let gl_state = self.render_state.as_mut().unwrap();
 
         let scale_changed =
@@ -547,9 +448,7 @@ impl TermWindow {
             pixel_height: dimensions.pixel_height as u16,
             pixel_width: dimensions.pixel_width as u16,
         };
-        for tab in window.iter() {
-            tab.resize(size).ok();
-        }
+        tab.resize(size).ok();
         self.update_title();
         if scale_changed {
             if let Some(window) = self.window.as_ref() {
@@ -571,7 +470,7 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn paint_header_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_header_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         let gl_state = self.render_state.as_ref().unwrap();
         let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
         self.frame_count += 1;
@@ -645,14 +544,14 @@ impl TermWindow {
         Ok(())
     }
 
-    fn paint_screen_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_screen_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.clear(tab, frame);
         self.paint_term_opengl(tab, frame)?;
         self.paint_header_opengl(tab, frame)?;
         Ok(())
     }
 
-    fn paint_term_opengl(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_term_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         let palette = tab.palette();
         let mut term = tab.renderer();
 
@@ -981,7 +880,7 @@ impl TermWindow {
         (fg_color, bg_color)
     }
 
-    fn clear(&mut self, tab: &Rc<dyn Tab>, frame: &mut glium::Frame) {
+    fn clear(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) {
         let palette = tab.palette();
         let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
         let (r, g, b, a) = background_color.to_tuple_rgba();

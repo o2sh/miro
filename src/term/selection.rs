@@ -1,5 +1,5 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::range_plus_one))]
-use super::{ScrollbackOrVisibleRowIndex, VisibleRowIndex};
+use super::ScrollbackOrVisibleRowIndex;
 use serde_derive::*;
 use std::ops::Range;
 
@@ -19,21 +19,6 @@ impl SelectionRange {
     pub fn start(start: SelectionCoordinate) -> Self {
         let end = start;
         Self { start, end }
-    }
-
-    pub fn clip_to_viewport(
-        &self,
-        viewport_offset: VisibleRowIndex,
-        height: usize,
-    ) -> SelectionRange {
-        let offset = -viewport_offset as ScrollbackOrVisibleRowIndex;
-        SelectionRange {
-            start: SelectionCoordinate { x: self.start.x, y: self.start.y.max(offset) - offset },
-            end: SelectionCoordinate {
-                x: self.end.x,
-                y: self.end.y.min(offset + height as ScrollbackOrVisibleRowIndex) - offset,
-            },
-        }
     }
 
     pub fn extend(&self, end: SelectionCoordinate) -> Self {
