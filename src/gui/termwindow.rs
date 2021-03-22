@@ -1,7 +1,8 @@
+use super::header::Header;
 use super::quad::*;
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
-use crate::config::{Config, TextStyle};
+use crate::config::Config;
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
@@ -18,7 +19,6 @@ use crate::window;
 use crate::window::bitmaps::atlas::SpriteSlice;
 use crate::window::bitmaps::Texture2d;
 use crate::window::*;
-use chrono::{DateTime, Utc};
 use failure::Fallible;
 use glium::{uniform, Surface};
 use std::any::Any;
@@ -26,7 +26,6 @@ use std::cell::Ref;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
-use sysinfo::{ProcessorExt, System, SystemExt};
 
 const ATLAS_SIZE: usize = 4096;
 
@@ -40,9 +39,7 @@ pub struct TermWindow {
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
-    count: u32,
-    sys: System,
-    header_line_offset: usize,
+    header: Header,
 }
 
 struct Host<'a> {
@@ -124,7 +121,7 @@ impl WindowCallbacks for TermWindow {
         let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
         let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
 
-        let y = y.saturating_sub(self.header_line_offset as i64);
+        let y = y.saturating_sub(self.header.offset as i64);
 
         tab.mouse_event(
             term::MouseEvent {
@@ -330,8 +327,7 @@ impl TermWindow {
         let width = render_metrics.cell_size.width as usize * physical_cols;
         let height = render_metrics.cell_size.height as usize * physical_rows;
 
-        let sys = System::new();
-
+        let header = Header::new();
         Window::new_window(
             "miro",
             "miro",
@@ -346,10 +342,8 @@ impl TermWindow {
                 render_state: None,
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
+                header,
                 frame_count: 0,
-                count: 0,
-                sys,
-                header_line_offset: 2,
             }),
         )?;
 
@@ -441,7 +435,7 @@ impl TermWindow {
 
         let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
         let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-        let tab_bar_adjusted_rows = rows.saturating_sub(self.header_line_offset);
+        let tab_bar_adjusted_rows = rows.saturating_sub(self.header.offset);
         let size = crate::pty::PtySize {
             rows: tab_bar_adjusted_rows as u16,
             cols: cols as u16,
@@ -470,105 +464,47 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn paint_header_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
-        let gl_state = self.render_state.as_ref().unwrap();
-        let w = self.dimensions.pixel_width as f32 as f32 / 2.0;
-        self.frame_count += 1;
-        if self.frame_count % 6 == 0 {
-            self.count += 1;
-            gl_state.slide_sprite(w);
-        }
-
-        if self.frame_count % 30 == 0 {
-            self.sys.refresh_system();
-        }
-
-        let palette = tab.palette();
-
-        let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
-            -(self.dimensions.pixel_width as f32) / 2.0,
-            self.dimensions.pixel_width as f32 / 2.0,
-            self.dimensions.pixel_height as f32 / 2.0,
-            -(self.dimensions.pixel_height as f32) / 2.0,
-            -1.0,
-            1.0,
-        )
-        .to_arrays();
-
-        let draw_params =
-            glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
-
-        frame.draw(
-            &*gl_state.header_rect_vertex_buffer.borrow(),
-            &gl_state.header_rect_index_buffer,
-            &gl_state.header_program,
-            &uniform! {
-                projection: projection,
-            },
-            &draw_params,
-        )?;
-
-        self.render_header_line_opengl(&palette)?;
-
-        let tex = gl_state.glyph_cache.borrow().atlas.texture();
-
-        frame.draw(
-            &*gl_state.header_glyph_vertex_buffer.borrow(),
-            &gl_state.header_glyph_index_buffer,
-            &gl_state.glyph_program,
-            &uniform! {
-                projection: projection,
-                glyph_tex: &*tex,
-                bg_and_line_layer: false,
-            },
-            &draw_params,
-        )?;
-
-        let number_of_sprites = gl_state.spritesheet.sprites.len();
-        let sprite =
-            &gl_state.spritesheet.sprites[(self.count % number_of_sprites as u32) as usize];
-        frame.draw(
-            &*gl_state.sprite_vertex_buffer.borrow(),
-            &gl_state.sprite_index_buffer,
-            &gl_state.sprite_program,
-            &uniform! {
-                projection: projection,
-                tex: &gl_state.player_texture.tex,
-                source_dimensions: sprite.size,
-                source_position: sprite.position,
-                source_texture_dimensions: [gl_state.player_texture.width, gl_state.player_texture.height]
-            },
-            &draw_params,
-        )?;
-
-        Ok(())
-    }
-
     fn paint_screen_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
-        self.clear(tab, frame);
-        self.paint_term_opengl(tab, frame)?;
-        self.paint_header_opengl(tab, frame)?;
+        self.frame_count += 1;
+        let palette = tab.palette();
+        let gl_state = self.render_state.as_ref().unwrap();
+        self.clear(&palette, frame);
+        self.paint_term_opengl(tab, &gl_state, &palette, frame)?;
+        self.header.paint(
+            &gl_state,
+            &palette,
+            &self.dimensions,
+            self.frame_count,
+            &self.render_metrics,
+            self.fonts.as_ref(),
+            frame,
+        )?;
         Ok(())
     }
 
-    fn paint_term_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
-        let palette = tab.palette();
+    fn paint_term_opengl(
+        &self,
+        tab: &Ref<Tab>,
+        gl_state: &OpenGLRenderState,
+        palette: &ColorPalette,
+        frame: &mut glium::Frame,
+    ) -> Fallible<()> {
         let mut term = tab.renderer();
 
         let cursor = {
             let cursor = term.get_cursor_position();
-            CursorPosition { x: cursor.x, y: cursor.y + self.header_line_offset as i64 }
+            CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
         };
 
         let empty_line = crate::core::surface::Line::from("");
-        for i in 0..=self.header_line_offset - 1 {
+        for i in 0..=self.header.offset - 1 {
             self.render_screen_line_opengl(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
         }
 
         let dirty_lines = term.get_dirty_lines();
         for (line_idx, line, selrange) in dirty_lines {
             self.render_screen_line_opengl(
-                line_idx + self.header_line_offset,
+                line_idx + self.header.offset,
                 &line,
                 selrange,
                 &cursor,
@@ -576,7 +512,6 @@ impl TermWindow {
                 &palette,
             )?;
         }
-        let gl_state = self.render_state.as_ref().unwrap();
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
         let projection = euclid::Transform3D::<f32, f32, f32>::ortho(
@@ -617,74 +552,6 @@ impl TermWindow {
         )?;
 
         term.clean_dirty_lines();
-
-        Ok(())
-    }
-
-    fn render_header_line_opengl(&self, palette: &ColorPalette) -> Fallible<()> {
-        let gl_state = self.render_state.as_ref().unwrap();
-        let now: DateTime<Utc> = Utc::now();
-        let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load = format!("{}", self.sys.get_global_processor_info().get_cpu_usage().round());
-        let mut vb = gl_state.header_glyph_vertex_buffer.borrow_mut();
-        let mut vertices = vb
-            .slice_mut(..)
-            .ok_or_else(|| format_err!("we're confused about the screen size"))?
-            .map();
-
-        let style = TextStyle::default();
-
-        let indent = 3 - cpu_load.len();
-
-        let glyph_info = {
-            let font = self.fonts.cached_font(&style)?;
-            let mut font = font.borrow_mut();
-            font.shape(&format!(
-                "CPU:{}%{:indent$}{}",
-                cpu_load,
-                "",
-                current_time,
-                indent = indent
-            ))?
-        };
-
-        let glyph_color = palette.resolve_fg(term::color::ColorAttribute::PaletteIndex(0xff));
-        let bg_color = palette.resolve_bg(term::color::ColorAttribute::Default);
-
-        for (glyph_idx, info) in glyph_info.iter().enumerate() {
-            let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, &style)?;
-
-            let left = (glyph.x_offset + glyph.bearing_x) as f32;
-            let top = ((self.render_metrics.cell_size.height as f64
-                + self.render_metrics.descender)
-                - (glyph.y_offset + glyph.bearing_y)) as f32;
-
-            let texture = glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);
-
-            let slice = SpriteSlice {
-                cell_idx: glyph_idx,
-                num_cells: info.num_cells as usize,
-                cell_width: self.render_metrics.cell_size.width as usize,
-                scale: glyph.scale as f32,
-                left_offset: left,
-            };
-
-            let pixel_rect = slice.pixel_rect(texture);
-            let texture_rect = texture.texture.to_texture_coords(pixel_rect);
-
-            let bottom = (pixel_rect.size.height as f32 * glyph.scale as f32) + top
-                - self.render_metrics.cell_size.height as f32;
-            let right =
-                pixel_rect.size.width as f32 + left - self.render_metrics.cell_size.width as f32;
-
-            let mut quad = Quad::for_cell(glyph_idx, &mut vertices);
-
-            quad.set_fg_color(rgbcolor_to_window_color(glyph_color));
-            quad.set_bg_color(rgbcolor_to_window_color(bg_color));
-            quad.set_texture(texture_rect);
-            quad.set_texture_adjust(left, top, right, bottom);
-            quad.set_has_color(glyph.has_color);
-        }
 
         Ok(())
     }
@@ -880,8 +747,7 @@ impl TermWindow {
         (fg_color, bg_color)
     }
 
-    fn clear(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) {
-        let palette = tab.palette();
+    fn clear(&self, palette: &ColorPalette, frame: &mut glium::Frame) {
         let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
         let (r, g, b, a) = background_color.to_tuple_rgba();
         frame.clear_color(r, g, b, a);

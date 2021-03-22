@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 mod glyphcache;
+mod header;
 mod quad;
 mod renderstate;
 mod spritesheet;
