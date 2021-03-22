@@ -33,11 +33,6 @@ fn main() {
             ],
         );
 
-        if target.contains("android") || target.contains("ios") {
-            reg.write_bindings(gl_generator::StaticStructGenerator, &mut file)
-        } else {
-            reg.write_bindings(gl_generator::StructGenerator, &mut file)
-        }
-        .unwrap()
+        reg.write_bindings(gl_generator::StructGenerator, &mut file).unwrap()
     }
 }
