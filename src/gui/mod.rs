@@ -49,9 +49,7 @@ pub fn new() -> Result<Rc<dyn FrontEnd>, Error> {
 
 pub trait FrontEnd: Downcast {
     fn run_forever(&self) -> Result<(), Error>;
-
     fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()>;
-
     fn executor(&self) -> Box<dyn Executor>;
 }
 

@@ -2,7 +2,6 @@ use super::header::Header;
 use super::quad::*;
 use super::renderstate::*;
 use super::utilsprites::RenderMetrics;
-use crate::config::Config;
 use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::font::FontConfiguration;
@@ -32,7 +31,6 @@ const ATLAS_SIZE: usize = 4096;
 pub struct TermWindow {
     window: Option<Window>,
     fonts: Rc<FontConfiguration>,
-    config: Arc<Config>,
     dimensions: Dimensions,
     render_metrics: RenderMetrics,
     render_state: Option<OpenGLRenderState>,
@@ -80,7 +78,7 @@ impl WindowCallbacks for TermWindow {
         ctx: std::rc::Rc<glium::backend::Context>,
     ) -> Fallible<()> {
         self.window.replace(window.clone());
-
+        let mux = Mux::get().unwrap();
         self.render_state = Some(OpenGLRenderState::new(
             ctx,
             &self.fonts,
@@ -88,7 +86,7 @@ impl WindowCallbacks for TermWindow {
             ATLAS_SIZE,
             self.dimensions.pixel_width,
             self.dimensions.pixel_height,
-            &self.config.theme,
+            &mux.config().theme,
         )?);
 
         window.show();
@@ -275,7 +273,7 @@ impl WindowCallbacks for TermWindow {
                     return true;
                 }
 
-                if !self.config.send_composed_key_when_alt_is_pressed
+                if !mux.config().send_composed_key_when_alt_is_pressed
                     && modifiers.contains(crate::core::input::Modifiers::ALT)
                 {
                     if tab.key_down(key, modifiers).is_ok() {
@@ -319,7 +317,6 @@ impl TermWindow {
     pub fn new_window(fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
-        let config = mux.config();
         let (physical_rows, physical_cols) = tab.renderer().physical_dimensions();
 
         let render_metrics = RenderMetrics::new(fontconfig);
@@ -335,7 +332,6 @@ impl TermWindow {
             height,
             Box::new(Self {
                 window: None,
-                config: Arc::clone(config),
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
                 dimensions: Dimensions { pixel_width: width, pixel_height: height, dpi: 96 },
