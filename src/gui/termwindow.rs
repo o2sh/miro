@@ -106,7 +106,7 @@ impl WindowCallbacks for TermWindow {
     fn can_close(&self) -> bool {
         let mux = Mux::get().unwrap();
         mux.close();
-        true
+        mux.is_empty()
     }
     fn as_any(&mut self) -> &mut dyn Any {
         self
