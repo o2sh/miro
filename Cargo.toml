@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/o2sh/miro"
 version = "0.1.0"
 
-[target.'cfg(not(target_os = "macos"))'.build-dependencies]
+[build-dependencies]
 gl_generator = "0.14.0"
 
 [dependencies]
@@ -25,7 +25,7 @@ freetype = "0.7.0"
 harfbuzz-sys = "0.5.0"
 image = "0.23.14"
 lazy_static = "1.4.0"
-libc = "0.2.88"
+libc = "0.2.91"
 line_drawing = "0.8.0"
 log = "0.4.14"
 num = "0.4.0"
@@ -35,10 +35,10 @@ open = "1.6.0"
 palette = "0.5.0"
 ratelimit_meter = "5.0.0"
 regex = "1.4.4"
-resize = "0.7.0"
+resize = "0.7.2"
 rgb = "0.8.25"
-serde = {version = "1.0.124", features = ["rc"]}
-serde_derive = "1.0.124"
+serde = {version = "1.0.125", features = ["rc"]}
+serde_derive = "1.0.125"
 serde_json = "1.0.64"
 smallvec = "1.6.1"
 sysinfo = "0.16.4"
