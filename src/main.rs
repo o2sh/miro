@@ -55,20 +55,20 @@ fn main() -> Result<(), Error> {
 
     let theme = match matches.value_of("theme") {
         Some("sonic") => Some(Theme {
-            spritesheet_path: String::from("assets/sonic.json"),
-            header_color: RgbColor { red: 8, green: 129, blue: 0 },
+            spritesheet_path: String::from("assets/gfx/sonic.json"),
+            color: RgbColor { red: 8, green: 129, blue: 0 },
         }),
         Some("pika") => Some(Theme {
-            spritesheet_path: String::from("assets/pika.json"),
-            header_color: RgbColor { red: 176, green: 139, blue: 24 },
+            spritesheet_path: String::from("assets/gfx/pika.json"),
+            color: RgbColor { red: 176, green: 139, blue: 24 },
         }),
         Some("mega") => Some(Theme {
-            spritesheet_path: String::from("assets/mega.json"),
-            header_color: RgbColor { red: 1, green: 135, blue: 147 },
+            spritesheet_path: String::from("assets/gfx/mega.json"),
+            color: RgbColor { red: 1, green: 135, blue: 147 },
         }),
         Some("kirby") => Some(Theme {
-            spritesheet_path: String::from("assets/kirby.json"),
-            header_color: RgbColor { red: 242, green: 120, blue: 141 },
+            spritesheet_path: String::from("assets/gfx/kirby.json"),
+            color: RgbColor { red: 242, green: 120, blue: 141 },
         }),
         _ => None,
     };

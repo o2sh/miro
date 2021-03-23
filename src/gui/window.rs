@@ -1,6 +1,6 @@
 use super::header::Header;
 use super::quad::*;
-use super::renderer::OpenGLRenderer;
+use super::renderstate::RenderState;
 use super::utilsprites::RenderMetrics;
 use crate::core::color::RgbColor;
 use crate::core::promise;
@@ -33,7 +33,7 @@ pub struct TermWindow {
     fonts: Rc<FontConfiguration>,
     dimensions: Dimensions,
     render_metrics: RenderMetrics,
-    render_state: Option<OpenGLRenderer>,
+    render_state: Option<RenderState>,
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
@@ -79,7 +79,7 @@ impl WindowCallbacks for TermWindow {
     ) -> Fallible<()> {
         self.window.replace(window.clone());
         let mux = Mux::get().unwrap();
-        self.render_state = Some(OpenGLRenderer::new(
+        self.render_state = Some(RenderState::new(
             ctx,
             &self.fonts,
             &self.render_metrics,
@@ -410,9 +410,9 @@ impl TermWindow {
             self.render_metrics = RenderMetrics::new(&self.fonts);
             //self.recreate_texture_atlas(None).expect("failed to recreate atlas");
             gl_state
-                .change_header_scaling(
+                .header
+                .change_scaling(
                     new_dpi as f32,
-                    &self.render_metrics,
                     self.dimensions.pixel_width,
                     self.dimensions.pixel_height,
                 )
@@ -481,7 +481,7 @@ impl TermWindow {
     fn paint_term_opengl(
         &self,
         tab: &Ref<Tab>,
-        gl_state: &OpenGLRenderer,
+        gl_state: &RenderState,
         palette: &ColorPalette,
         frame: &mut glium::Frame,
     ) -> Fallible<()> {

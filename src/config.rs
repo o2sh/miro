@@ -10,14 +10,14 @@ use std::collections::HashMap;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Theme {
     pub spritesheet_path: String,
-    pub header_color: RgbColor,
+    pub color: RgbColor,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            spritesheet_path: String::from("assets/mario.json"),
-            header_color: RgbColor { red: 99, green: 137, blue: 250 },
+            spritesheet_path: String::from("assets/gfx/mario.json"),
+            color: RgbColor { red: 99, green: 137, blue: 250 },
         }
     }
 }

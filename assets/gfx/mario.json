@@ -1,6 +1,6 @@
 {
   "meta": {
-    "image": "assets/mario.png",
+    "image": "assets/gfx/mario.png",
     "size": {
       "w": 96,
       "h": 32

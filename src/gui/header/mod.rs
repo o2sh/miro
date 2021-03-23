@@ -1,5 +1,5 @@
 use super::quad::Quad;
-use super::renderer::OpenGLRenderer;
+use super::renderstate::RenderState;
 use super::utilsprites::RenderMetrics;
 use crate::config::TextStyle;
 use crate::core::color::RgbColor;
@@ -14,6 +14,8 @@ use failure::Fallible;
 use glium::{uniform, Surface};
 use sysinfo::{ProcessorExt, System, SystemExt};
 
+pub mod renderstate;
+
 pub struct Header {
     pub offset: usize,
     sys: System,
@@ -23,13 +25,12 @@ pub struct Header {
 impl Header {
     pub fn new() -> Self {
         let sys = System::new();
-
         Self { offset: 2, count: 0, sys }
     }
 
     pub fn paint(
         &mut self,
-        gl_state: &OpenGLRenderer,
+        gl_state: &RenderState,
         palette: &ColorPalette,
         dimensions: &Dimensions,
         frame_count: u32,
@@ -40,7 +41,7 @@ impl Header {
         let w = dimensions.pixel_width as f32 as f32 / 2.0;
         if frame_count % 6 == 0 {
             self.count += 1;
-            gl_state.slide_sprite(w);
+            gl_state.header.slide_sprite(w);
         }
 
         if frame_count % 30 == 0 {
@@ -61,9 +62,9 @@ impl Header {
             glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
 
         frame.draw(
-            &*gl_state.header_rect_vertex_buffer.borrow(),
-            &gl_state.header_rect_index_buffer,
-            &gl_state.header_program,
+            &*gl_state.header.rect_vertex_buffer.borrow(),
+            &gl_state.header.rect_index_buffer,
+            &gl_state.header.rect_program,
             &uniform! {
                 projection: projection,
             },
@@ -75,8 +76,8 @@ impl Header {
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
 
         frame.draw(
-            &*gl_state.header_glyph_vertex_buffer.borrow(),
-            &gl_state.header_glyph_index_buffer,
+            &*gl_state.header.glyph_vertex_buffer.borrow(),
+            &gl_state.header.glyph_index_buffer,
             &gl_state.glyph_program,
             &uniform! {
                 projection: projection,
@@ -86,19 +87,19 @@ impl Header {
             &draw_params,
         )?;
 
-        let number_of_sprites = gl_state.spritesheet.sprites.len();
+        let number_of_sprites = gl_state.header.spritesheet.sprites.len();
         let sprite =
-            &gl_state.spritesheet.sprites[(self.count % number_of_sprites as u32) as usize];
+            &gl_state.header.spritesheet.sprites[(self.count % number_of_sprites as u32) as usize];
         frame.draw(
-            &*gl_state.sprite_vertex_buffer.borrow(),
-            &gl_state.sprite_index_buffer,
-            &gl_state.sprite_program,
+            &*gl_state.header.sprite_vertex_buffer.borrow(),
+            &gl_state.header.sprite_index_buffer,
+            &gl_state.header.sprite_program,
             &uniform! {
                 projection: projection,
-                tex: &gl_state.player_texture.tex,
+                tex: &gl_state.header.player_texture.tex,
                 source_dimensions: sprite.size,
                 source_position: sprite.position,
-                source_texture_dimensions: [gl_state.player_texture.width, gl_state.player_texture.height]
+                source_texture_dimensions: [gl_state.header.player_texture.width, gl_state.header.player_texture.height]
             },
             &draw_params,
         )?;
@@ -108,7 +109,7 @@ impl Header {
 
     fn render_header_line_opengl(
         &self,
-        gl_state: &OpenGLRenderer,
+        gl_state: &RenderState,
         render_metrics: &RenderMetrics,
         fonts: &FontConfiguration,
         palette: &ColorPalette,
@@ -116,7 +117,7 @@ impl Header {
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
         let cpu_load = format!("{}", self.sys.get_global_processor_info().get_cpu_usage().round());
-        let mut vb = gl_state.header_glyph_vertex_buffer.borrow_mut();
+        let mut vb = gl_state.header.glyph_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
             .ok_or_else(|| format_err!("we're confused about the screen size"))?

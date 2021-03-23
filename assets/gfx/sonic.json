@@ -1,91 +1,91 @@
 {
   "meta": {
-    "image": "assets/pika.png",
+    "image": "assets/gfx/sonic.png",
     "size": {
-      "w": 208,
-      "h": 28
+      "w": 132,
+      "h": 36
     },
     "scale": "1"
   },
   "frames": {
-    "pika0.png": {
+    "sonic0.png": {
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "sourceSize": {
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       }
     },
-    "pika1.png": {
+    "sonic1.png": {
       "frame": {
-        "x": 52,
+        "x": 33,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "sourceSize": {
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       }
     },
-    "pika2.png": {
+    "sonic2.png": {
       "frame": {
-        "x": 104,
+        "x": 66,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "sourceSize": {
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       }
     },
-    "pika3.png": {
+    "sonic3.png": {
       "frame": {
-        "x": 156,
+        "x": 99,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       },
       "sourceSize": {
-        "w": 52,
-        "h": 28
+        "w": 33,
+        "h": 36
       }
     }
   }

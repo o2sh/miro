@@ -12,7 +12,7 @@ use std::sync::Mutex;
 mod glyphcache;
 mod header;
 mod quad;
-mod renderer;
+mod renderstate;
 mod spritesheet;
 mod utilsprites;
 mod window;
