@@ -492,7 +492,7 @@ impl TermWindow {
             CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
         };
 
-        let empty_line = crate::core::surface::Line::from("");
+        let empty_line = Line::from("");
         for i in 0..=self.header.offset - 1 {
             self.render_screen_line_opengl(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
         }

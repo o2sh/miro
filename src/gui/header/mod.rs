@@ -71,7 +71,7 @@ impl Header {
             &draw_params,
         )?;
 
-        self.render_header_line_opengl(gl_state, render_metrics, fonts, palette)?;
+        self.render_line_opengl(gl_state, render_metrics, fonts, palette)?;
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
 
@@ -107,7 +107,7 @@ impl Header {
         Ok(())
     }
 
-    fn render_header_line_opengl(
+    fn render_line_opengl(
         &self,
         gl_state: &RenderState,
         render_metrics: &RenderMetrics,
@@ -116,7 +116,8 @@ impl Header {
     ) -> Fallible<()> {
         let now: DateTime<Utc> = Utc::now();
         let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load = format!("{}", self.sys.get_global_processor_info().get_cpu_usage().round());
+        let cpu_load =
+            format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
         let mut vb = gl_state.header.glyph_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
@@ -124,38 +125,20 @@ impl Header {
             .map();
 
         let style = TextStyle::default();
+        let indent =
+            (vertices.len() / VERTICES_PER_CELL) as usize - (current_time.len() + cpu_load.len());
 
-        let left_glyph_info = {
+        let text = format!("{}{:indent$}{}", cpu_load, "", current_time, indent = indent);
+        let glyph_info = {
             let font = fonts.cached_font(&style)?;
             let mut font = font.borrow_mut();
-            font.shape(&format!("CPU:{}%", cpu_load))?
+            font.shape(&text)?
         };
-
-        let right_glyph_info = {
-            let font = fonts.cached_font(&style)?;
-            let mut font = font.borrow_mut();
-            font.shape(&format!("{}", current_time))?
-        };
-
-        let mut left_glyphs = Vec::new();
-
-        for (i, info) in left_glyph_info.iter().enumerate() {
-            left_glyphs.push((i, info));
-        }
-
-        let mut right_glyphs = Vec::new();
-
-        for (i, info) in right_glyph_info.iter().enumerate() {
-            let idx = (vertices.len() / VERTICES_PER_CELL) as usize - current_time.len() + i;
-            right_glyphs.push((idx, info));
-        }
-
-        left_glyphs.append(&mut right_glyphs);
 
         let glyph_color = palette.resolve_fg(ColorAttribute::PaletteIndex(0xff));
         let bg_color = palette.resolve_bg(ColorAttribute::Default);
 
-        for (glyph_idx, info) in left_glyphs.iter() {
+        for (glyph_idx, info) in glyph_info.iter().enumerate() {
             let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, &style)?;
 
             let left = (glyph.x_offset + glyph.bearing_x) as f32;
@@ -165,7 +148,7 @@ impl Header {
             let texture = glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);
 
             let slice = SpriteSlice {
-                cell_idx: *glyph_idx,
+                cell_idx: glyph_idx,
                 num_cells: info.num_cells as usize,
                 cell_width: render_metrics.cell_size.width as usize,
                 scale: glyph.scale as f32,
@@ -179,7 +162,7 @@ impl Header {
                 - render_metrics.cell_size.height as f32;
             let right = pixel_rect.size.width as f32 + left - render_metrics.cell_size.width as f32;
 
-            let mut quad = Quad::for_cell(*glyph_idx, &mut vertices);
+            let mut quad = Quad::for_cell(glyph_idx, &mut vertices);
 
             quad.set_fg_color(rgbcolor_to_window_color(glyph_color));
             quad.set_bg_color(rgbcolor_to_window_color(bg_color));
