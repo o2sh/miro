@@ -58,9 +58,9 @@ libloading = "0.7.0"
 mio = "0.6.23"
 servo-fontconfig = "0.5.1"
 x11 = {version = "2.18.2", features = ["xlib_xcb"]}
-xcb = "0.8.0"
-xcb-util = {version = "0.2.0", features = ["icccm", "keysyms"]}
-xkbcommon = {version = "0.4.0", features = ["x11"]}
+xcb = "0.9.0"
+xcb-util = {version = "0.3.0", features = ["icccm", "keysyms"]}
+xkbcommon = {version = "0.4.1", features = ["x11"], git = "https://github.com/o2sh/xkbcommon-rs.git"}
 
 [target.'cfg(target_os="macos")'.dependencies]
 cocoa = "0.24.0"

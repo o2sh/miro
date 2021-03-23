@@ -1157,7 +1157,7 @@ dependencies = [
  "unicode-width",
  "vtparse",
  "x11",
- "xcb",
+ "xcb 0.9.0",
  "xcb-util",
  "xi-unicode",
  "xkbcommon",
@@ -2362,7 +2362,7 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89bd49c06c9eb5d98e6ba6536cf64ac9f7ee3a009b2f53996d405b3944f6bcea"
 dependencies = [
- "xcb",
+ "xcb 0.8.2",
 ]
 
 [[package]]
@@ -2388,13 +2388,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "xcb-util"
-version = "0.2.1"
+name = "xcb"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d35fc0bbe4349a46322f30a670f61f4da2c2896f64cef53fe54e6c5ec48d8ab"
+checksum = "62056f63138b39116f82a540c983cc11f1c90cd70b3d492a70c25eaa50bd22a6"
 dependencies = [
  "libc",
- "xcb",
+ "log",
+]
+
+[[package]]
+name = "xcb-util"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43893e47f27bf7d81d489feef3a0e34a457e90bc314b7e74ad9bb3980e4c1c48"
+dependencies = [
+ "libc",
+ "xcb 0.9.0",
 ]
 
 [[package]]
@@ -2420,12 +2430,11 @@ checksum = "a67300977d3dc3f8034dae89778f502b6ba20b269527b3223ba59c0cf393bb8a"
 
 [[package]]
 name = "xkbcommon"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fda0ea5f7ddabd51deeeda7799bee06274112f577da7dd3d954b8eda731b2fce"
+version = "0.4.1"
+source = "git+https://github.com/o2sh/xkbcommon-rs.git#a625f63165f6cf53554a7f266d3135f2aad67a53"
 dependencies = [
  "libc",
- "xcb",
+ "xcb 0.9.0",
 ]
 
 [[package]]
