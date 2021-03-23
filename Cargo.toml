@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/o2sh/miro"
 version = "0.1.0"
 
-[build-dependencies]
+[target.'cfg(not(target_os = "macos"))'.build-dependencies]
 gl_generator = "0.14.0"
 
 [dependencies]
@@ -18,8 +18,6 @@ bitflags = "1.2.1"
 chrono = "0.4.19"
 clap = "2.33.3"
 clipboard = "0.5.0"
-crossbeam-channel = "0.5.0"
-downcast-rs = "1.2.0"
 euclid = "0.22.2"
 failure = "0.1.8"
 filedescriptor = "0.7.3"
@@ -28,7 +26,6 @@ harfbuzz-sys = "0.5.0"
 image = "0.23.14"
 lazy_static = "1.4.0"
 libc = "0.2.88"
-libloading = "0.7.0"
 line_drawing = "0.8.0"
 log = "0.4.14"
 num = "0.4.0"
@@ -56,7 +53,8 @@ default-features = false
 features = ["glutin"]
 version = "0.29.0"
 
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+libloading = "0.7.0"
 mio = "0.6.23"
 servo-fontconfig = "0.5.1"
 x11 = {version = "2.18.2", features = ["xlib_xcb"]}

@@ -1123,8 +1123,6 @@ dependencies = [
  "core-foundation 0.9.1",
  "core-graphics 0.22.2",
  "core-text",
- "crossbeam-channel",
- "downcast-rs",
  "euclid",
  "failure",
  "filedescriptor",

@@ -2,7 +2,6 @@ use crate::core::promise::{BasicExecutor, Executor, SpawnFunc};
 use crate::font::FontConfiguration;
 use crate::mux::Mux;
 use crate::window::*;
-use downcast_rs::{impl_downcast, Downcast};
 use failure::{Error, Fallible};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -47,13 +46,11 @@ pub fn new() -> Result<Rc<dyn FrontEnd>, Error> {
     Ok(front_end)
 }
 
-pub trait FrontEnd: Downcast {
+pub trait FrontEnd {
     fn run_forever(&self) -> Result<(), Error>;
     fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()>;
     fn executor(&self) -> Box<dyn Executor>;
 }
-
-impl_downcast!(FrontEnd);
 
 impl GuiFrontEnd {
     pub fn new() -> Fallible<Rc<dyn FrontEnd>> {
