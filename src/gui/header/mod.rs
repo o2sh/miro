@@ -1,4 +1,4 @@
-use super::quad::Quad;
+use super::quad::{Quad, VERTICES_PER_CELL};
 use super::renderstate::RenderState;
 use super::utilsprites::RenderMetrics;
 use crate::config::TextStyle;
@@ -125,24 +125,37 @@ impl Header {
 
         let style = TextStyle::default();
 
-        let indent = 3 - cpu_load.len();
-
-        let glyph_info = {
+        let left_glyph_info = {
             let font = fonts.cached_font(&style)?;
             let mut font = font.borrow_mut();
-            font.shape(&format!(
-                "CPU:{}%{:indent$}{}",
-                cpu_load,
-                "",
-                current_time,
-                indent = indent
-            ))?
+            font.shape(&format!("CPU:{}%", cpu_load))?
         };
+
+        let right_glyph_info = {
+            let font = fonts.cached_font(&style)?;
+            let mut font = font.borrow_mut();
+            font.shape(&format!("{}", current_time))?
+        };
+
+        let mut left_glyphs = Vec::new();
+
+        for (i, info) in left_glyph_info.iter().enumerate() {
+            left_glyphs.push((i, info));
+        }
+
+        let mut right_glyphs = Vec::new();
+
+        for (i, info) in right_glyph_info.iter().enumerate() {
+            let idx = (vertices.len() / VERTICES_PER_CELL) as usize - current_time.len() + i;
+            right_glyphs.push((idx, info));
+        }
+
+        left_glyphs.append(&mut right_glyphs);
 
         let glyph_color = palette.resolve_fg(ColorAttribute::PaletteIndex(0xff));
         let bg_color = palette.resolve_bg(ColorAttribute::Default);
 
-        for (glyph_idx, info) in glyph_info.iter().enumerate() {
+        for (glyph_idx, info) in left_glyphs.iter() {
             let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, &style)?;
 
             let left = (glyph.x_offset + glyph.bearing_x) as f32;
@@ -152,7 +165,7 @@ impl Header {
             let texture = glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);
 
             let slice = SpriteSlice {
-                cell_idx: glyph_idx,
+                cell_idx: *glyph_idx,
                 num_cells: info.num_cells as usize,
                 cell_width: render_metrics.cell_size.width as usize,
                 scale: glyph.scale as f32,
@@ -166,7 +179,7 @@ impl Header {
                 - render_metrics.cell_size.height as f32;
             let right = pixel_rect.size.width as f32 + left - render_metrics.cell_size.width as f32;
 
-            let mut quad = Quad::for_cell(glyph_idx, &mut vertices);
+            let mut quad = Quad::for_cell(*glyph_idx, &mut vertices);
 
             quad.set_fg_color(rgbcolor_to_window_color(glyph_color));
             quad.set_bg_color(rgbcolor_to_window_color(bg_color));

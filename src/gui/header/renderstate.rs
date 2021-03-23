@@ -6,16 +6,10 @@ use crate::window::color::Color;
 use failure::Fallible;
 use glium::backend::Context as GliumContext;
 use glium::{IndexBuffer, VertexBuffer};
-use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const SPRITE_SPEED: f32 = 10.0;
-
-lazy_static! {
-    static ref CURRENT_TIME_LENGTH: usize = "00:00:00".chars().count();
-    static ref CPU_LOAD_LENGTH: usize = "CPU:000%".chars().count();
-}
 
 fn rect_vertex_shader(version: &str) -> String {
     format!(
@@ -82,8 +76,6 @@ impl HeaderRenderState {
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &context,
             height,
-            *CPU_LOAD_LENGTH,
-            *CURRENT_TIME_LENGTH,
             pixel_width as f32,
             pixel_height as f32,
             metrics,
@@ -214,8 +206,6 @@ impl HeaderRenderState {
         let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
             &self.context,
             self.height,
-            *CPU_LOAD_LENGTH,
-            *CURRENT_TIME_LENGTH,
             pixel_width as f32,
             pixel_height as f32,
             metrics,
@@ -278,8 +268,6 @@ impl HeaderRenderState {
     fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
         header_height: f32,
-        left_num_cols: usize,
-        right_num_cols: usize,
         width: f32,
         height: f32,
         metrics: &RenderMetrics,
@@ -294,15 +282,11 @@ impl HeaderRenderState {
 
         let top_padding = (header_height - cell_height) / 2.0;
         let y_pos = (height / -2.0) + top_padding;
-        for x in 0..(left_num_cols + right_num_cols) {
-            let x_pos = if x < left_num_cols {
-                (width / -2.0) + header_width_padding + (x as f32 * cell_width)
-            } else {
-                (width / 2.0)
-                    - header_width_padding
-                    - ((left_num_cols + right_num_cols - x) as f32 * cell_width)
-                    + 5.0
-            };
+
+        let num_cols = (width - header_width_padding * 2.) / cell_width;
+
+        for x in 0..num_cols as usize {
+            let x_pos = (width / -2.0) + header_width_padding + (x as f32 * cell_width);
 
             let idx = verts.len() as u32;
             verts.push(Vertex { position: (x_pos, y_pos), ..Default::default() });
