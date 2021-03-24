@@ -3,11 +3,11 @@ authors = ["o2sh <ossama-hjaji@live.fr>"]
 build = "src/window/build.rs"
 description = "My Terminal Emulator"
 edition = "2018"
-license = "MIT"
+license = "GPL-3.0-or-later"
 name = "miro"
 readme = "README.md"
 repository = "https://github.com/o2sh/miro"
-version = "0.1.0"
+version = "0.2.0"
 
 [build-dependencies]
 gl_generator = "0.14.0"
