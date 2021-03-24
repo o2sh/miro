@@ -3,9 +3,7 @@ use crate::font::FontConfiguration;
 use crate::mux::Mux;
 use crate::window::*;
 use failure::{Error, Fallible};
-use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 mod glyphcache;
@@ -21,12 +19,7 @@ pub struct GuiFrontEnd {
 }
 
 lazy_static::lazy_static! {
-static ref USE_OPENGL: AtomicBool = AtomicBool::new(true);
 static ref EXECUTOR: Mutex<Option<Box<dyn Executor>>> = Mutex::new(None);
-}
-
-thread_local! {
-    static FRONT_END: RefCell<Option<Rc<dyn FrontEnd>>> = RefCell::new(None);
 }
 
 pub fn executor() -> Box<dyn Executor> {
@@ -39,10 +32,7 @@ pub fn executor() -> Box<dyn Executor> {
 
 pub fn new() -> Result<Rc<dyn FrontEnd>, Error> {
     let front_end = GuiFrontEnd::new()?;
-
     EXECUTOR.lock().unwrap().replace(front_end.executor());
-    FRONT_END.with(|f| *f.borrow_mut() = Some(Rc::clone(&front_end)));
-
     Ok(front_end)
 }
 
