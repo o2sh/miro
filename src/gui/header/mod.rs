@@ -114,25 +114,18 @@ impl Header {
         fonts: &FontConfiguration,
         palette: &ColorPalette,
     ) -> Fallible<()> {
-        let now: DateTime<Utc> = Utc::now();
-        let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load =
-            format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
         let mut vb = gl_state.header.glyph_vertex_buffer.borrow_mut();
         let mut vertices = vb
             .slice_mut(..)
             .ok_or_else(|| format_err!("we're confused about the screen size"))?
             .map();
 
+        let header_text = self.compute_header_text(vertices.len());
         let style = TextStyle::default();
-        let indent =
-            (vertices.len() / VERTICES_PER_CELL) as usize - (current_time.len() + cpu_load.len());
-
-        let text = format!("{}{:indent$}{}", cpu_load, "", current_time, indent = indent);
         let glyph_info = {
             let font = fonts.cached_font(&style)?;
             let mut font = font.borrow_mut();
-            font.shape(&text)?
+            font.shape(&header_text)?
         };
 
         let glyph_color = palette.resolve_fg(ColorAttribute::PaletteIndex(0xff));
@@ -172,6 +165,17 @@ impl Header {
         }
 
         Ok(())
+    }
+
+    fn compute_header_text(&self, number_of_vertices: usize) -> String {
+        let now: DateTime<Utc> = Utc::now();
+        let current_time = now.format("%H:%M:%S").to_string();
+        let cpu_load =
+            format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
+        let indent = (number_of_vertices / VERTICES_PER_CELL) as usize
+            - (current_time.len() + cpu_load.len());
+
+        format!("{}{:indent$}{}", cpu_load, "", current_time, indent = indent)
     }
 }
 
