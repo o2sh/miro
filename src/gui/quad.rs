@@ -1,5 +1,5 @@
 use crate::window::bitmaps::TextureRect;
-use crate::window::*;
+use crate::window::Color;
 
 pub const VERTICES_PER_CELL: usize = 4;
 pub const V_TOP_LEFT: usize = 0;
@@ -10,17 +10,14 @@ pub const V_BOT_RIGHT: usize = 3;
 #[derive(Copy, Clone, Default)]
 pub struct Vertex {
     pub position: (f32, f32),
-
     pub adjust: (f32, f32),
-
     pub tex: (f32, f32),
-
     pub underline: (f32, f32),
     pub bg_color: (f32, f32, f32, f32),
     pub fg_color: (f32, f32, f32, f32),
-
     pub has_color: f32,
 }
+
 glium::implement_vertex!(Vertex, position, adjust, tex, underline, bg_color, fg_color, has_color);
 
 #[derive(Copy, Clone, Debug, Default)]
