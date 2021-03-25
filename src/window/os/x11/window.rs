@@ -335,16 +335,6 @@ impl Window {
     }
 }
 
-pub trait Drawable {
-    fn as_drawable(&self) -> xcb::xproto::Drawable;
-}
-
-impl Drawable for Window {
-    fn as_drawable(&self) -> xcb::xproto::Drawable {
-        self.0
-    }
-}
-
 impl WindowOpsMut for WindowInner {
     fn close(&mut self) {
         xcb::destroy_window(self.conn.conn(), self.window_id);

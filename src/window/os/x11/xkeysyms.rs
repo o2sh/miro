@@ -28,7 +28,6 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
     Some(match keysym {
         KEY_Escape => KeyCode::Char('\u{1b}'),
         KEY_Tab => KeyCode::Char('\t'),
-
         KEY_BackSpace => KeyCode::Char('\u{8}'),
         KEY_Return => KeyCode::Char('\r'),
         KEY_Insert => KeyCode::Insert,
@@ -36,7 +35,6 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_Clear => KeyCode::Clear,
         KEY_Pause => KeyCode::Pause,
         KEY_Print => KeyCode::Print,
-
         KEY_Home => KeyCode::Home,
         KEY_End => KeyCode::End,
         KEY_Left => KeyCode::LeftArrow,
@@ -45,10 +43,8 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_Down => KeyCode::DownArrow,
         KEY_Page_Up => KeyCode::PageUp,
         KEY_Page_Down => KeyCode::PageDown,
-
         KEY_Shift_L => KeyCode::Shift,
         KEY_Shift_R => KeyCode::Shift,
-
         KEY_Control_L => KeyCode::Control,
         KEY_Control_R => KeyCode::Control,
         KEY_Alt_L => KeyCode::Alt,
@@ -60,9 +56,7 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_Super_R => KeyCode::Super,
         KEY_Menu => KeyCode::Applications,
         KEY_Help => KeyCode::Help,
-
         i @ KEY_F1..=KEY_F12 => KeyCode::Function((1 + i - KEY_F1) as u8),
-
         KEY_KP_Enter => KeyCode::Char(0xdu8 as char),
         KEY_KP_Delete => KeyCode::Char('\u{7f}'),
         KEY_KP_Home => KeyCode::Home,
@@ -74,16 +68,13 @@ pub fn keysym_to_keycode(keysym: u32) -> Option<KeyCode> {
         KEY_KP_Subtract => KeyCode::Subtract,
         KEY_KP_Decimal => KeyCode::Decimal,
         KEY_KP_Separator => KeyCode::Separator,
-
         i @ KEY_KP_0..=KEY_KP_9 => KeyCode::Numpad((i - KEY_KP_0) as u8),
-
         KEY_XF86Back => KeyCode::BrowserBack,
         KEY_XF86Forward => KeyCode::BrowserForward,
         KEY_XF86Stop => KeyCode::BrowserStop,
         KEY_XF86Refresh => KeyCode::BrowserRefresh,
         KEY_XF86Favorites => KeyCode::BrowserFavorites,
         KEY_XF86HomePage => KeyCode::BrowserHome,
-
         KEY_XF86AudioLowerVolume => KeyCode::VolumeDown,
         KEY_XF86AudioMute => KeyCode::VolumeMute,
         KEY_XF86AudioRaiseVolume => KeyCode::VolumeUp,

@@ -31,7 +31,6 @@ pub enum KeyCode {
     Subtract,
     Decimal,
     Divide,
-
     Function(u8),
     NumLock,
     ScrollLock,
@@ -101,12 +100,8 @@ pub struct MouseEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
     pub key: KeyCode,
-
     pub raw_key: Option<KeyCode>,
-
     pub modifiers: Modifiers,
-
     pub repeat_count: u16,
-
     pub key_is_down: bool,
 }

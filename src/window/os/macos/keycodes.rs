@@ -65,7 +65,6 @@ pub const kVK_ANSI_Keypad6: u16 = 0x58;
 pub const kVK_ANSI_Keypad7: u16 = 0x59;
 pub const kVK_ANSI_Keypad8: u16 = 0x5B;
 pub const kVK_ANSI_Keypad9: u16 = 0x5C;
-
 pub const kVK_Return: u16 = 0x24;
 pub const kVK_Tab: u16 = 0x30;
 pub const kVK_Space: u16 = 0x31;
