@@ -1,9 +1,8 @@
 use super::*;
-use crate::window::bitmaps::*;
 use crate::window::connection::ConnectionOps;
 use crate::window::{
-    Color, Dimensions, KeyEvent, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress,
-    Operator, PaintContext, Point, Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
+    Dimensions, KeyEvent, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress, Point,
+    Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
 };
 use failure::Fallible;
 use std::any::Any;
@@ -37,39 +36,6 @@ fn enclosing_boundary_with(a: &Rect, b: &Rect) -> Rect {
 impl Drop for WindowInner {
     fn drop(&mut self) {
         xcb::destroy_window(self.conn.conn(), self.window_id);
-    }
-}
-
-struct X11GraphicsContext<'a> {
-    buffer: &'a mut dyn BitmapImage,
-}
-
-impl<'a> PaintContext for X11GraphicsContext<'a> {
-    fn clear_rect(&mut self, rect: Rect, color: Color) {
-        self.buffer.clear_rect(rect, color)
-    }
-
-    fn clear(&mut self, color: Color) {
-        self.buffer.clear(color);
-    }
-
-    fn get_dimensions(&self) -> Dimensions {
-        let (pixel_width, pixel_height) = self.buffer.image_dimensions();
-        Dimensions { pixel_width, pixel_height, dpi: 96 }
-    }
-
-    fn draw_image(
-        &mut self,
-        dest_top_left: Point,
-        src_rect: Option<Rect>,
-        im: &dyn BitmapImage,
-        operator: Operator,
-    ) {
-        self.buffer.draw_image(dest_top_left, src_rect, im, operator)
-    }
-
-    fn draw_line(&mut self, start: Point, end: Point, color: Color, operator: Operator) {
-        self.buffer.draw_line(start, end, color, operator);
     }
 }
 
