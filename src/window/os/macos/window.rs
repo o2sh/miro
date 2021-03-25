@@ -2,9 +2,8 @@
 use super::{nsstring, nsstring_to_str};
 use crate::window::connection::{ConnectionOps, FPS};
 use crate::window::{
-    BitmapImage, Color, Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons,
-    MouseCursor, MouseEvent, MouseEventKind, MousePress, Operator, Point, Rect, Size,
-    WindowCallbacks, WindowOps, WindowOpsMut,
+    Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons, MouseCursor, MouseEvent,
+    MouseEventKind, MousePress, Point, Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
 };
 use cocoa::appkit::{
     NSApplicationActivateIgnoringOtherApps, NSBackingStoreBuffered, NSEvent, NSEventModifierFlags,
