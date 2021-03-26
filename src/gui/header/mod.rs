@@ -71,7 +71,7 @@ impl Header {
             &draw_params,
         )?;
 
-        self.render_line_opengl(gl_state, render_metrics, fonts, palette)?;
+        self.render_line(gl_state, render_metrics, fonts, palette)?;
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
 
@@ -107,7 +107,7 @@ impl Header {
         Ok(())
     }
 
-    fn render_line_opengl(
+    fn render_line(
         &self,
         gl_state: &RenderState,
         render_metrics: &RenderMetrics,

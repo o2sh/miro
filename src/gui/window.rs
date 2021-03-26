@@ -119,7 +119,7 @@ impl WindowCallbacks for TermWindow {
         let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
         let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
 
-        let y = y.saturating_sub(self.header.offset as i64);
+        let adjusted_y = y.saturating_sub(self.header.offset as i64);
 
         tab.mouse_event(
             term::MouseEvent {
@@ -155,7 +155,7 @@ impl WindowCallbacks for TermWindow {
                     WMEK::HorzWheel(_) => TMB::None,
                 },
                 x,
-                y,
+                y: adjusted_y,
                 modifiers: window_mods_to_termwiz_mods(event.modifiers),
             },
             &mut Host { writer: &mut *tab.writer(), context, clipboard: &self.clipboard },
@@ -167,9 +167,9 @@ impl WindowCallbacks for TermWindow {
             _ => context.invalidate(),
         }
 
-        // When hovering over a hyperlink, show an appropriate
-        // mouse cursor to give the cue that it is clickable
-        context.set_cursor(Some(if tab.renderer().current_highlight().is_some() {
+        context.set_cursor(Some(if y < self.header.offset as i64 {
+            MouseCursor::Arrow
+        } else if tab.renderer().current_highlight().is_some() {
             MouseCursor::Hand
         } else {
             MouseCursor::Text
@@ -303,12 +303,12 @@ impl WindowCallbacks for TermWindow {
         false
     }
 
-    fn paint_opengl(&mut self, frame: &mut glium::Frame) {
+    fn paint(&mut self, frame: &mut glium::Frame) {
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
 
         self.update_text_cursor(&tab);
-        self.paint_screen_opengl(&tab, frame).expect("failed to paint screen");
+        self.paint_screen(&tab, frame).expect("failed to paint screen");
         self.update_title();
     }
 }
@@ -460,12 +460,12 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn paint_screen_opengl(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_screen(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
         self.frame_count += 1;
         let palette = tab.palette();
         let gl_state = self.render_state.as_ref().unwrap();
         self.clear(&palette, frame);
-        self.paint_term_opengl(tab, &gl_state, &palette, frame)?;
+        self.paint_term(tab, &gl_state, &palette, frame)?;
         self.header.paint(
             &gl_state,
             &palette,
@@ -478,7 +478,7 @@ impl TermWindow {
         Ok(())
     }
 
-    fn paint_term_opengl(
+    fn paint_term(
         &self,
         tab: &Ref<Tab>,
         gl_state: &RenderState,
@@ -494,12 +494,12 @@ impl TermWindow {
 
         let empty_line = Line::from("");
         for i in 0..=self.header.offset - 1 {
-            self.render_screen_line_opengl(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
+            self.render_screen_line(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
         }
 
         let dirty_lines = term.get_dirty_lines();
         for (line_idx, line, selrange) in dirty_lines {
-            self.render_screen_line_opengl(
+            self.render_screen_line(
                 line_idx + self.header.offset,
                 &line,
                 selrange,
@@ -552,7 +552,7 @@ impl TermWindow {
         Ok(())
     }
 
-    fn render_screen_line_opengl(
+    fn render_screen_line(
         &self,
         line_idx: usize,
         line: &Line,

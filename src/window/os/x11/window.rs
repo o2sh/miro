@@ -77,7 +77,7 @@ impl WindowInner {
                 (u32::from(self.width), u32::from(self.height)),
             );
 
-            self.callbacks.paint_opengl(&mut frame);
+            self.callbacks.paint(&mut frame);
             frame.finish()?;
             return Ok(());
         }

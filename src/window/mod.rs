@@ -50,7 +50,7 @@ pub trait WindowCallbacks: Any {
     }
     fn destroy(&mut self) {}
     fn resize(&mut self, dimensions: Dimensions) {}
-    fn paint_opengl(&mut self, frame: &mut glium::Frame) {}
+    fn paint(&mut self, frame: &mut glium::Frame) {}
     fn key_event(&mut self, key: &KeyEvent, context: &dyn WindowOps) -> bool {
         false
     }
