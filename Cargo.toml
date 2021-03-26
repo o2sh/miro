@@ -62,5 +62,5 @@ xkbcommon = {version = "0.4.1", features = ["x11"], git = "https://github.com/o2
 cocoa = "0.24.0"
 core-foundation = "0.9.1"
 core-graphics = "0.22.2"
-core-text = "19.2.0"
+font-loader = "0.8"
 objc = "0.2.7"

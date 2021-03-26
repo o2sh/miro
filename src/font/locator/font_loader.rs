@@ -1,7 +1,7 @@
 use crate::config::FontAttributes;
 use crate::font::locator::{FontDataHandle, FontLocator};
-use ::font_loader::system_fonts;
 use failure::Fallible;
+use font_loader::system_fonts;
 
 pub struct FontLoaderFontLocator {}
 
@@ -11,8 +11,16 @@ impl FontLocator for FontLoaderFontLocator {
         for font_attr in fonts_selection {
             let mut font_props =
                 system_fonts::FontPropertyBuilder::new().family(&font_attr.family).monospace();
-            font_props = if font_attr.bold { font_props.bold() } else { font_props };
-            font_props = if font_attr.italic { font_props.italic() } else { font_props };
+            font_props = if *font_attr.bold.as_ref().unwrap_or(&false) {
+                font_props.bold()
+            } else {
+                font_props
+            };
+            font_props = if *font_attr.italic.as_ref().unwrap_or(&false) {
+                font_props.italic()
+            } else {
+                font_props
+            };
             let font_props = font_props.build();
 
             if let Some((data, index)) = system_fonts::get(&font_props) {

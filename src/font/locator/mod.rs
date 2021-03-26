@@ -1,16 +1,18 @@
+#![allow(dead_code)]
 use crate::config::FontAttributes;
 use failure::{format_err, Error, Fallible};
 use serde_derive::*;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 pub mod font_config;
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(target_os = "macos")]
 pub mod font_loader;
 
 pub enum FontDataHandle {
     OnDisk { path: PathBuf, index: u32 },
+    Memory { data: Vec<u8>, index: u32 },
 }
 
 pub trait FontLocator {
