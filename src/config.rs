@@ -52,7 +52,7 @@ fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
 }
 
 fn default_font_size() -> f64 {
-    11.0
+    10.0
 }
 
 fn default_dpi() -> f64 {

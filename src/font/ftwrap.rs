@@ -1,3 +1,4 @@
+use crate::font::locator::FontDataHandle;
 use failure::{bail, format_err, Error, Fallible, ResultExt};
 pub use freetype::freetype::*;
 use std::ffi::CString;
@@ -16,8 +17,13 @@ fn ft_result<T>(err: FT_Error, t: T) -> Result<T, Error> {
     }
 }
 
+pub fn compute_load_flags_for_mode(render_mode: FT_Render_Mode) -> i32 {
+    FT_LOAD_COLOR as i32 | (render_mode as i32) << 16
+}
+
 pub struct Face {
     pub face: FT_Face,
+    _bytes: Vec<u8>,
 }
 
 impl Drop for Face {
@@ -29,6 +35,44 @@ impl Drop for Face {
 }
 
 impl Face {
+    pub fn set_font_size(&mut self, size: f64, dpi: u32) -> Fallible<(f64, f64)> {
+        log::debug!("set_char_size {} dpi={}", size, dpi);
+
+        let size = (size * 64.0) as FT_F26Dot6;
+
+        let (cell_width, cell_height) = match self.set_char_size(size, size, dpi, dpi) {
+            Ok(_) => self.cell_metrics(),
+            Err(err) => {
+                let sizes = unsafe {
+                    let rec = &(*self.face);
+                    std::slice::from_raw_parts(rec.available_sizes, rec.num_fixed_sizes as usize)
+                };
+                if sizes.is_empty() {
+                    return Err(err);
+                }
+
+                let mut best = 0;
+                let mut best_size = 0;
+                let mut cell_width = 0;
+                let mut cell_height = 0;
+
+                for (idx, info) in sizes.iter().enumerate() {
+                    let size = best_size.max(info.height);
+                    if size > best_size {
+                        best = idx;
+                        best_size = size;
+                        cell_width = info.width;
+                        cell_height = info.height;
+                    }
+                }
+                self.select_size(best)?;
+                (f64::from(cell_width), f64::from(cell_height))
+            }
+        };
+
+        Ok((cell_width, cell_height))
+    }
+
     pub fn set_char_size(
         &mut self,
         char_width: FT_F26Dot6,
@@ -113,12 +157,23 @@ impl Drop for Library {
 }
 
 impl Library {
-    #[allow(dead_code)]
     pub fn new() -> Result<Library, Error> {
         let mut lib = ptr::null_mut();
         let res = unsafe { FT_Init_FreeType(&mut lib as *mut _) };
         let lib = ft_result(res, lib).context("FT_Init_FreeType")?;
-        Ok(Library { lib })
+        let mut lib = Library { lib };
+
+        lib.set_lcd_filter(FT_LcdFilter::FT_LCD_FILTER_DEFAULT).ok();
+
+        Ok(lib)
+    }
+
+    pub fn face_from_locator(&self, handle: &FontDataHandle) -> Fallible<Face> {
+        match handle {
+            FontDataHandle::OnDisk { path, index } => {
+                self.new_face(path.to_str().unwrap(), *index as _)
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -130,11 +185,12 @@ impl Library {
         let path = CString::new(path.into())?;
 
         let res = unsafe { FT_New_Face(self.lib, path.as_ptr(), face_index, &mut face as *mut _) };
-        Ok(Face { face: ft_result(res, face).context("FT_New_Face")? })
+        Ok(Face { face: ft_result(res, face).context("FT_New_Face")?, _bytes: Vec::new() })
     }
 
     #[allow(dead_code)]
     pub fn new_face_from_slice(&self, data: &[u8], face_index: FT_Long) -> Result<Face, Error> {
+        let data = data.to_vec();
         let mut face = ptr::null_mut();
 
         let res = unsafe {
@@ -149,10 +205,10 @@ impl Library {
         Ok(Face {
             face: ft_result(res, face)
                 .map_err(|e| e.context(format!("FT_New_Memory_Face for index {}", face_index)))?,
+            _bytes: data,
         })
     }
 
-    #[allow(dead_code)]
     pub fn set_lcd_filter(&mut self, filter: FT_LcdFilter) -> Result<(), Error> {
         unsafe { ft_result(FT_Library_SetLcdFilter(self.lib, filter), ()) }
     }

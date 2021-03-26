@@ -1,69 +1,104 @@
-use failure::{bail, Error};
-use log::{debug, error};
-mod ftfont;
+use failure::{format_err, Error, Fallible};
 mod hbwrap;
-use self::hbwrap as harfbuzz;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub mod system;
-pub use self::system::*;
-
 pub mod ftwrap;
+pub mod locator;
+pub mod rasterizer;
+pub mod shaper;
 
-#[cfg(not(target_os = "macos"))]
-pub mod fcftwrap;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub mod fcwrap;
 
-#[cfg(target_os = "macos")]
-pub mod coretext;
+use crate::font::locator::{FontLocator, FontLocatorSelection};
+pub use crate::font::rasterizer::RasterizedGlyph;
+use crate::font::rasterizer::{FontRasterizer, FontRasterizerSelection};
+pub use crate::font::shaper::{FallbackIdx, FontMetrics, GlyphInfo};
+use crate::font::shaper::{FontShaper, FontShaperSelection};
 
-use crate::config::{Config, TextStyle};
+use super::config::{Config, TextStyle};
 use crate::term::CellAttributes;
 
-type FontPtr = Rc<RefCell<Box<dyn NamedFont>>>;
+pub struct LoadedFont {
+    rasterizers: Vec<Box<dyn FontRasterizer>>,
+    shaper: Box<dyn FontShaper>,
+    metrics: FontMetrics,
+    font_size: f64,
+    dpi: u32,
+}
+
+impl LoadedFont {
+    pub fn metrics(&self) -> FontMetrics {
+        self.metrics
+    }
+
+    pub fn shape(&self, text: &str) -> Fallible<Vec<GlyphInfo>> {
+        self.shaper.shape(text, self.font_size, self.dpi)
+    }
+
+    pub fn rasterize_glyph(
+        &self,
+        glyph_pos: u32,
+        fallback: FallbackIdx,
+    ) -> Fallible<RasterizedGlyph> {
+        let rasterizer = self
+            .rasterizers
+            .get(fallback)
+            .ok_or_else(|| format_err!("no such fallback index: {}", fallback))?;
+        rasterizer.rasterize_glyph(glyph_pos, self.font_size, self.dpi)
+    }
+}
 
 pub struct FontConfiguration {
-    config: Arc<Config>,
-    fonts: RefCell<HashMap<TextStyle, FontPtr>>,
-    system: Rc<dyn FontSystem>,
+    fonts: RefCell<HashMap<TextStyle, Rc<LoadedFont>>>,
     metrics: RefCell<Option<FontMetrics>>,
     dpi_scale: RefCell<f64>,
     font_scale: RefCell<f64>,
+    config: Arc<Config>,
+    locator: Box<dyn FontLocator>,
 }
 
 impl FontConfiguration {
     pub fn new(config: Arc<Config>) -> Self {
-        #[cfg(target_os = "macos")]
-        let system = coretext::FontSystemImpl::new();
-        #[cfg(not(target_os = "macos"))]
-        let system = fcftwrap::FontSystemImpl::new();
-
+        let locator = FontLocatorSelection::get_default().new_locator();
         Self {
-            config,
             fonts: RefCell::new(HashMap::new()),
-            system: Rc::new(system),
+            locator,
             metrics: RefCell::new(None),
             font_scale: RefCell::new(1.0),
             dpi_scale: RefCell::new(1.0),
+            config,
         }
     }
 
-    pub fn cached_font(&self, style: &TextStyle) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
+    pub fn resolve_font(&self, style: &TextStyle) -> Fallible<Rc<LoadedFont>> {
         let mut fonts = self.fonts.borrow_mut();
 
         if let Some(entry) = fonts.get(style) {
             return Ok(Rc::clone(entry));
         }
 
-        let scale = *self.dpi_scale.borrow() * *self.font_scale.borrow();
-        let font = Rc::new(RefCell::new(self.system.load_font(&self.config, style, scale)?));
-        fonts.insert(style.clone(), Rc::clone(&font));
-        Ok(font)
+        let attributes = style.font_with_fallback();
+        let handles = self.locator.load_fonts(&attributes)?;
+        let mut rasterizers = vec![];
+        for handle in &handles {
+            rasterizers.push(FontRasterizerSelection::get_default().new_rasterizer(&handle)?);
+        }
+        let shaper = FontShaperSelection::get_default().new_shaper(&handles)?;
+
+        let font_size = self.config.font_size * *self.font_scale.borrow();
+        let dpi = *self.dpi_scale.borrow() as u32 * self.config.dpi as u32;
+        let metrics = shaper.metrics(font_size, dpi)?;
+
+        let loaded = Rc::new(LoadedFont { rasterizers, shaper, metrics, font_size, dpi });
+
+        fonts.insert(style.clone(), Rc::clone(&loaded));
+
+        Ok(loaded)
     }
 
     pub fn change_scaling(&self, font_scale: f64, dpi_scale: f64) {
@@ -73,8 +108,8 @@ impl FontConfiguration {
         self.metrics.borrow_mut().take();
     }
 
-    pub fn default_font(&self) -> Result<Rc<RefCell<Box<dyn NamedFont>>>, Error> {
-        self.cached_font(&self.config.font)
+    pub fn default_font(&self) -> Fallible<Rc<LoadedFont>> {
+        self.resolve_font(&self.config.font)
     }
 
     pub fn get_font_scale(&self) -> f64 {
@@ -90,7 +125,7 @@ impl FontConfiguration {
         }
 
         let font = self.default_font()?;
-        let metrics = font.borrow_mut().get_fallback(0)?.metrics();
+        let metrics = font.metrics();
 
         *self.metrics.borrow_mut() = Some(metrics);
 
@@ -121,123 +156,4 @@ impl FontConfiguration {
         }
         &self.config.font
     }
-}
-
-#[allow(dead_code)]
-pub fn shape_with_harfbuzz(
-    font: &mut dyn NamedFont,
-    font_idx: system::FallbackIdx,
-    s: &str,
-) -> Result<Vec<GlyphInfo>, Error> {
-    let features = vec![
-        harfbuzz::feature_from_string("kern")?,
-        harfbuzz::feature_from_string("liga")?,
-        harfbuzz::feature_from_string("clig")?,
-    ];
-
-    let mut buf = harfbuzz::Buffer::new()?;
-    buf.set_script(harfbuzz::HB_SCRIPT_LATIN);
-    buf.set_direction(harfbuzz::HB_DIRECTION_LTR);
-    buf.set_language(harfbuzz::language_from_string("en")?);
-    buf.add_str(s);
-
-    {
-        let fallback = font.get_fallback(font_idx).map_err(|e| {
-            let chars: Vec<u32> = s.chars().map(|c| c as u32).collect();
-            e.context(format!("while shaping {:x?}", chars))
-        })?;
-        fallback.harfbuzz_shape(&mut buf, Some(features.as_slice()));
-    }
-
-    let infos = buf.glyph_infos();
-    let positions = buf.glyph_positions();
-
-    let mut cluster = Vec::new();
-
-    let mut last_text_pos = None;
-    let mut first_fallback_pos = None;
-
-    let mut sizes = Vec::with_capacity(s.len());
-    for (i, info) in infos.iter().enumerate() {
-        let pos = info.cluster as usize;
-        let mut size = 1;
-        if let Some(last_pos) = last_text_pos {
-            let diff = pos - last_pos;
-            if diff > 1 {
-                sizes[i - 1] = diff;
-            }
-        } else if pos != 0 {
-            size = pos;
-        }
-        last_text_pos = Some(pos);
-        sizes.push(size);
-    }
-    if let Some(last_pos) = last_text_pos {
-        let diff = s.len() - last_pos;
-        if diff > 1 {
-            let last = sizes.len() - 1;
-            sizes[last] = diff;
-        }
-    }
-
-    for (i, info) in infos.iter().enumerate() {
-        let pos = info.cluster as usize;
-        if info.codepoint == 0 {
-            if first_fallback_pos.is_none() {
-                first_fallback_pos = Some(pos);
-            }
-        } else if let Some(start_pos) = first_fallback_pos {
-            let substr = &s[start_pos..pos];
-            let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
-                Ok(shape) => Ok(shape),
-                Err(e) => {
-                    error!("{:?} for {:?}", e, substr);
-                    if font_idx == 0 && s == "?" {
-                        bail!("unable to find any usable glyphs for `?` in font_idx 0");
-                    }
-                    shape_with_harfbuzz(font, 0, "?")
-                }
-            }?;
-
-            for mut info in &mut shape {
-                info.cluster += start_pos as u32;
-            }
-            cluster.append(&mut shape);
-
-            first_fallback_pos = None;
-        }
-        if info.codepoint != 0 {
-            if s.is_char_boundary(pos) && s.is_char_boundary(pos + sizes[i]) {
-                let text = &s[pos..pos + sizes[i]];
-
-                cluster.push(GlyphInfo::new(text, font_idx, info, &positions[i]));
-            } else {
-                cluster.append(&mut shape_with_harfbuzz(font, 0, "?")?);
-            }
-        }
-    }
-
-    if let Some(start_pos) = first_fallback_pos {
-        let substr = &s[start_pos..];
-        if false {
-            debug!("at end {:?}-{:?} needs fallback {}", start_pos, s.len() - 1, substr,);
-        }
-        let mut shape = match shape_with_harfbuzz(font, font_idx + 1, substr) {
-            Ok(shape) => Ok(shape),
-            Err(e) => {
-                error!("{:?} for {:?}", e, substr);
-                if font_idx == 0 && s == "?" {
-                    bail!("unable to find any usable glyphs for `?` in font_idx 0");
-                }
-                shape_with_harfbuzz(font, 0, "?")
-            }
-        }?;
-
-        for mut info in &mut shape {
-            info.cluster += start_pos as u32;
-        }
-        cluster.append(&mut shape);
-    }
-
-    Ok(cluster)
 }

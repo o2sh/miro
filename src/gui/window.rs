@@ -408,7 +408,7 @@ impl TermWindow {
             let new_dpi = dimensions.dpi as f64 / 96.;
             self.fonts.change_scaling(font_scale, new_dpi);
             self.render_metrics = RenderMetrics::new(&self.fonts);
-            //self.recreate_texture_atlas(None).expect("failed to recreate atlas");
+
             gl_state
                 .header
                 .change_scaling(
@@ -617,8 +617,7 @@ impl TermWindow {
             let bg_color = rgbcolor_to_window_color(bg_color);
 
             let glyph_info = {
-                let font = self.fonts.cached_font(style)?;
-                let mut font = font.borrow_mut();
+                let font = self.fonts.resolve_font(style)?;
                 font.shape(&cluster.text)?
             };
 
@@ -626,11 +625,11 @@ impl TermWindow {
                 let cell_idx = cluster.byte_to_cell_idx[info.cluster as usize];
                 let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, style)?;
 
-                let left = (glyph.x_offset + glyph.bearing_x) as f32;
-                let top = ((self.render_metrics.cell_size.height as f64
+                let left = (glyph.x_offset + glyph.bearing_x).get() as f32;
+                let top = ((PixelLength::new(self.render_metrics.cell_size.height as f64)
                     + self.render_metrics.descender)
-                    - (glyph.y_offset + glyph.bearing_y)) as f32;
-
+                    - (glyph.y_offset + glyph.bearing_y))
+                    .get() as f32;
                 let underline_tex_rect = gl_state
                     .util_sprites
                     .select_sprite(is_highlited_hyperlink, attrs.strikethrough(), attrs.underline())

@@ -1,6 +1,7 @@
-use failure::{self, Error};
+use failure::{ensure, err_msg, format_err, Error};
 pub use fontconfig::fontconfig::*;
 use std::ffi::{CStr, CString};
+use std::fmt;
 use std::mem;
 use std::ptr;
 
@@ -15,6 +16,12 @@ impl Drop for FontSet {
         unsafe {
             FcFontSetDestroy(self.fonts);
         }
+    }
+}
+
+impl fmt::Debug for FontSet {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -42,23 +49,13 @@ impl<'a> Iterator for FontSetIter<'a> {
 
 impl FontSet {
     pub fn iter(&self) -> FontSetIter {
-        FontSetIter { set: &self, position: 0 }
-    }
-
-    #[allow(dead_code)]
-    pub fn add(&mut self, pat: &Pattern) {
-        unsafe {
-            FcFontSetAdd(self.fonts, pat.pat);
-        }
+        FontSetIter { set: self, position: 0 }
     }
 }
 
 #[repr(C)]
-#[allow(dead_code)]
 pub enum MatchKind {
     Pattern = FcMatchPattern as isize,
-    Font = FcMatchFont as isize,
-    Scan = FcMatchScan as isize,
 }
 
 pub struct FcResultWrap(FcResult);
@@ -71,11 +68,11 @@ impl FcResultWrap {
     pub fn as_err(&self) -> Error {
         #[allow(non_upper_case_globals)]
         match self.0 {
-            FcResultMatch => failure::err_msg("FcResultMatch"),
-            FcResultNoMatch => failure::err_msg("FcResultNoMatch"),
-            FcResultTypeMismatch => failure::err_msg("FcResultTypeMismatch"),
-            FcResultNoId => failure::err_msg("FcResultNoId"),
-            FcResultOutOfMemory => failure::err_msg("FcResultOutOfMemory"),
+            FcResultMatch => err_msg("FcResultMatch"),
+            FcResultNoMatch => err_msg("FcResultNoMatch"),
+            FcResultTypeMismatch => err_msg("FcResultTypeMismatch"),
+            FcResultNoId => err_msg("FcResultNoId"),
+            FcResultOutOfMemory => err_msg("FcResultOutOfMemory"),
             _ => format_err!("FcResult holds invalid value {}", self.0),
         }
     }
@@ -94,7 +91,6 @@ pub struct Pattern {
 }
 
 impl Pattern {
-    #[allow(dead_code)]
     pub fn new() -> Result<Pattern, Error> {
         unsafe {
             let p = FcPatternCreate();
@@ -103,7 +99,6 @@ impl Pattern {
         }
     }
 
-    #[allow(dead_code)]
     pub fn add_string(&mut self, key: &str, value: &str) -> Result<(), Error> {
         let key = CString::new(key)?;
         let value = CString::new(value)?;
@@ -132,7 +127,6 @@ impl Pattern {
         }
     }
 
-    #[allow(dead_code)]
     pub fn add_integer(&mut self, key: &str, value: i32) -> Result<(), Error> {
         let key = CString::new(key)?;
         unsafe {
@@ -146,24 +140,14 @@ impl Pattern {
         }
     }
 
-    #[allow(dead_code)]
     pub fn family(&mut self, family: &str) -> Result<(), Error> {
         self.add_string("family", family)
     }
 
-    #[allow(dead_code)]
     pub fn monospace(&mut self) -> Result<(), Error> {
         self.add_integer("spacing", FC_MONO)
     }
 
-    #[allow(dead_code)]
-    pub fn print(&self) {
-        unsafe {
-            FcPatternPrint(self.pat);
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn format(&self, fmt: &str) -> Result<String, Error> {
         let fmt = CString::new(fmt)?;
         unsafe {
@@ -197,15 +181,6 @@ impl Pattern {
     pub fn default_substitute(&mut self) {
         unsafe {
             FcDefaultSubstitute(self.pat);
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn find_match(&self) -> Result<Pattern, Error> {
-        unsafe {
-            let mut res = FcResultWrap(0);
-            let pat = FcFontMatch(ptr::null_mut(), self.pat, &mut res.0 as *mut _);
-            res.result(Pattern { pat })
         }
     }
 
@@ -243,21 +218,6 @@ impl Pattern {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_integer(&self, key: &str) -> Result<i32, Error> {
-        unsafe {
-            let key = CString::new(key)?;
-            let mut ival: i32 = 0;
-            let res =
-                FcResultWrap(FcPatternGetInteger(self.pat, key.as_ptr(), 0, &mut ival as *mut _));
-            if !res.succeeded() {
-                Err(res.as_err())
-            } else {
-                Ok(ival)
-            }
-        }
-    }
-
     pub fn get_string(&self, key: &str) -> Result<String, Error> {
         unsafe {
             let key = CString::new(key)?;
@@ -282,5 +242,13 @@ impl Drop for Pattern {
         unsafe {
             FcPatternDestroy(self.pat);
         }
+    }
+}
+
+impl fmt::Debug for Pattern {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str(
+            &self.format("Pattern(%{+family,style,weight,slant,spacing{%{=unparse}}})").unwrap(),
+        )
     }
 }

@@ -9,6 +9,7 @@ use crate::window::bitmaps::atlas::SpriteSlice;
 use crate::window::bitmaps::Texture2d;
 use crate::window::color::Color;
 use crate::window::Dimensions;
+use crate::window::PixelLength;
 use chrono::{DateTime, Utc};
 use failure::Fallible;
 use glium::{uniform, Surface};
@@ -123,8 +124,7 @@ impl Header {
         let header_text = self.compute_header_text(vertices.len());
         let style = TextStyle::default();
         let glyph_info = {
-            let font = fonts.cached_font(&style)?;
-            let mut font = font.borrow_mut();
+            let font = fonts.resolve_font(&style)?;
             font.shape(&header_text)?
         };
 
@@ -134,10 +134,11 @@ impl Header {
         for (glyph_idx, info) in glyph_info.iter().enumerate() {
             let glyph = gl_state.glyph_cache.borrow_mut().cached_glyph(info, &style)?;
 
-            let left = (glyph.x_offset + glyph.bearing_x) as f32;
-            let top = ((render_metrics.cell_size.height as f64 + render_metrics.descender)
-                - (glyph.y_offset + glyph.bearing_y)) as f32;
-
+            let left = (glyph.x_offset + glyph.bearing_x).get() as f32;
+            let top = ((PixelLength::new(render_metrics.cell_size.to_f64().height)
+                + render_metrics.descender)
+                - (glyph.y_offset + glyph.bearing_y))
+                .get() as f32;
             let texture = glyph.texture.as_ref().unwrap_or(&gl_state.util_sprites.white_space);
 
             let slice = SpriteSlice {

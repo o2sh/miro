@@ -23,7 +23,7 @@ fn rect_fragment_shader(version: &str) -> String {
     format!(
         "#version {}\n{}",
         version,
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets//shaders/h_fragment.glsl"))
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/h_fragment.glsl"))
     )
 }
 
