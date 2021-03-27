@@ -4,6 +4,7 @@ use super::renderstate::RenderState;
 use super::utilsprites::RenderMetrics;
 use crate::core::color::RgbColor;
 use crate::core::promise;
+use crate::core::surface::CursorShape;
 use crate::font::FontConfiguration;
 use crate::gui::executor;
 use crate::mux::tab::Tab;
@@ -475,6 +476,7 @@ impl TermWindow {
             self.fonts.as_ref(),
             frame,
         )?;
+
         Ok(())
     }
 
@@ -487,6 +489,9 @@ impl TermWindow {
     ) -> Fallible<()> {
         let mut term = tab.renderer();
 
+        let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
+        let mut quads = gl_state.quads.map(&mut vb);
+
         let cursor = {
             let cursor = term.cursor_pos();
             CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
@@ -494,7 +499,7 @@ impl TermWindow {
 
         let empty_line = Line::from("");
         for i in 0..=self.header.offset - 1 {
-            self.render_screen_line(i, &empty_line, 0..0, &cursor, &*term, &palette)?;
+            self.render_screen_line(i, &empty_line, 0..0, &cursor, &*term, &palette, &mut quads)?;
         }
 
         let dirty_lines = term.get_dirty_lines();
@@ -506,6 +511,7 @@ impl TermWindow {
                 &cursor,
                 &*term,
                 &palette,
+                &mut quads,
             )?;
         }
 
@@ -520,11 +526,13 @@ impl TermWindow {
         )
         .to_arrays();
 
+        drop(quads);
+
         let draw_params =
             glium::DrawParameters { blend: glium::Blend::alpha_blending(), ..Default::default() };
 
         frame.draw(
-            &*gl_state.glyph_vertex_buffer.borrow(),
+            &*vb,
             &gl_state.glyph_index_buffer,
             &gl_state.glyph_program,
             &uniform! {
@@ -536,7 +544,7 @@ impl TermWindow {
         )?;
 
         frame.draw(
-            &*gl_state.glyph_vertex_buffer.borrow(),
+            &*vb,
             &gl_state.glyph_index_buffer,
             &gl_state.glyph_program,
             &uniform! {
@@ -560,27 +568,20 @@ impl TermWindow {
         cursor: &CursorPosition,
         terminal: &Terminal,
         palette: &ColorPalette,
+        quads: &mut MappedQuads,
     ) -> Fallible<()> {
         let gl_state = self.render_state.as_ref().unwrap();
-
         let (_num_rows, num_cols) = terminal.physical_dimensions();
-        let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
-        let mut vertices = {
-            let per_line = num_cols * VERTICES_PER_CELL;
-            let start_pos = line_idx * per_line;
-            vb.slice_mut(start_pos..start_pos + per_line)
-                .ok_or_else(|| failure::err_msg("we're confused about the screen size"))?
-                .map()
-        };
 
         let current_highlight = terminal.current_highlight();
+        let cursor_border_color = rgbcolor_to_window_color(palette.cursor_border);
 
         let cell_clusters = line.cluster();
         let mut last_cell_idx = 0;
         for cluster in cell_clusters {
             let attrs = &cluster.attrs;
             let is_highlited_hyperlink = match (&attrs.hyperlink, &current_highlight) {
-                (&Some(ref this), &Some(ref highlight)) => this == highlight,
+                (&Some(ref this), &Some(ref highlight)) => Arc::ptr_eq(this, highlight),
                 _ => false,
             };
             let style = self.fonts.match_style(attrs);
@@ -630,6 +631,7 @@ impl TermWindow {
                     + self.render_metrics.descender)
                     - (glyph.y_offset + glyph.bearing_y))
                     .get() as f32;
+
                 let underline_tex_rect = gl_state
                     .util_sprites
                     .select_sprite(is_highlited_hyperlink, attrs.strikethrough(), attrs.underline())
@@ -643,7 +645,7 @@ impl TermWindow {
                     }
                     last_cell_idx = cell_idx;
 
-                    let (glyph_color, bg_color) = self.compute_cell_fg_bg(
+                    let (glyph_color, bg_color, cursor_shape) = self.compute_cell_fg_bg(
                         line_idx,
                         cell_idx,
                         cursor,
@@ -673,7 +675,7 @@ impl TermWindow {
                     let right = pixel_rect.size.width as f32 + left
                         - self.render_metrics.cell_size.width as f32;
 
-                    let mut quad = Quad::for_cell(cell_idx, &mut vertices);
+                    let mut quad = quads.cell(cell_idx, line_idx)?;
 
                     quad.set_fg_color(glyph_color);
                     quad.set_bg_color(bg_color);
@@ -681,6 +683,10 @@ impl TermWindow {
                     quad.set_texture_adjust(left, top, right, bottom);
                     quad.set_underline(underline_tex_rect);
                     quad.set_has_color(glyph.has_color);
+                    quad.set_cursor(
+                        gl_state.util_sprites.cursor_sprite(cursor_shape).texture_coords(),
+                    );
+                    quad.set_cursor_color(cursor_border_color);
                 }
             }
         }
@@ -688,7 +694,7 @@ impl TermWindow {
         let white_space = gl_state.util_sprites.white_space.texture_coords();
 
         for cell_idx in last_cell_idx + 1..num_cols {
-            let (glyph_color, bg_color) = self.compute_cell_fg_bg(
+            let (glyph_color, bg_color, cursor_shape) = self.compute_cell_fg_bg(
                 line_idx,
                 cell_idx,
                 cursor,
@@ -698,7 +704,7 @@ impl TermWindow {
                 palette,
             );
 
-            let mut quad = Quad::for_cell(cell_idx, &mut vertices);
+            let mut quad = quads.cell(cell_idx, line_idx)?;
 
             quad.set_bg_color(bg_color);
             quad.set_fg_color(glyph_color);
@@ -706,6 +712,8 @@ impl TermWindow {
             quad.set_texture_adjust(0., 0., 0., 0.);
             quad.set_underline(white_space);
             quad.set_has_color(false);
+            quad.set_cursor(gl_state.util_sprites.cursor_sprite(cursor_shape).texture_coords());
+            quad.set_cursor_color(cursor_border_color);
         }
 
         Ok(())
@@ -721,25 +729,28 @@ impl TermWindow {
         fg_color: Color,
         bg_color: Color,
         palette: &ColorPalette,
-    ) -> (Color, Color) {
+    ) -> (Color, Color, CursorShape) {
         let selected = selection.contains(&cell_idx);
+
         let is_cursor = line_idx as i64 == cursor.y && cursor.x == cell_idx;
 
-        let (fg_color, bg_color) = match (selected, is_cursor) {
-            (false, false) => (fg_color, bg_color),
+        let cursor_shape = if is_cursor { CursorShape::SteadyBlock } else { CursorShape::Hidden };
 
-            (_, true) => (
+        let (fg_color, bg_color) = match (selected, cursor_shape) {
+            (true, CursorShape::Hidden) => (
+                rgbcolor_to_window_color(palette.selection_fg),
+                rgbcolor_to_window_color(palette.selection_bg),
+            ),
+
+            (_, CursorShape::BlinkingBlock) | (_, CursorShape::SteadyBlock) => (
                 rgbcolor_to_window_color(palette.cursor_fg),
                 rgbcolor_to_window_color(palette.cursor_bg),
             ),
 
-            (true, false) => (
-                rgbcolor_to_window_color(palette.selection_fg),
-                rgbcolor_to_window_color(palette.selection_bg),
-            ),
+            _ => (fg_color, bg_color),
         };
 
-        (fg_color, bg_color)
+        (fg_color, bg_color, cursor_shape)
     }
 
     fn clear(&self, palette: &ColorPalette, frame: &mut glium::Frame) {

@@ -9,11 +9,8 @@ pub use self::line::Line;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Position {
     NoChange,
-
     Relative(isize),
-
     Absolute(usize),
-
     EndRelative(usize),
 }
 

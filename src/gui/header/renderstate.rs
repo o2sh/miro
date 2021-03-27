@@ -60,6 +60,7 @@ pub struct HeaderRenderState {
     pub sprite_speed: f32,
     pub spritesheet: SpriteSheet,
     pub dpi: f32,
+    pub quads: Quads,
 }
 
 impl HeaderRenderState {
@@ -73,7 +74,7 @@ impl HeaderRenderState {
         let spritesheet = get_spritesheet(&theme.spritesheet_path);
         let sprite_size = (spritesheet.sprite_width, spritesheet.sprite_height);
         let height = spritesheet.sprite_height;
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
+        let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &context,
             height,
             pixel_width as f32,
@@ -183,6 +184,7 @@ impl HeaderRenderState {
             sprite_speed: SPRITE_SPEED,
             spritesheet,
             dpi: 1.0,
+            quads,
         })
     }
 
@@ -203,7 +205,7 @@ impl HeaderRenderState {
         *self.rect_vertex_buffer.borrow_mut() = rect_vertex_buffer;
         self.rect_index_buffer = rect_index_buffer;
 
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
+        let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &self.context,
             self.height,
             pixel_width as f32,
@@ -213,7 +215,7 @@ impl HeaderRenderState {
 
         *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
         self.glyph_index_buffer = glyph_index_buffer;
-
+        self.quads = quads;
         self.reset_sprite_pos(pixel_height as f32 / 2.0);
 
         Ok(())
@@ -271,42 +273,55 @@ impl HeaderRenderState {
         width: f32,
         height: f32,
         metrics: &RenderMetrics,
-    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
+    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
         let cell_width = metrics.cell_size.width as f32;
         let cell_height = metrics.cell_size.height as f32;
 
-        let header_width_padding = cell_width;
+        let padding_left = cell_width;
 
         let top_padding = (header_height - cell_height) / 2.0;
         let y_pos = (height / -2.0) + top_padding;
 
-        let num_cols = (width - header_width_padding * 2.) / cell_width;
+        let num_cols = (width - padding_left * 2.) / cell_width;
+        let mut quads = Quads::default();
+
+        quads.cols = num_cols as usize;
+
+        let mut define_quad = |left, top, right, bottom| -> u32 {
+            let idx = verts.len() as u32;
+
+            verts.push(Vertex { position: (left, top), ..Default::default() });
+            verts.push(Vertex { position: (right, top), ..Default::default() });
+            verts.push(Vertex { position: (left, bottom), ..Default::default() });
+            verts.push(Vertex { position: (right, bottom), ..Default::default() });
+
+            indices.push(idx + V_TOP_LEFT as u32);
+            indices.push(idx + V_TOP_RIGHT as u32);
+            indices.push(idx + V_BOT_LEFT as u32);
+
+            indices.push(idx + V_TOP_RIGHT as u32);
+            indices.push(idx + V_BOT_LEFT as u32);
+            indices.push(idx + V_BOT_RIGHT as u32);
+
+            idx
+        };
 
         for x in 0..num_cols as usize {
-            let x_pos = (width / -2.0) + header_width_padding + (x as f32 * cell_width);
+            let x_pos = (width / -2.0) + (x as f32 * cell_width) + padding_left;
 
-            let idx = verts.len() as u32;
-            verts.push(Vertex { position: (x_pos, y_pos), ..Default::default() });
-            verts.push(Vertex { position: (x_pos + cell_width, y_pos), ..Default::default() });
-            verts.push(Vertex { position: (x_pos, y_pos + cell_height), ..Default::default() });
-            verts.push(Vertex {
-                position: (x_pos + cell_width, y_pos + cell_height),
-                ..Default::default()
-            });
-
-            indices.push(idx);
-            indices.push(idx + 1);
-            indices.push(idx + 2);
-            indices.push(idx + 1);
-            indices.push(idx + 2);
-            indices.push(idx + 3);
+            let idx = define_quad(x_pos, y_pos, x_pos + cell_width, y_pos + cell_height);
+            if x == 0 {
+                quads.row_starts.push(idx as usize);
+            }
         }
+
         Ok((
             VertexBuffer::dynamic(context, &verts)?,
             IndexBuffer::new(context, glium::index::PrimitiveType::TrianglesList, &indices)?,
+            quads,
         ))
     }
 

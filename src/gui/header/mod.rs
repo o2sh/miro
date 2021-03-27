@@ -1,4 +1,4 @@
-use super::quad::{Quad, VERTICES_PER_CELL};
+use super::quad::{MappedQuads, VERTICES_PER_CELL};
 use super::renderstate::RenderState;
 use super::utilsprites::RenderMetrics;
 use crate::config::TextStyle;
@@ -72,12 +72,15 @@ impl Header {
             &draw_params,
         )?;
 
-        self.render_line(gl_state, render_metrics, fonts, palette)?;
+        let mut vb = gl_state.header.glyph_vertex_buffer.borrow_mut();
+        let mut quads = gl_state.header.quads.map(&mut vb);
+
+        self.render_line(gl_state, render_metrics, fonts, palette, &mut quads)?;
 
         let tex = gl_state.glyph_cache.borrow().atlas.texture();
-
+        drop(quads);
         frame.draw(
-            &*gl_state.header.glyph_vertex_buffer.borrow(),
+            &*vb,
             &gl_state.header.glyph_index_buffer,
             &gl_state.glyph_program,
             &uniform! {
@@ -114,14 +117,9 @@ impl Header {
         render_metrics: &RenderMetrics,
         fonts: &FontConfiguration,
         palette: &ColorPalette,
+        quads: &mut MappedQuads,
     ) -> Fallible<()> {
-        let mut vb = gl_state.header.glyph_vertex_buffer.borrow_mut();
-        let mut vertices = vb
-            .slice_mut(..)
-            .ok_or_else(|| format_err!("we're confused about the screen size"))?
-            .map();
-
-        let header_text = self.compute_header_text(vertices.len());
+        let header_text = self.compute_header_text(quads.cols());
         let style = TextStyle::default();
         let glyph_info = {
             let font = fonts.resolve_font(&style)?;
@@ -156,7 +154,7 @@ impl Header {
                 - render_metrics.cell_size.height as f32;
             let right = pixel_rect.size.width as f32 + left - render_metrics.cell_size.width as f32;
 
-            let mut quad = Quad::for_cell(glyph_idx, &mut vertices);
+            let mut quad = quads.cell(glyph_idx, 0)?;
 
             quad.set_fg_color(rgbcolor_to_window_color(glyph_color));
             quad.set_bg_color(rgbcolor_to_window_color(bg_color));

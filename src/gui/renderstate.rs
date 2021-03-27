@@ -35,6 +35,7 @@ pub struct RenderState {
     pub glyph_vertex_buffer: RefCell<VertexBuffer<Vertex>>,
     pub glyph_index_buffer: IndexBuffer<u32>,
     pub header: HeaderRenderState,
+    pub quads: Quads,
 }
 
 impl RenderState {
@@ -76,7 +77,7 @@ impl RenderState {
             failure::format_err!("Failed to compile shaders: {}", glyph_errors.join("\n"))
         })?;
 
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
+        let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &context,
             metrics,
             pixel_width as f32,
@@ -94,6 +95,7 @@ impl RenderState {
             glyph_vertex_buffer: RefCell::new(glyph_vertex_buffer),
             glyph_index_buffer,
             header,
+            quads,
         })
     }
 
@@ -103,7 +105,7 @@ impl RenderState {
         pixel_width: usize,
         pixel_height: usize,
     ) -> Fallible<()> {
-        let (glyph_vertex_buffer, glyph_index_buffer) = Self::compute_glyph_vertices(
+        let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &self.context,
             metrics,
             pixel_width as f32,
@@ -112,6 +114,7 @@ impl RenderState {
 
         *self.glyph_vertex_buffer.borrow_mut() = glyph_vertex_buffer;
         self.glyph_index_buffer = glyph_index_buffer;
+        self.quads = quads;
         self.header.advise_of_window_size_change(metrics, pixel_width, pixel_height)
     }
 
@@ -120,7 +123,7 @@ impl RenderState {
         metrics: &RenderMetrics,
         width: f32,
         height: f32,
-    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
+    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
         let cell_width = metrics.cell_size.width as f32;
         let cell_height = metrics.cell_size.height as f32;
         let mut verts = Vec::new();
@@ -128,34 +131,45 @@ impl RenderState {
 
         let num_cols = width as usize / cell_width as usize;
         let num_rows = height as usize / cell_height as usize;
+        let mut quads = Quads::default();
+        quads.cols = num_cols;
+
+        let mut define_quad = |left, top, right, bottom| -> u32 {
+            let idx = verts.len() as u32;
+
+            verts.push(Vertex { position: (left, top), ..Default::default() });
+            verts.push(Vertex { position: (right, top), ..Default::default() });
+            verts.push(Vertex { position: (left, bottom), ..Default::default() });
+            verts.push(Vertex { position: (right, bottom), ..Default::default() });
+
+            indices.push(idx + V_TOP_LEFT as u32);
+            indices.push(idx + V_TOP_RIGHT as u32);
+            indices.push(idx + V_BOT_LEFT as u32);
+
+            indices.push(idx + V_TOP_RIGHT as u32);
+            indices.push(idx + V_BOT_LEFT as u32);
+            indices.push(idx + V_BOT_RIGHT as u32);
+
+            idx
+        };
 
         for y in 0..num_rows {
+            let y_pos = (height / -2.0) + (y as f32 * cell_height);
+
             for x in 0..num_cols {
-                let y_pos = (height / -2.0) + (y as f32 * cell_height);
                 let x_pos = (width / -2.0) + (x as f32 * cell_width);
 
-                let idx = verts.len() as u32;
-                verts.push(Vertex { position: (x_pos, y_pos), ..Default::default() });
-                verts.push(Vertex { position: (x_pos + cell_width, y_pos), ..Default::default() });
-                verts.push(Vertex { position: (x_pos, y_pos + cell_height), ..Default::default() });
-                verts.push(Vertex {
-                    position: (x_pos + cell_width, y_pos + cell_height),
-                    ..Default::default()
-                });
-
-                indices.push(idx + V_TOP_LEFT as u32);
-                indices.push(idx + V_TOP_RIGHT as u32);
-                indices.push(idx + V_BOT_LEFT as u32);
-
-                indices.push(idx + V_TOP_RIGHT as u32);
-                indices.push(idx + V_BOT_LEFT as u32);
-                indices.push(idx + V_BOT_RIGHT as u32);
+                let idx = define_quad(x_pos, y_pos, x_pos + cell_width, y_pos + cell_height);
+                if x == 0 {
+                    quads.row_starts.push(idx as usize);
+                }
             }
         }
 
         Ok((
             VertexBuffer::dynamic(context, &verts)?,
             IndexBuffer::new(context, glium::index::PrimitiveType::TrianglesList, &indices)?,
+            quads,
         ))
     }
 }

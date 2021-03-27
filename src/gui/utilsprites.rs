@@ -1,4 +1,5 @@
 use super::glyphcache::GlyphCache;
+use crate::core::surface::CursorShape;
 use crate::font::FontConfiguration;
 use crate::term::Underline;
 use crate::window::bitmaps::atlas::{OutOfTextureSpace, Sprite};
@@ -46,9 +47,12 @@ pub struct UtilSprites<T: Texture2d> {
     pub white_space: Sprite<T>,
     pub single_underline: Sprite<T>,
     pub double_underline: Sprite<T>,
+    pub cursor_box: Sprite<T>,
     pub strike_through: Sprite<T>,
     pub single_and_strike: Sprite<T>,
+    pub cursor_i_beam: Sprite<T>,
     pub double_and_strike: Sprite<T>,
+    pub cursor_underline: Sprite<T>,
 }
 
 impl<T: Texture2d> UtilSprites<T> {
@@ -59,8 +63,8 @@ impl<T: Texture2d> UtilSprites<T> {
         let mut buffer =
             Image::new(metrics.cell_size.width as usize, metrics.cell_size.height as usize);
 
-        let black = crate::window::color::Color::rgba(0, 0, 0, 0);
-        let white = crate::window::color::Color::rgb(0xff, 0xff, 0xff);
+        let black = Color::rgba(0, 0, 0, 0);
+        let white = Color::rgb(0xff, 0xff, 0xff);
 
         let cell_rect = Rect::new(Point::new(0, 0), metrics.cell_size);
 
@@ -149,6 +153,89 @@ impl<T: Texture2d> UtilSprites<T> {
         draw_strike(&mut buffer);
         let double_and_strike = glyph_cache.atlas.allocate(&buffer)?;
 
+        let border_width = (metrics.underline_height as f64 * metrics.cell_size.width as f64
+            / metrics.cell_size.height as f64)
+            .ceil() as usize;
+
+        buffer.clear_rect(cell_rect, black);
+        for i in 0..metrics.underline_height {
+            buffer.draw_line(
+                Point::new(cell_rect.origin.x, cell_rect.origin.y + i),
+                Point::new(cell_rect.origin.x + metrics.cell_size.width, cell_rect.origin.y + i),
+                white,
+                Operator::Source,
+            );
+
+            buffer.draw_line(
+                Point::new(
+                    cell_rect.origin.x,
+                    cell_rect.origin.y + metrics.cell_size.height.saturating_sub(1 + i),
+                ),
+                Point::new(
+                    cell_rect.origin.x + metrics.cell_size.width,
+                    cell_rect.origin.y + metrics.cell_size.height.saturating_sub(1 + i),
+                ),
+                white,
+                Operator::Source,
+            );
+        }
+        for i in 0..border_width {
+            buffer.draw_line(
+                Point::new(cell_rect.origin.x + i as isize, cell_rect.origin.y),
+                Point::new(
+                    cell_rect.origin.x + i as isize,
+                    cell_rect.origin.y + metrics.cell_size.height,
+                ),
+                white,
+                Operator::Source,
+            );
+
+            buffer.draw_line(
+                Point::new(
+                    cell_rect.origin.x + metrics.cell_size.width.saturating_sub(1 + i as isize),
+                    cell_rect.origin.y,
+                ),
+                Point::new(
+                    cell_rect.origin.x + metrics.cell_size.width.saturating_sub(1 + i as isize),
+                    cell_rect.origin.y + metrics.cell_size.height,
+                ),
+                white,
+                Operator::Source,
+            );
+        }
+        let cursor_box = glyph_cache.atlas.allocate(&buffer)?;
+
+        buffer.clear_rect(cell_rect, black);
+        for i in 0..border_width * 2 {
+            buffer.draw_line(
+                Point::new(cell_rect.origin.x + i as isize, cell_rect.origin.y),
+                Point::new(
+                    cell_rect.origin.x + i as isize,
+                    cell_rect.origin.y + metrics.cell_size.height,
+                ),
+                white,
+                Operator::Source,
+            );
+        }
+        let cursor_i_beam = glyph_cache.atlas.allocate(&buffer)?;
+
+        buffer.clear_rect(cell_rect, black);
+        for i in 0..metrics.underline_height {
+            buffer.draw_line(
+                Point::new(
+                    cell_rect.origin.x,
+                    cell_rect.origin.y + metrics.cell_size.height.saturating_sub(1 + i),
+                ),
+                Point::new(
+                    cell_rect.origin.x + metrics.cell_size.width,
+                    cell_rect.origin.y + metrics.cell_size.height.saturating_sub(1 + i),
+                ),
+                white,
+                Operator::Source,
+            );
+        }
+        let cursor_underline = glyph_cache.atlas.allocate(&buffer)?;
+
         Ok(Self {
             white_space,
             single_underline,
@@ -156,6 +243,9 @@ impl<T: Texture2d> UtilSprites<T> {
             strike_through,
             single_and_strike,
             double_and_strike,
+            cursor_box,
+            cursor_i_beam,
+            cursor_underline,
         })
     }
 
@@ -178,6 +268,15 @@ impl<T: Texture2d> UtilSprites<T> {
             (false, true, Underline::None) => &self.strike_through,
             (false, true, Underline::Single) => &self.single_and_strike,
             (false, true, Underline::Double) => &self.double_and_strike,
+        }
+    }
+
+    pub fn cursor_sprite(&self, shape: CursorShape) -> &Sprite<T> {
+        match shape {
+            CursorShape::Default | CursorShape::Hidden => &self.white_space,
+            CursorShape::BlinkingBlock | CursorShape::SteadyBlock => &self.cursor_box,
+            CursorShape::BlinkingBar | CursorShape::SteadyBar => &self.cursor_i_beam,
+            CursorShape::BlinkingUnderline | CursorShape::SteadyUnderline => &self.cursor_underline,
         }
     }
 }

@@ -11,14 +11,9 @@ bitflags! {
     #[derive(Serialize, Deserialize)]
     struct LineBits : u8 {
         const NONE = 0;
-
-
         const DIRTY = 1;
-
         const HAS_HYPERLINK = 1<<1;
-
         const SCANNED_IMPLICIT_HYPERLINKS = 1<<2;
-
         const HAS_IMPLICIT_HYPERLINKS = 1<<3;
     }
 }
