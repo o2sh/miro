@@ -14,13 +14,9 @@ where
     T: Texture2d,
 {
     texture: Rc<T>,
-
     side: usize,
-
     bottom: usize,
-
     tallest: usize,
-
     left: usize,
 }
 
@@ -80,6 +76,9 @@ where
         self.tallest = self.tallest.max(reserve_height);
 
         Ok(Sprite { texture: Rc::clone(&self.texture), coords: rect })
+    }
+    pub fn size(&self) -> usize {
+        self.side
     }
 }
 

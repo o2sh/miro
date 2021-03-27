@@ -9,6 +9,7 @@ use crate::font::FontConfiguration;
 use crate::gui::executor;
 use crate::mux::tab::Tab;
 use crate::mux::Mux;
+use crate::pty::PtySize;
 use crate::term;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
 use crate::term::color::ColorPalette;
@@ -29,6 +30,12 @@ use std::sync::Arc;
 
 const ATLAS_SIZE: usize = 4096;
 
+#[derive(Debug, Clone, Copy)]
+struct RowsAndCols {
+    rows: usize,
+    cols: usize,
+}
+
 pub struct TermWindow {
     window: Option<Window>,
     fonts: Rc<FontConfiguration>,
@@ -38,6 +45,7 @@ pub struct TermWindow {
     clipboard: Arc<dyn Clipboard>,
     keys: KeyMap,
     frame_count: u32,
+    terminal_size: PtySize,
     header: Header,
 }
 
@@ -322,25 +330,38 @@ impl TermWindow {
 
         let render_metrics = RenderMetrics::new(fontconfig);
 
-        let width = render_metrics.cell_size.width as usize * physical_cols;
-        let height = render_metrics.cell_size.height as usize * physical_rows;
+        let terminal_size = PtySize {
+            rows: physical_rows as u16,
+            cols: physical_cols as u16,
+            pixel_width: (render_metrics.cell_size.width as usize * physical_cols) as u16,
+            pixel_height: (render_metrics.cell_size.height as usize * physical_rows) as u16,
+        };
 
         let header = Header::new();
+
+        let dimensions = Dimensions {
+            pixel_width: (terminal_size.cols * render_metrics.cell_size.width as u16) as usize,
+            pixel_height: (header.offset + terminal_size.rows as usize)
+                * render_metrics.cell_size.height as usize,
+            dpi: 96,
+        };
+
         Window::new_window(
             "miro",
             "miro",
-            width,
-            height,
+            dimensions.pixel_width,
+            dimensions.pixel_height,
             Box::new(Self {
                 window: None,
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
-                dimensions: Dimensions { pixel_width: width, pixel_height: height, dpi: 96 },
+                dimensions,
                 render_state: None,
                 clipboard: Arc::new(SystemClipboard::new()),
                 keys: KeyMap::new(),
                 header,
                 frame_count: 0,
+                terminal_size,
             }),
         )?;
 
@@ -396,31 +417,98 @@ impl TermWindow {
         Ok(())
     }
 
-    #[allow(clippy::float_cmp)]
     fn scaling_changed(&mut self, dimensions: Dimensions, font_scale: f64) {
-        let mux = Mux::get().unwrap();
-        let tab = mux.get_tab();
-        let gl_state = self.render_state.as_mut().unwrap();
-
         let scale_changed =
             dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
 
-        if scale_changed {
-            let new_dpi = dimensions.dpi as f64 / 96.;
-            self.fonts.change_scaling(font_scale, new_dpi);
-            self.render_metrics = RenderMetrics::new(&self.fonts);
+        let scale_changed_cells = if scale_changed {
+            let cell_dims = self.current_cell_dimensions();
+            self.apply_scale_change(&dimensions, font_scale);
+            Some(cell_dims)
+        } else {
+            None
+        };
 
-            gl_state
-                .header
-                .change_scaling(
-                    new_dpi as f32,
-                    self.dimensions.pixel_width,
-                    self.dimensions.pixel_height,
-                )
-                .expect("failed to rescale header");
+        self.apply_dimensions(&dimensions, scale_changed_cells);
+    }
+
+    fn current_cell_dimensions(&self) -> RowsAndCols {
+        RowsAndCols {
+            rows: self.terminal_size.rows as usize,
+            cols: self.terminal_size.cols as usize,
         }
+    }
 
-        self.dimensions = dimensions;
+    fn apply_scale_change(&mut self, dimensions: &Dimensions, font_scale: f64) {
+        self.fonts.change_scaling(font_scale, dimensions.dpi as f64 / 96.);
+        self.render_metrics = RenderMetrics::new(&self.fonts);
+        let gl_state = self.render_state.as_mut().unwrap();
+        gl_state
+            .header
+            .change_scaling(
+                dimensions.dpi as f32 / 96.,
+                self.dimensions.pixel_width,
+                self.dimensions.pixel_height,
+            )
+            .expect("failed to rescale header");
+        self.recreate_texture_atlas(None).expect("failed to recreate atlas");
+    }
+
+    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> Fallible<()> {
+        self.render_state.as_mut().unwrap().recreate_texture_atlas(
+            &self.fonts,
+            &self.render_metrics,
+            size,
+        )
+    }
+
+    fn apply_dimensions(
+        &mut self,
+        dimensions: &Dimensions,
+        scale_changed_cells: Option<RowsAndCols>,
+    ) {
+        self.dimensions = *dimensions;
+
+        let (size, dims) = if let Some(cell_dims) = scale_changed_cells {
+            let size = PtySize {
+                rows: cell_dims.rows as u16,
+                cols: cell_dims.cols as u16,
+                pixel_height: cell_dims.rows as u16 * self.render_metrics.cell_size.height as u16,
+                pixel_width: cell_dims.cols as u16 * self.render_metrics.cell_size.width as u16,
+            };
+
+            let rows = size.rows + self.header.offset as u16;
+            let cols = size.cols;
+
+            let pixel_height = rows * self.render_metrics.cell_size.height as u16;
+
+            let pixel_width = cols * self.render_metrics.cell_size.width as u16;
+
+            let dims = Dimensions {
+                pixel_width: pixel_width as usize,
+                pixel_height: pixel_height as usize,
+                dpi: dimensions.dpi,
+            };
+
+            (size, dims)
+        } else {
+            let rows = (dimensions.pixel_height / self.render_metrics.cell_size.height as usize)
+                .saturating_sub(self.header.offset);
+            let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
+
+            let size = PtySize {
+                rows: rows as u16,
+                cols: cols as u16,
+                pixel_height: dimensions.pixel_height as u16,
+                pixel_width: dimensions.pixel_width as u16,
+            };
+
+            (size, *dimensions)
+        };
+
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+        let gl_state = self.render_state.as_mut().unwrap();
 
         gl_state
             .advise_of_window_size_change(
@@ -430,23 +518,16 @@ impl TermWindow {
             )
             .expect("failed to advise of resize");
 
-        let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
-        let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-        let tab_bar_adjusted_rows = rows.saturating_sub(self.header.offset);
-        let size = crate::pty::PtySize {
-            rows: tab_bar_adjusted_rows as u16,
-            cols: cols as u16,
-            pixel_height: dimensions.pixel_height as u16,
-            pixel_width: dimensions.pixel_width as u16,
-        };
+        self.terminal_size = size;
+
         tab.resize(size).ok();
         self.update_title();
-        if scale_changed {
+
+        // Queue up a speculative resize in order to preserve the number of rows+cols
+        if let Some(cell_dims) = scale_changed_cells {
             if let Some(window) = self.window.as_ref() {
-                window.set_inner_size(
-                    cols * self.render_metrics.cell_size.width as usize,
-                    rows * self.render_metrics.cell_size.height as usize,
-                );
+                log::error!("scale changed so resize to {:?} {:?}", cell_dims, dims);
+                window.set_inner_size(dims.pixel_width, dims.pixel_height);
             }
         }
     }

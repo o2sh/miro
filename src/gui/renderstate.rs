@@ -117,7 +117,18 @@ impl RenderState {
         self.quads = quads;
         self.header.advise_of_window_size_change(metrics, pixel_width, pixel_height)
     }
-
+    pub fn recreate_texture_atlas(
+        &mut self,
+        fonts: &Rc<FontConfiguration>,
+        metrics: &RenderMetrics,
+        size: Option<usize>,
+    ) -> Fallible<()> {
+        let size = size.unwrap_or_else(|| self.glyph_cache.borrow().atlas.size());
+        let mut glyph_cache = GlyphCache::new_gl(&self.context, fonts, size)?;
+        self.util_sprites = UtilSprites::new(&mut glyph_cache, metrics)?;
+        *self.glyph_cache.borrow_mut() = glyph_cache;
+        Ok(())
+    }
     fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
         metrics: &RenderMetrics,
