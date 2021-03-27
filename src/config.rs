@@ -190,7 +190,6 @@ impl Config {
             cfg.theme = theme.unwrap();
         }
         if cfg.font_rules.is_empty() {
-            // Expand out some reasonable default font rules
             let bold = self.font.make_bold();
             let italic = self.font.make_italic();
             let bold_italic = bold.make_italic();

@@ -27,6 +27,7 @@ use std::cell::Ref;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const ATLAS_SIZE: usize = 4096;
 
@@ -47,6 +48,7 @@ pub struct TermWindow {
     frame_count: u32,
     terminal_size: PtySize,
     header: Header,
+    focused: Option<Instant>,
 }
 
 struct Host<'a> {
@@ -105,6 +107,13 @@ impl WindowCallbacks for TermWindow {
         }
 
         Ok(())
+    }
+
+    fn focus_change(&mut self, focused: bool) {
+        self.focused = if focused { Some(Instant::now()) } else { None };
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+        tab.renderer().make_all_lines_dirty();
     }
 
     fn can_close(&self) -> bool {
@@ -173,7 +182,16 @@ impl WindowCallbacks for TermWindow {
 
         match event.kind {
             WMEK::Move => {}
-            _ => context.invalidate(),
+            WMEK::Press(_) => {
+                if let Some(focused) = self.focused.as_ref() {
+                    let now = Instant::now();
+                    if now - *focused <= Duration::from_millis(200) {
+                        log::trace!("discard mouse click because it focused the window");
+                        return;
+                    }
+                }
+            }
+            _ => {}
         }
 
         context.set_cursor(Some(if y < self.header.offset as i64 {
@@ -352,6 +370,7 @@ impl TermWindow {
             dimensions.pixel_width,
             dimensions.pixel_height,
             Box::new(Self {
+                focused: None,
                 window: None,
                 fonts: Rc::clone(fontconfig),
                 render_metrics,
@@ -523,7 +542,6 @@ impl TermWindow {
         tab.resize(size).ok();
         self.update_title();
 
-        // Queue up a speculative resize in order to preserve the number of rows+cols
         if let Some(cell_dims) = scale_changed_cells {
             if let Some(window) = self.window.as_ref() {
                 log::error!("scale changed so resize to {:?} {:?}", cell_dims, dims);
@@ -817,13 +835,13 @@ impl TermWindow {
 
         let cursor_shape = if is_cursor { CursorShape::SteadyBlock } else { CursorShape::Hidden };
 
-        let (fg_color, bg_color) = match (selected, cursor_shape) {
-            (true, CursorShape::Hidden) => (
+        let (fg_color, bg_color) = match (selected, self.focused.is_some(), cursor_shape) {
+            (true, _, CursorShape::Hidden) => (
                 rgbcolor_to_window_color(palette.selection_fg),
                 rgbcolor_to_window_color(palette.selection_bg),
             ),
 
-            (_, CursorShape::BlinkingBlock) | (_, CursorShape::SteadyBlock) => (
+            (_, true, CursorShape::BlinkingBlock) | (_, true, CursorShape::SteadyBlock) => (
                 rgbcolor_to_window_color(palette.cursor_fg),
                 rgbcolor_to_window_color(palette.cursor_bg),
             ),

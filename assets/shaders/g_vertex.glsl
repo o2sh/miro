@@ -30,10 +30,8 @@ void main() {
     o_cursor_color = cursor_color;
 
     if (bg_and_line_layer) {
-      // Want to fill the whole cell when painting backgrounds
       gl_Position = projection * vec4(position, 0.0, 1.0);
     } else {
-      // Use only the adjusted cell position to render the glyph
       gl_Position = projection * vec4(position + adjust, 0.0, 1.0);
     }
 }

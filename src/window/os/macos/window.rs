@@ -700,6 +700,18 @@ impl WindowView {
         YES
     }
 
+    extern "C" fn did_become_key(this: &mut Object, _sel: Sel, _id: id) {
+        if let Some(this) = Self::get_this(this) {
+            this.inner.borrow_mut().callbacks.focus_change(true);
+        }
+    }
+
+    extern "C" fn did_resign_key(this: &mut Object, _sel: Sel, _id: id) {
+        if let Some(this) = Self::get_this(this) {
+            this.inner.borrow_mut().callbacks.focus_change(false);
+        }
+    }
+
     extern "C" fn window_will_close(this: &mut Object, _sel: Sel, _id: id) {
         if let Some(this) = Self::get_this(this) {
             this.inner.borrow_mut().callbacks.destroy();
@@ -960,7 +972,14 @@ impl WindowView {
                 sel!(isFlipped),
                 Self::is_flipped as extern "C" fn(&Object, Sel) -> BOOL,
             );
-
+            cls.add_method(
+                sel!(windowDidBecomeKey:),
+                Self::did_become_key as extern "C" fn(&mut Object, Sel, id),
+            );
+            cls.add_method(
+                sel!(windowDidResignKey:),
+                Self::did_resign_key as extern "C" fn(&mut Object, Sel, id),
+            );
             cls.add_method(
                 sel!(windowDidResize:),
                 Self::did_resize as extern "C" fn(&mut Object, Sel, id),

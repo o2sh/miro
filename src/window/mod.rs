@@ -50,6 +50,7 @@ pub trait WindowCallbacks: Any {
     fn can_close(&self) -> bool {
         true
     }
+    fn focus_change(&mut self, focused: bool);
     fn destroy(&mut self) {}
     fn resize(&mut self, dimensions: Dimensions) {}
     fn paint(&mut self, frame: &mut glium::Frame) {}

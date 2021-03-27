@@ -233,6 +233,12 @@ impl WindowInner {
                 self.callbacks.destroy();
                 self.conn.windows.borrow_mut().remove(&self.window_id);
             }
+            xcb::FOCUS_IN => {
+                self.callbacks.focus_change(true);
+            }
+            xcb::FOCUS_OUT => {
+                self.callbacks.focus_change(false);
+            }
             _ => {
                 eprintln!("unhandled: {:x}", r);
             }
@@ -288,12 +294,14 @@ impl Window {
                 &[(
                     xcb::CW_EVENT_MASK,
                     xcb::EVENT_MASK_EXPOSURE
+                        | xcb::EVENT_MASK_FOCUS_CHANGE
                         | xcb::EVENT_MASK_KEY_PRESS
                         | xcb::EVENT_MASK_BUTTON_PRESS
                         | xcb::EVENT_MASK_BUTTON_RELEASE
                         | xcb::EVENT_MASK_POINTER_MOTION
                         | xcb::EVENT_MASK_BUTTON_MOTION
                         | xcb::EVENT_MASK_KEY_RELEASE
+                        | xcb::EVENT_MASK_PROPERTY_CHANGE
                         | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
                 )],
             )
