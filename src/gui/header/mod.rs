@@ -172,9 +172,10 @@ impl Header {
         let cpu_load =
             format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
         let indent = (number_of_vertices / VERTICES_PER_CELL) as usize
-            - (current_time.len() + cpu_load.len());
+            - (current_time.len() + cpu_load.len())
+            - 2;
 
-        format!("{}{:indent$}{}", cpu_load, "", current_time, indent = indent)
+        format!(" {}{:indent$}{} ", cpu_load, "", current_time, indent = indent)
     }
 }
 

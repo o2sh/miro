@@ -280,12 +280,10 @@ impl HeaderRenderState {
         let cell_width = metrics.cell_size.width as f32;
         let cell_height = metrics.cell_size.height as f32;
 
-        let padding_left = cell_width;
-
         let top_padding = (header_height - cell_height) / 2.0;
         let y_pos = (height / -2.0) + top_padding;
 
-        let num_cols = (width - padding_left * 2.) / cell_width;
+        let num_cols = width / cell_width;
         let mut quads = Quads::default();
 
         quads.cols = num_cols as usize;
@@ -310,7 +308,7 @@ impl HeaderRenderState {
         };
 
         for x in 0..num_cols as usize {
-            let x_pos = (width / -2.0) + (x as f32 * cell_width) + padding_left;
+            let x_pos = (width / -2.0) + (x as f32 * cell_width);
 
             let idx = define_quad(x_pos, y_pos, x_pos + cell_width, y_pos + cell_height);
             if x == 0 {

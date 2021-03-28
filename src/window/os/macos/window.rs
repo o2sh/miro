@@ -342,9 +342,6 @@ impl WindowOps for Window {
             let _ = inner.set_cursor(cursor);
         });
     }
-    fn invalidate(&self) {
-        Connection::with_window_inner(self.0, |inner| inner.invalidate());
-    }
     fn set_title(&self, title: &str) {
         let title = title.to_owned();
         Connection::with_window_inner(self.0, move |inner| inner.set_title(&title));
@@ -400,12 +397,6 @@ impl WindowOpsMut for WindowInner {
                 };
                 let () = msg_send![instance, set];
             }
-        }
-    }
-
-    fn invalidate(&mut self) {
-        unsafe {
-            let () = msg_send![*self.view, setNeedsDisplay: YES];
         }
     }
     fn set_title(&mut self, title: &str) {
