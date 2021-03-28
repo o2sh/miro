@@ -1,12 +1,11 @@
 use super::*;
 use crate::window::connection::ConnectionOps;
 use crate::window::{
-    Dimensions, KeyEvent, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress, Point,
-    Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
+    Dimensions, KeyEvent, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress,
+    WindowCallbacks, WindowOps, WindowOpsMut,
 };
 use failure::Fallible;
 use std::any::Any;
-use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -17,20 +16,8 @@ pub(crate) struct WindowInner {
     callbacks: Box<dyn WindowCallbacks>,
     width: u16,
     height: u16,
-    expose: VecDeque<Rect>,
-    paint_all: bool,
     cursor: Option<MouseCursor>,
     gl_state: Option<Rc<glium::backend::Context>>,
-}
-
-fn enclosing_boundary_with(a: &Rect, b: &Rect) -> Rect {
-    let left = a.min_x().min(b.min_x());
-    let right = a.max_x().max(b.max_x());
-
-    let top = a.min_y().min(b.min_y());
-    let bottom = a.max_y().max(b.max_y());
-
-    Rect::new(Point::new(left, top), Size::new(right - left, bottom - top))
 }
 
 impl Drop for WindowInner {
@@ -64,14 +51,7 @@ impl WindowInner {
     }
 
     pub fn paint(&mut self) -> Fallible<()> {
-        if self.paint_all {
-            self.paint_all = false;
-            self.expose.clear();
-        }
-
         if let Some(gl_context) = self.gl_state.as_ref() {
-            self.expose.clear();
-
             let mut frame = glium::Frame::new(
                 Rc::clone(&gl_context),
                 (u32::from(self.width), u32::from(self.height)),
@@ -83,20 +63,6 @@ impl WindowInner {
         }
 
         Ok(())
-    }
-
-    fn expose(&mut self, x: u16, y: u16, width: u16, height: u16) {
-        let expose = Rect::new(
-            Point::new(x as isize, y as isize),
-            Size::new(width as isize, height as isize),
-        );
-        if let Some(prior) = self.expose.back_mut() {
-            if prior.intersects(&expose) {
-                *prior = enclosing_boundary_with(&prior, &expose);
-                return;
-            }
-        }
-        self.expose.push_back(expose);
     }
 
     fn do_mouse_event(&mut self, event: &MouseEvent) -> Fallible<()> {
@@ -145,10 +111,6 @@ impl WindowInner {
     pub fn dispatch_event(&mut self, event: &xcb::GenericEvent) -> Fallible<()> {
         let r = event.response_type() & 0x7f;
         match r {
-            xcb::EXPOSE => {
-                let expose: &xcb::ExposeEvent = unsafe { xcb::cast_event(event) };
-                self.expose(expose.x(), expose.y(), expose.width(), expose.height());
-            }
             xcb::CONFIGURE_NOTIFY => {
                 let cfg: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(event) };
                 self.width = cfg.width();
@@ -313,8 +275,6 @@ impl Window {
                 callbacks,
                 width: width.try_into()?,
                 height: height.try_into()?,
-                expose: VecDeque::new(),
-                paint_all: true,
                 cursor: None,
                 gl_state: None,
             }))
@@ -354,10 +314,6 @@ impl WindowOpsMut for WindowInner {
     fn set_cursor(&mut self, cursor: Option<MouseCursor>) {
         WindowInner::set_cursor(self, cursor).unwrap();
     }
-    fn invalidate(&mut self) {
-        self.paint_all = true;
-    }
-
     fn set_inner_size(&self, width: usize, height: usize) {
         xcb::configure_window(
             self.conn.conn(),
@@ -388,9 +344,6 @@ impl WindowOps for Window {
         Connection::with_window_inner(self.0, move |inner| {
             let _ = inner.set_cursor(cursor);
         });
-    }
-    fn invalidate(&self) {
-        Connection::with_window_inner(self.0, |inner| inner.invalidate());
     }
     fn set_title(&self, title: &str) {
         let title = title.to_owned();

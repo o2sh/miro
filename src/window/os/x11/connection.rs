@@ -142,10 +142,6 @@ extern "C" {
 
 fn window_id_from_event(event: &xcb::GenericEvent) -> Option<xcb::xproto::Window> {
     match event.response_type() & 0x7f {
-        xcb::EXPOSE => {
-            let expose: &xcb::ExposeEvent = unsafe { xcb::cast_event(event) };
-            Some(expose.window())
-        }
         xcb::CONFIGURE_NOTIFY => {
             let cfg: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(event) };
             Some(cfg.window())
