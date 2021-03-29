@@ -1,7 +1,4 @@
-#![cfg_attr(feature = "cargo-clippy", allow(clippy::useless_attribute))]
-
 use num_derive::*;
-use palette;
 use palette::{Srgb, Srgba};
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::*;

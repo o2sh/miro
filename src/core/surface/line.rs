@@ -18,7 +18,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Line {
     bits: LineBits,
     cells: Vec<Cell>,

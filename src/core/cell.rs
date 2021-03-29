@@ -1,6 +1,5 @@
 use super::color::ColorAttribute;
 pub use super::escape::osc::Hyperlink;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::*;
 use smallvec::SmallVec;
 use std;
@@ -11,11 +10,8 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CellAttributes {
     attributes: u16,
-
     pub foreground: ColorAttribute,
-
     pub background: ColorAttribute,
-
     pub hyperlink: Option<Arc<Hyperlink>>,
 }
 
@@ -78,9 +74,7 @@ pub enum Intensity {
 #[repr(u16)]
 pub enum Underline {
     None = 0,
-
     Single = 1,
-
     Double = 2,
 }
 
@@ -139,25 +133,8 @@ impl CellAttributes {
     }
 }
 
-fn deserialize_smallvec<'de, D>(deserializer: D) -> Result<SmallVec<[u8; 4]>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let text = String::deserialize(deserializer)?;
-    Ok(SmallVec::from_slice(text.as_bytes()))
-}
-
-fn serialize_smallvec<S>(value: &SmallVec<[u8; 4]>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let s = unsafe { std::str::from_utf8_unchecked(value) };
-    s.serialize(serializer)
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Cell {
-    #[serde(deserialize_with = "deserialize_smallvec", serialize_with = "serialize_smallvec")]
     text: SmallVec<[u8; 4]>,
     attrs: CellAttributes,
 }
