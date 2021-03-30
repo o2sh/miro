@@ -1,5 +1,5 @@
 use crate::window::color::Color;
-use crate::window::{Operator, Point, Rect, Size};
+use crate::window::{Operator, Point, Rect};
 use glium::texture::SrgbTexture2d;
 use palette::LinSrgba;
 use rgb::FromSlice;
@@ -13,13 +13,9 @@ pub type TextureSize = euclid::Size2D<f32, TextureUnit>;
 
 pub trait Texture2d {
     fn write(&self, rect: Rect, im: &dyn BitmapImage);
-
     fn read(&self, rect: Rect, im: &mut dyn BitmapImage);
-
     fn width(&self) -> usize;
-
     fn height(&self) -> usize;
-
     fn to_texture_coords(&self, coords: Rect) -> TextureRect {
         let coords = coords.to_f32();
         let width = self.width() as f32;
@@ -86,9 +82,7 @@ impl Texture2d for SrgbTexture2d {
 
 pub trait BitmapImage {
     unsafe fn pixel_data(&self) -> *const u8;
-
     unsafe fn pixel_data_mut(&mut self) -> *mut u8;
-
     fn image_dimensions(&self) -> (usize, usize);
 
     #[inline]
@@ -200,46 +194,6 @@ pub trait BitmapImage {
 
         self.draw_line(rect.origin, Point::new(bottom_right.x, rect.origin.y), color, operator);
         self.draw_line(Point::new(rect.origin.x, bottom_right.y), bottom_right, color, operator);
-    }
-
-    fn draw_image(
-        &mut self,
-        dest_top_left: Point,
-        src_rect: Option<Rect>,
-        im: &dyn BitmapImage,
-        operator: Operator,
-    ) {
-        let (im_width, im_height) = im.image_dimensions();
-        let src_rect = src_rect
-            .unwrap_or_else(|| Rect::from_size(Size::new(im_width as isize, im_height as isize)));
-
-        let (_dim_width, dim_height) = self.image_dimensions();
-        debug_assert!(
-            src_rect.size.width <= im_width as isize && src_rect.size.height <= im_height as isize
-        );
-        for y in src_rect.origin.y..src_rect.origin.y + src_rect.size.height {
-            let dest_y = y as isize + dest_top_left.y - src_rect.origin.y as isize;
-            if dest_y < 0 {
-                continue;
-            }
-            if dest_y as usize >= dim_height {
-                break;
-            }
-
-            let src_pixels = im.horizontal_pixel_range(
-                src_rect.min_x() as usize,
-                src_rect.max_x() as usize,
-                y as usize,
-            );
-            let dest_pixels = self.horizontal_pixel_range_mut(
-                dest_top_left.x.max(0) as usize,
-                (dest_top_left.x + src_rect.size.width).max(0) as usize,
-                dest_y as usize,
-            );
-            for (src_pix, dest_pix) in src_pixels.iter().zip(dest_pixels.iter_mut()) {
-                *dest_pix = Color(*src_pix).composite(Color(*dest_pix), operator).0;
-            }
-        }
     }
 }
 

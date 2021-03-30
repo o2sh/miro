@@ -110,13 +110,9 @@ where
 
 pub struct SpriteSlice {
     pub cell_idx: usize,
-
     pub num_cells: usize,
-
     pub cell_width: usize,
-
     pub scale: f32,
-
     pub left_offset: f32,
 }
 
