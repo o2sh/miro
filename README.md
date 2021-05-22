@@ -12,6 +12,15 @@ A GPU-accelerated terminal emulator written in Rust.
 ![kirby](resources/kirby.gif)
 ![sonic](resources/sonic.gif)
 
+## Installation
+
+```text
+git clone https://github.com/o2sh/miro --depth=1
+cd miro 
+make install
+miro
+```
+
 ## Status
 
 - [x] Mac OS support with Cocoa and OpenGL.
