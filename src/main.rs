@@ -52,22 +52,33 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
-
     let theme = match matches.value_of("theme") {
         Some("sonic") => Some(Theme {
-            spritesheet_path: String::from("assets/gfx/sonic.json"),
+            spritesheet_path: String::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/gfx/sonic.json"
+            )),
             color: RgbColor { red: 8, green: 129, blue: 0 },
         }),
         Some("pika") => Some(Theme {
-            spritesheet_path: String::from("assets/gfx/pika.json"),
+            spritesheet_path: String::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/gfx/pika.json"
+            )),
             color: RgbColor { red: 176, green: 139, blue: 24 },
         }),
         Some("mega") => Some(Theme {
-            spritesheet_path: String::from("assets/gfx/mega.json"),
+            spritesheet_path: String::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/gfx/mega.json"
+            )),
             color: RgbColor { red: 1, green: 135, blue: 147 },
         }),
         Some("kirby") => Some(Theme {
-            spritesheet_path: String::from("assets/gfx/kirby.json"),
+            spritesheet_path: String::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/gfx/kirby.json"
+            )),
             color: RgbColor { red: 242, green: 120, blue: 141 },
         }),
         _ => None,

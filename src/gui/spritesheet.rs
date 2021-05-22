@@ -33,7 +33,11 @@ impl SpriteSheet {
         let sprite_width = sprites[0].size.0;
         let sprite_height = sprites[0].size.1;
         SpriteSheet {
-            image_path: String::from(&config.image_path),
+            image_path: String::from(format!(
+                "{}/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                config.image_path
+            )),
             sprites,
             sprite_height,
             sprite_width,
