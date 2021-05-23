@@ -54,6 +54,7 @@ fn main() -> Result<(), Error> {
                 .takes_value(true),
         )
         .get_matches();
+
     let theme = match matches.value_of("theme") {
         Some("mario") => Theme {
             spritesheet_path: String::from(concat!(
