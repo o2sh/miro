@@ -1,9 +1,8 @@
 use super::keyboard::Keyboard;
-use crate::core::promise::BasicExecutor;
+use crate::core::promise;
 use crate::window::connection::{ConnectionOps, FPS};
 use crate::window::os::x11::WindowInner;
-use crate::window::spawn::*;
-use crate::window::tasks::{Task, Tasks};
+use crate::window::spawn::SPAWN_QUEUE;
 use failure::Fallible;
 use mio::unix::EventedFd;
 use mio::{Evented, Events, Poll, PollOpt, Ready, Token};
@@ -95,7 +94,6 @@ pub struct Connection {
     keysyms: *mut xcb_key_symbols_t,
     pub(crate) windows: RefCell<HashMap<xcb::xproto::Window, Arc<Mutex<WindowInner>>>>,
     should_terminate: RefCell<bool>,
-    tasks: Tasks,
     timers: RefCell<TimerList>,
     pub(crate) visual: xcb::xproto::Visualtype,
 }
@@ -179,25 +177,12 @@ fn window_id_from_event(event: &xcb::GenericEvent) -> Option<xcb::xproto::Window
 }
 
 impl ConnectionOps for Connection {
-    fn spawn_task<F: std::future::Future<Output = ()> + 'static>(&self, future: F) {
-        let id = self.tasks.add_task(Task(Box::pin(future)));
-        Self::wake_task_by_id(id);
-    }
-
-    fn wake_task_by_id(slot: usize) {
-        SpawnQueueExecutor {}.execute(Box::new(move || {
-            let conn = Connection::get().unwrap();
-            conn.tasks.poll_by_slot(slot);
-        }));
-    }
-
     fn terminate_message_loop(&self) {
         *self.should_terminate.borrow_mut() = true;
     }
 
     fn run_message_loop(&self) -> Fallible<()> {
         self.conn.flush();
-
         const TOK_XCB: usize = 0xffff_fffc;
         const TOK_SPAWN: usize = 0xffff_fffd;
         let tok_xcb = Token(TOK_XCB);
@@ -226,25 +211,18 @@ impl ConnectionOps for Connection {
 
             self.process_queued_xcb()?;
 
-            let period = self
-                .timers
-                .borrow()
-                .time_until_due(Instant::now())
-                .map(|duration| duration.min(period))
-                .unwrap_or(period);
+            let period = if SPAWN_QUEUE.run() {
+                Duration::new(0, 0)
+            } else {
+                self.timers
+                    .borrow()
+                    .time_until_due(Instant::now())
+                    .map(|duration| duration.min(period))
+                    .unwrap_or(period)
+            };
 
             match poll.poll(&mut events, Some(period)) {
-                Ok(_) => {
-                    for event in &events {
-                        let t = event.token();
-                        if t == tok_xcb {
-                            self.process_queued_xcb()?;
-                        } else if t == tok_spawn {
-                            SPAWN_QUEUE.run();
-                        } else {
-                        }
-                    }
-                }
+                Ok(_) => {}
 
                 Err(err) => {
                     failure::bail!("polling for events: {:?}", err);
@@ -383,7 +361,6 @@ impl Connection {
             atom_targets,
             windows: RefCell::new(HashMap::new()),
             should_terminate: RefCell::new(false),
-            tasks: Default::default(),
             timers: RefCell::new(TimerList::new()),
             visual,
         };
@@ -410,20 +387,16 @@ impl Connection {
         self.conn.flush();
     }
 
-    pub fn executor() -> impl BasicExecutor {
-        SpawnQueueExecutor {}
-    }
-
     pub(crate) fn with_window_inner<F: FnMut(&mut WindowInner) + Send + 'static>(
         window: xcb::xproto::Window,
         mut f: F,
     ) {
-        SpawnQueueExecutor {}.execute(Box::new(move || {
+        promise::spawn_into_main_thread(async move {
             if let Some(handle) = Connection::get().unwrap().window_by_id(window) {
                 let mut inner = handle.lock().unwrap();
                 f(&mut inner);
             }
-        }));
+        });
     }
 }
 

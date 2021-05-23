@@ -6,7 +6,6 @@ use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::core::surface::CursorShape;
 use crate::font::FontConfiguration;
-use crate::gui::executor;
 use crate::mux::tab::Tab;
 use crate::mux::Mux;
 use crate::pty::PtySize;
@@ -72,12 +71,11 @@ impl<'a> term::TerminalHost for Host<'a> {
 
     fn click_link(&mut self, link: &Arc<term::cell::Hyperlink>) {
         let link = link.clone();
-        promise::Future::with_executor(executor(), move || {
+        promise::spawn(async move {
             log::error!("clicking {}", link.uri());
             if let Err(err) = open::that(link.uri()) {
                 log::error!("failed to open {}: {:?}", link.uri(), err);
             }
-            Ok(())
         });
     }
 }

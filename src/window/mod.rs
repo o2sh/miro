@@ -6,7 +6,6 @@ pub mod connection;
 pub mod input;
 pub mod os;
 pub mod spawn;
-pub mod tasks;
 
 #[cfg(all(not(target_os = "macos")))]
 mod egl;

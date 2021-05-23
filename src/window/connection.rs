@@ -1,4 +1,5 @@
 use crate::window::os::Connection;
+use crate::window::spawn;
 use failure::Fallible;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,12 +24,11 @@ pub trait ConnectionOps {
     fn init() -> Fallible<Rc<Connection>> {
         let conn = Rc::new(Connection::create_new()?);
         CONN.with(|m| *m.borrow_mut() = Some(Rc::clone(&conn)));
+        spawn::SPAWN_QUEUE.register_promise_schedulers();
         Ok(conn)
     }
 
     fn terminate_message_loop(&self);
     fn run_message_loop(&self) -> Fallible<()>;
-    fn spawn_task<F: std::future::Future<Output = ()> + 'static>(&self, future: F);
-    fn wake_task_by_id(slot: usize);
     fn schedule_timer<F: FnMut() + 'static>(&self, interval: std::time::Duration, callback: F);
 }

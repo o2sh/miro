@@ -1,10 +1,10 @@
-use crate::core::promise::{BasicExecutor, SpawnFunc};
+use crate::core::promise::{self, SpawnFunc};
 #[cfg(target_os = "macos")]
 use core_foundation::runloop::*;
 use failure::Fallible;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use {
     filedescriptor::{FileDescriptor, Pipe},
     mio::unix::EventedFd,
@@ -18,9 +18,10 @@ lazy_static::lazy_static! {
 
 pub(crate) struct SpawnQueue {
     spawned_funcs: Mutex<VecDeque<SpawnFunc>>,
-    #[cfg(not(target_os = "macos"))]
+    spawned_funcs_low_pri: Mutex<VecDeque<SpawnFunc>>,
+    #[cfg(all(unix, not(target_os = "macos")))]
     write: Mutex<FileDescriptor>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     read: Mutex<FileDescriptor>,
 }
 
@@ -29,49 +30,84 @@ impl SpawnQueue {
         Self::new_impl()
     }
 
-    pub fn spawn(&self, f: SpawnFunc) {
-        self.spawn_impl(f)
+    pub fn register_promise_schedulers(&self) {
+        promise::set_schedulers(
+            Box::new(|task| {
+                SPAWN_QUEUE.spawn_impl(Box::new(move || task.run()), true);
+            }),
+            Box::new(|low_pri_task| {
+                SPAWN_QUEUE.spawn_impl(Box::new(move || low_pri_task.run()), false);
+            }),
+        );
     }
 
-    pub fn run(&self) {
+    pub fn run(&self) -> bool {
         self.run_impl()
     }
 
     fn pop_func(&self) -> Option<SpawnFunc> {
-        self.spawned_funcs.lock().unwrap().pop_front()
+        if let Some(func) = self.spawned_funcs.lock().unwrap().pop_front() {
+            Some(func)
+        } else if let Some(func) = self.spawned_funcs_low_pri.lock().unwrap().pop_front() {
+            Some(func)
+        } else {
+            None
+        }
+    }
+
+    fn queue_func(&self, f: SpawnFunc, high_pri: bool) {
+        if high_pri {
+            self.spawned_funcs.lock().unwrap()
+        } else {
+            self.spawned_funcs_low_pri.lock().unwrap()
+        }
+        .push_back(f);
+    }
+
+    fn has_any_queued(&self) -> bool {
+        !self.spawned_funcs.lock().unwrap().is_empty()
+            || !self.spawned_funcs_low_pri.lock().unwrap().is_empty()
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 impl SpawnQueue {
     fn new_impl() -> Fallible<Self> {
-        let pipe = match Pipe::new() {
+        let mut pipe = match Pipe::new() {
             Ok(v) => v,
             Err(_) => bail!(""),
         };
-
+        pipe.write.set_non_blocking(true).unwrap();
+        pipe.read.set_non_blocking(true).unwrap();
         Ok(Self {
             spawned_funcs: Mutex::new(VecDeque::new()),
+            spawned_funcs_low_pri: Mutex::new(VecDeque::new()),
             write: Mutex::new(pipe.write),
             read: Mutex::new(pipe.read),
         })
     }
 
-    fn spawn_impl(&self, f: SpawnFunc) {
+    fn spawn_impl(&self, f: SpawnFunc, high_pri: bool) {
         use std::io::Write;
 
-        self.spawned_funcs.lock().unwrap().push_back(f);
+        self.queue_func(f, high_pri);
         self.write.lock().unwrap().write(b"x").ok();
     }
 
-    fn run_impl(&self) {
-        use std::io::Read;
-        while let Some(func) = self.pop_func() {
+    fn run_impl(&self) -> bool {
+        if let Some(func) = self.pop_func() {
             func();
-
-            let mut byte = [0u8];
-            self.read.lock().unwrap().read(&mut byte).ok();
         }
+
+        let mut byte = [0u8; 64];
+        use std::io::Read;
+        self.read.lock().unwrap().read(&mut byte).ok();
+
+        self.has_any_queued()
+    }
+
+    pub(crate) fn raw_fd(&self) -> std::os::unix::io::RawFd {
+        self.read.lock().unwrap().as_raw_fd()
     }
 }
 
@@ -84,7 +120,7 @@ impl Evented for SpawnQueue {
         interest: Ready,
         opts: PollOpt,
     ) -> std::io::Result<()> {
-        EventedFd(&self.read.lock().unwrap().as_raw_fd()).register(poll, token, interest, opts)
+        EventedFd(&self.raw_fd()).register(poll, token, interest, opts)
     }
 
     fn reregister(
@@ -94,18 +130,19 @@ impl Evented for SpawnQueue {
         interest: Ready,
         opts: PollOpt,
     ) -> std::io::Result<()> {
-        EventedFd(&self.read.lock().unwrap().as_raw_fd()).reregister(poll, token, interest, opts)
+        EventedFd(&self.raw_fd()).reregister(poll, token, interest, opts)
     }
 
     fn deregister(&self, poll: &Poll) -> std::io::Result<()> {
-        EventedFd(&self.read.lock().unwrap().as_raw_fd()).deregister(poll)
+        EventedFd(&self.raw_fd()).deregister(poll)
     }
 }
 
 #[cfg(target_os = "macos")]
 impl SpawnQueue {
-    fn new_impl() -> Fallible<Self> {
+    fn new_impl() -> anyhow::Result<Self> {
         let spawned_funcs = Mutex::new(VecDeque::new());
+        let spawned_funcs_low_pri = Mutex::new(VecDeque::new());
 
         let observer = unsafe {
             CFRunLoopObserverCreate(
@@ -121,7 +158,7 @@ impl SpawnQueue {
             CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
         }
 
-        Ok(Self { spawned_funcs })
+        Ok(Self { spawned_funcs, spawned_funcs_low_pri })
     }
 
     extern "C" fn trigger(
@@ -129,26 +166,26 @@ impl SpawnQueue {
         _: CFRunLoopActivity,
         _: *mut std::ffi::c_void,
     ) {
-        SPAWN_QUEUE.run();
+        if SPAWN_QUEUE.run() {
+            Self::queue_wakeup();
+        }
     }
 
-    fn spawn_impl(&self, f: SpawnFunc) {
-        self.spawned_funcs.lock().unwrap().push_back(f);
+    fn queue_wakeup() {
         unsafe {
             CFRunLoopWakeUp(CFRunLoopGetMain());
         }
     }
 
-    fn run_impl(&self) {
-        while let Some(func) = self.pop_func() {
+    fn spawn_impl(&self, f: SpawnFunc, high_pri: bool) {
+        self.queue_func(f, high_pri);
+        Self::queue_wakeup();
+    }
+
+    fn run_impl(&self) -> bool {
+        if let Some(func) = self.pop_func() {
             func();
         }
-    }
-}
-
-pub struct SpawnQueueExecutor;
-impl BasicExecutor for SpawnQueueExecutor {
-    fn execute(&self, f: SpawnFunc) {
-        SPAWN_QUEUE.spawn(f)
+        self.has_any_queued()
     }
 }

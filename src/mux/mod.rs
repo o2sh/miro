@@ -1,8 +1,7 @@
 use crate::config::Config;
 use crate::core::hyperlink::Hyperlink;
-use crate::core::promise::Future;
+use crate::core::promise;
 use crate::core::ratelim::RateLimiter;
-use crate::gui::executor;
 use crate::mux::tab::Tab;
 use crate::pty::{unix, PtySize, PtySystem};
 use crate::term::clipboard::Clipboard;
@@ -41,11 +40,10 @@ fn read_from_tab_pty(config: Arc<Config>, mut reader: Box<dyn std::io::Read>) {
             Ok(size) => {
                 lim.blocking_admittance_check(size as u32);
                 let data = buf[0..size].to_vec();
-                Future::with_executor(executor(), move || {
+                promise::spawn_into_main_thread_with_low_priority(async move {
                     let mux = Mux::get().unwrap();
                     let tab = mux.get_tab();
                     tab.advance_bytes(&data, &mut Host { writer: &mut *tab.writer() });
-                    Ok(())
                 });
             }
         }

@@ -1,4 +1,4 @@
-use crate::gui::executor;
+use crate::core::promise;
 use crate::mux::Mux;
 use crate::pty::{Child, MasterPty, PtySize};
 use crate::term::color::ColorPalette;
@@ -16,7 +16,7 @@ struct Paste {
 
 fn schedule_next_paste(paste: &Arc<Mutex<Paste>>) {
     let paste = Arc::clone(paste);
-    crate::core::promise::Future::with_executor(executor(), move || {
+    promise::spawn(async move {
         let mut locked = paste.lock().unwrap();
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
@@ -30,8 +30,6 @@ fn schedule_next_paste(paste: &Arc<Mutex<Paste>>) {
             locked.offset += chunk;
             schedule_next_paste(&paste);
         }
-
-        Ok(())
     });
 }
 
