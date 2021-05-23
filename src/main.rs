@@ -21,7 +21,7 @@ mod pty;
 mod term;
 mod window;
 
-fn run(theme: Option<Theme>) -> Result<(), Error> {
+fn run(theme: Theme) -> Result<(), Error> {
     let config = Arc::new(config::Config::default_config(theme));
     let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
     let gui = gui::new()?;
@@ -42,45 +42,41 @@ fn main() -> Result<(), Error> {
         .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::DeriveDisplayOrder)
         .setting(AppSettings::UnifiedHelpMessage)
+        .setting(AppSettings::HidePossibleValuesInHelp)
         .arg(
             Arg::with_name("theme")
                 .short("t")
                 .long("theme")
-                .help("Which theme to use.")
-                .possible_values(&["mario", "sonic", "pika", "mega", "kirby"])
+                .help("Which theme to use (pika, kirby, *mario*).")
+                .possible_values(&["mario", "pika", "kirby"])
+                .default_value("mario")
+                .hide_default_value(true)
                 .takes_value(true),
         )
         .get_matches();
     let theme = match matches.value_of("theme") {
-        Some("sonic") => Some(Theme {
+        Some("mario") => Theme {
             spritesheet_path: String::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/assets/gfx/sonic.json"
+                "/assets/gfx/mario.json"
             )),
-            color: RgbColor { red: 8, green: 129, blue: 0 },
-        }),
-        Some("pika") => Some(Theme {
+            color: RgbColor { red: 99, green: 137, blue: 250 },
+        },
+        Some("pika") => Theme {
             spritesheet_path: String::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/assets/gfx/pika.json"
             )),
             color: RgbColor { red: 176, green: 139, blue: 24 },
-        }),
-        Some("mega") => Some(Theme {
-            spritesheet_path: String::from(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/gfx/mega.json"
-            )),
-            color: RgbColor { red: 1, green: 135, blue: 147 },
-        }),
-        Some("kirby") => Some(Theme {
+        },
+        Some("kirby") => Theme {
             spritesheet_path: String::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/assets/gfx/kirby.json"
             )),
             color: RgbColor { red: 242, green: 120, blue: 141 },
-        }),
-        _ => None,
+        },
+        _ => unreachable!("not possible"),
     };
 
     run(theme)

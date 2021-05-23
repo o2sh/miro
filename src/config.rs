@@ -7,22 +7,10 @@ use serde_json::Value;
 use std;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Default, Debug, Deserialize, Clone)]
 pub struct Theme {
     pub spritesheet_path: String,
     pub color: RgbColor,
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            spritesheet_path: String::from(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/gfx/mario.json"
-            )),
-            color: RgbColor { red: 99, green: 137, blue: 250 },
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -183,15 +171,13 @@ pub struct StyleRule {
 }
 
 impl Config {
-    pub fn default_config(theme: Option<Theme>) -> Self {
+    pub fn default_config(theme: Theme) -> Self {
         Self::default().compute_extra_defaults(theme)
     }
 
-    fn compute_extra_defaults(&self, theme: Option<Theme>) -> Self {
+    fn compute_extra_defaults(&self, theme: Theme) -> Self {
         let mut cfg = self.clone();
-        if theme.is_some() {
-            cfg.theme = theme.unwrap();
-        }
+        cfg.theme = theme;
         if cfg.font_rules.is_empty() {
             let bold = self.font.make_bold();
             let italic = self.font.make_italic();

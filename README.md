@@ -6,11 +6,10 @@ A GPU-accelerated terminal emulator written in Rust.
 
 ## Themes
 
-`miro -t pika|kirby|sonic`
+`miro -t (pika, kirby, *mario*)`
 
 ![pika](resources/pika.gif)
 ![kirby](resources/kirby.gif)
-![sonic](resources/sonic.gif)
 
 ## Installation
 
