@@ -1,9 +1,8 @@
 #![allow(clippy::let_unit_value)]
 use super::window::WindowInner;
-use crate::core::promise::BasicExecutor;
+use crate::core::promise;
 use crate::window::connection::ConnectionOps;
-use crate::window::spawn::*;
-use crate::window::tasks::{Task, Tasks};
+use crate::window::spawn::SPAWN_QUEUE;
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
 use cocoa::base::{id, nil};
 use core_foundation::date::CFAbsoluteTimeGetCurrent;
@@ -19,7 +18,6 @@ pub struct Connection {
     ns_app: id,
     pub(crate) windows: RefCell<HashMap<usize, Rc<RefCell<WindowInner>>>>,
     pub(crate) next_window_id: AtomicUsize,
-    tasks: Tasks,
 }
 
 impl Connection {
@@ -32,7 +30,6 @@ impl Connection {
             let conn = Self {
                 ns_app,
                 windows: RefCell::new(HashMap::new()),
-                tasks: Default::default(),
                 next_window_id: AtomicUsize::new(1),
             };
             Ok(conn)
@@ -51,16 +48,12 @@ impl Connection {
         window_id: usize,
         mut f: F,
     ) {
-        SpawnQueueExecutor {}.execute(Box::new(move || {
+        promise::spawn_into_main_thread(async move {
             if let Some(handle) = Connection::get().unwrap().window_by_id(window_id) {
                 let mut inner = handle.borrow_mut();
                 f(&mut inner);
             }
-        }));
-    }
-
-    pub fn executor() -> impl BasicExecutor {
-        SpawnQueueExecutor {}
+        });
     }
 }
 
@@ -77,18 +70,6 @@ impl ConnectionOps for Connection {
         }
         self.windows.borrow_mut().clear();
         Ok(())
-    }
-
-    fn spawn_task<F: std::future::Future<Output = ()> + 'static>(&self, future: F) {
-        let id = self.tasks.add_task(Task(Box::pin(future)));
-        Self::wake_task_by_id(id);
-    }
-
-    fn wake_task_by_id(slot: usize) {
-        SpawnQueueExecutor {}.execute(Box::new(move || {
-            let conn = Connection::get().unwrap();
-            conn.tasks.poll_by_slot(slot);
-        }));
     }
 
     fn schedule_timer<F: FnMut() + 'static>(&self, interval: std::time::Duration, callback: F) {

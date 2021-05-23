@@ -140,7 +140,7 @@ impl Evented for SpawnQueue {
 
 #[cfg(target_os = "macos")]
 impl SpawnQueue {
-    fn new_impl() -> anyhow::Result<Self> {
+    fn new_impl() -> Fallible<Self> {
         let spawned_funcs = Mutex::new(VecDeque::new());
         let spawned_funcs_low_pri = Mutex::new(VecDeque::new());
 
