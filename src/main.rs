@@ -24,12 +24,11 @@ mod window;
 fn run(theme: Option<Theme>) -> Result<(), Error> {
     let config = Arc::new(config::Config::default_config(theme));
     let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
-
+    let gui = gui::new()?;
     let mux = Rc::new(mux::Mux::new(&config, PtySize::default())?);
     Mux::set_mux(&mux);
-    mux.start()?;
 
-    let gui = gui::new()?;
+    mux.start()?;
 
     gui.spawn_new_window(&fontconfig)?;
 
