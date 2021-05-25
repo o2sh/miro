@@ -24,6 +24,6 @@ if test -e /etc/arch-release ; then
   exit $?
 fi
 
-echo "No deps found for your system"
-echo "Please contribute the commands to install the deps"
+echo "No deps found for your system,"
+echo "please contribute the commands to install the deps."
 exit 1
