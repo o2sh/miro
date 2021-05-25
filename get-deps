@@ -1,0 +1,30 @@
+#!/bin/bash
+
+if test -e /etc/debian_version ; then
+  apt-get install -y \
+    libegl1-mesa-dev \
+    libfontconfig1-dev \
+    libx11-xcb-dev \
+    libxcb-ewmh-dev \
+    libxcb-icccm4-dev \
+    libxcb-keysyms1-dev \
+    libharfbuzz-dev \
+    libxkbcommon-x11-dev \
+    libfreetype6-dev
+  exit $?
+fi
+
+if test -e /etc/arch-release ; then
+  pacman -S --noconfirm --needed \
+    'fontconfig' \
+    'freetype2' \
+    'libxkbcommon-x11' \
+    'xcb-util-keysyms' \
+    'xcb-util-wm'
+    libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
+  exit $?
+fi
+
+echo "Please contribute the commands to install the deps"
+echo "For `lsb_release -ds`"
+exit 1
