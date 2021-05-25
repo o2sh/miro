@@ -21,10 +21,9 @@ if test -e /etc/arch-release ; then
     'libxkbcommon-x11' \
     'xcb-util-keysyms' \
     'xcb-util-wm'
-    libxcb xcb-util-keysyms xcb-util-wm mesa freetype2 fontconfig
   exit $?
 fi
 
+echo "No deps found for your system"
 echo "Please contribute the commands to install the deps"
-echo "For `lsb_release -ds`"
 exit 1
