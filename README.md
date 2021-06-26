@@ -19,7 +19,7 @@ You will need a collection of support libraries; the [`get-deps`](get-deps) scri
 
 ```text
 git clone https://github.com/o2sh/miro --depth=1
-cd miro 
+cd miro
 sudo ./get-deps
 make install
 miro

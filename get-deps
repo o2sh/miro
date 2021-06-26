@@ -24,6 +24,15 @@ if test -e /etc/arch-release ; then
   exit $?
 fi
 
+if test -e /etc/gentoo-release ; then
+  emerge -j \
+    'media-libs/fontconfig' \
+    'media-libs/freetype' \
+    'x11-libs/libxkbcommon' \
+    'x11-libs/xcb-util'
+  exit $?
+fi
+
 echo "No deps found for your system,"
 echo "please contribute the commands to install the deps."
 exit 1
