@@ -1,11 +1,11 @@
 build:
-	cargo build --release 
+	cargo build --release
 
 install: build
-	sudo cp target/release/miro /usr/local/bin
+	cp target/release/miro /usr/local/bin
 
 uninstall:
-	sudo rm -f /usr/local/bin/miro
+	rm -f /usr/local/bin/miro
 
 clean:
 	cargo clean
