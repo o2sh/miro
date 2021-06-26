@@ -1,11 +1,8 @@
-build:
-	cargo build --release
-
-install: build
+install:
 	cargo install --path "."
 
 uninstall:
-	rm -f /usr/local/bin/miro
+	cargo uninstall miro	
 
 clean:
 	cargo clean
