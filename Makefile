@@ -2,7 +2,7 @@ build:
 	cargo build --release
 
 install: build
-	cp target/release/miro /usr/local/bin
+	cargo install --path "."
 
 uninstall:
 	rm -f /usr/local/bin/miro
