@@ -10,7 +10,7 @@ use crate::window::bitmaps::Texture2d;
 use crate::window::color::Color;
 use crate::window::Dimensions;
 use crate::window::PixelLength;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use failure::Fallible;
 use glium::{uniform, Surface};
 use sysinfo::{ProcessorExt, System, SystemExt};
@@ -167,7 +167,7 @@ impl Header {
     }
 
     fn compute_header_text(&self, number_of_vertices: usize) -> String {
-        let now: DateTime<Utc> = Utc::now();
+        let now: DateTime<Local> = Local::now();
         let current_time = now.format("%H:%M:%S").to_string();
         let cpu_load =
             format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());

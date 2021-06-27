@@ -1290,7 +1290,7 @@ impl<'a> CSIParser<'a> {
                 ($t:expr) => {
                     Ok(self.advance_by(1, params, $t))
                 };
-            };
+            }
 
             match num::FromPrimitive::from_i64(params[0]) {
                 None => Err(()),

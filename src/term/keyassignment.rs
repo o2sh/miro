@@ -24,7 +24,7 @@ impl KeyMap {
                 map.entry(($code, $mod)).or_insert($action);
                 )*
             };
-        };
+        }
 
         use KeyAssignment::*;
 

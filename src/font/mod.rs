@@ -141,7 +141,7 @@ impl FontConfiguration {
                     }
                 }
             };
-        };
+        }
 
         for rule in &self.config.font_rules {
             attr_match!(intensity, &rule);

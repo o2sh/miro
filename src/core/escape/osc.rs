@@ -115,7 +115,7 @@ impl Display for Selection {
                     write!(f, $s)?;
                 }
             };
-        };
+        }
 
         item!(CLIPBOARD, "c");
         item!(PRIMARY, "p");
@@ -218,7 +218,7 @@ impl OperatingSystemCommand {
 
                 Ok(OperatingSystemCommand::$variant(s))
             }};
-        };
+        }
 
         use self::OperatingSystemCommandCode::*;
         match osc_code {
@@ -286,7 +286,7 @@ impl Display for OperatingSystemCommand {
             ($variant:ident, $s:expr) => {
                 write!(f, "{};{}", OperatingSystemCommandCode::$variant as u8, $s)?
             };
-        };
+        }
 
         use self::OperatingSystemCommand::*;
         match self {
