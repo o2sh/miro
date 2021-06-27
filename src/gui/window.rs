@@ -114,6 +114,12 @@ impl WindowCallbacks for TermWindow {
         tab.renderer().make_all_lines_dirty();
     }
 
+    fn can_close(&self) -> bool {
+        let mux = Mux::get().unwrap();
+        mux.close();
+        mux.can_close()
+    }
+
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }

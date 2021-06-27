@@ -37,6 +37,7 @@ pub struct Tab {
     terminal: RefCell<Terminal>,
     process: RefCell<Box<dyn Child>>,
     pty: RefCell<Box<dyn MasterPty>>,
+    can_close: bool,
 }
 
 impl Tab {
@@ -99,7 +100,15 @@ impl Tab {
         self.terminal.borrow().palette().clone()
     }
 
+    pub fn close(&mut self) {
+        self.can_close = true;
+    }
+
     pub fn can_close(&self) -> bool {
+        self.can_close || self.is_dead()
+    }
+
+    pub fn is_dead(&self) -> bool {
         if let Ok(None) = self.process.borrow_mut().try_wait() {
             false
         } else {
@@ -112,6 +121,7 @@ impl Tab {
             terminal: RefCell::new(terminal),
             process: RefCell::new(process),
             pty: RefCell::new(pty),
+            can_close: false,
         }
     }
 }
