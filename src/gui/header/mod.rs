@@ -11,7 +11,6 @@ use crate::window::color::Color;
 use crate::window::Dimensions;
 use crate::window::PixelLength;
 use chrono::{DateTime, Local};
-use failure::Fallible;
 use glium::{uniform, Surface};
 use sysinfo::{ProcessorExt, System, SystemExt};
 
@@ -38,7 +37,7 @@ impl Header {
         render_metrics: &RenderMetrics,
         fonts: &FontConfiguration,
         frame: &mut glium::Frame,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let w = dimensions.pixel_width as f32 as f32 / 2.0;
         if frame_count % 6 == 0 {
             self.count += 1;
@@ -118,7 +117,7 @@ impl Header {
         fonts: &FontConfiguration,
         palette: &ColorPalette,
         quads: &mut MappedQuads,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let header_text = self.compute_header_text(quads.cols());
         let style = TextStyle::default();
         let glyph_info = {
@@ -171,11 +170,14 @@ impl Header {
         let current_time = now.format("%H:%M:%S").to_string();
         let cpu_load =
             format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
-        let indent = (number_of_vertices / VERTICES_PER_CELL) as usize
-            - (current_time.len() + cpu_load.len())
-            - 2;
+        let indent = std::cmp::max(
+            0,
+            (number_of_vertices / VERTICES_PER_CELL) as i32
+                - (current_time.len() + cpu_load.len()) as i32
+                - 2,
+        );
 
-        format!(" {}{:indent$}{} ", cpu_load, "", current_time, indent = indent)
+        format!(" {}{:indent$}{} ", cpu_load, "", current_time, indent = indent as usize)
     }
 }
 

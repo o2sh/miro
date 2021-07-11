@@ -3,7 +3,7 @@ use crate::gui::quad::*;
 use crate::gui::spritesheet::*;
 use crate::gui::utilsprites::RenderMetrics;
 use crate::window::color::Color;
-use failure::Fallible;
+use anyhow::anyhow;
 use glium::backend::Context as GliumContext;
 use glium::{IndexBuffer, VertexBuffer};
 use std::cell::RefCell;
@@ -70,7 +70,7 @@ impl HeaderRenderState {
         metrics: &RenderMetrics,
         pixel_width: usize,
         pixel_height: usize,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         let spritesheet = get_spritesheet(&theme.spritesheet_path);
         let sprite_size = (spritesheet.sprite_width, spritesheet.sprite_height);
         let height = spritesheet.sprite_height;
@@ -105,9 +105,8 @@ impl HeaderRenderState {
             };
         }
 
-        let rect_program = rect_program.ok_or_else(|| {
-            failure::format_err!("Failed to compile shaders: {}", header_errors.join("\n"))
-        })?;
+        let rect_program = rect_program
+            .ok_or_else(|| anyhow!("Failed to compile shaders: {}", header_errors.join("\n")))?;
 
         let color = Color::rgba(theme.color.red, theme.color.green, theme.color.blue, 0xff);
 
@@ -144,9 +143,8 @@ impl HeaderRenderState {
             };
         }
 
-        let sprite_program = sprite_program.ok_or_else(|| {
-            failure::format_err!("Failed to compile shaders: {}", sprite_errors.join("\n"))
-        })?;
+        let sprite_program = sprite_program
+            .ok_or_else(|| anyhow!("Failed to compile shaders: {}", sprite_errors.join("\n")))?;
 
         let (sprite_vertex_buffer, sprite_index_buffer) = Self::compute_sprite_vertices(
             &context,
@@ -193,7 +191,7 @@ impl HeaderRenderState {
         metrics: &RenderMetrics,
         pixel_width: usize,
         pixel_height: usize,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let (rect_vertex_buffer, rect_index_buffer) = Self::compute_rect_vertices(
             &self.context,
             self.color,
@@ -226,7 +224,7 @@ impl HeaderRenderState {
         new_dpi: f32,
         pixel_width: usize,
         pixel_height: usize,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         self.dpi = new_dpi;
         self.sprite_size = (self.sprite_size.0 * self.dpi, self.sprite_size.1 * self.dpi);
         self.height = self.height * self.dpi;
@@ -273,7 +271,7 @@ impl HeaderRenderState {
         width: f32,
         height: f32,
         metrics: &RenderMetrics,
-    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
+    ) -> anyhow::Result<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
         let mut verts = Vec::new();
         let mut indices = Vec::new();
 
@@ -329,7 +327,7 @@ impl HeaderRenderState {
         sprite_height: f32,
         width: f32,
         height: f32,
-    ) -> Fallible<(VertexBuffer<SpriteVertex>, IndexBuffer<u32>)> {
+    ) -> anyhow::Result<(VertexBuffer<SpriteVertex>, IndexBuffer<u32>)> {
         let mut verts = Vec::new();
 
         let (w, h) = { (width / 2.0, height / 2.0) };
@@ -371,7 +369,7 @@ impl HeaderRenderState {
         banner_height: f32,
         width: f32,
         height: f32,
-    ) -> Fallible<(VertexBuffer<RectVertex>, IndexBuffer<u32>)> {
+    ) -> anyhow::Result<(VertexBuffer<RectVertex>, IndexBuffer<u32>)> {
         let mut verts = Vec::new();
 
         let (w, h) = ((width / 2.0), (height / 2.0));

@@ -3,7 +3,6 @@ use crate::mux::Mux;
 use crate::pty::{Child, MasterPty, PtySize};
 use crate::term::color::ColorPalette;
 use crate::term::{KeyCode, KeyModifiers, MouseEvent, Terminal, TerminalHost};
-use failure::{Error, Fallible};
 use std::cell::{RefCell, RefMut};
 use std::sync::{Arc, Mutex};
 
@@ -45,7 +44,7 @@ impl Tab {
         RefMut::map(self.terminal.borrow_mut(), |t| &mut *t)
     }
 
-    pub fn trickle_paste(&self, text: String) -> Fallible<()> {
+    pub fn trickle_paste(&self, text: String) -> anyhow::Result<()> {
         if text.len() <= PASTE_CHUNK_SIZE {
             self.send_paste(&text)?;
         } else {
@@ -61,15 +60,19 @@ impl Tab {
         self.terminal.borrow_mut().advance_bytes(buf, host)
     }
 
-    pub fn mouse_event(&self, event: MouseEvent, host: &mut dyn TerminalHost) -> Result<(), Error> {
+    pub fn mouse_event(
+        &self,
+        event: MouseEvent,
+        host: &mut dyn TerminalHost,
+    ) -> anyhow::Result<()> {
         self.terminal.borrow_mut().mouse_event(event, host)
     }
 
-    pub fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> Result<(), Error> {
+    pub fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> anyhow::Result<()> {
         self.terminal.borrow_mut().key_down(key, mods, &mut *self.pty.borrow_mut())
     }
 
-    pub fn resize(&self, size: PtySize) -> Result<(), Error> {
+    pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {
         self.pty.borrow_mut().resize(size)?;
         self.terminal.borrow_mut().resize(
             size.rows as usize,
@@ -84,11 +87,11 @@ impl Tab {
         self.pty.borrow_mut()
     }
 
-    pub fn reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
+    pub fn reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
         self.pty.borrow_mut().try_clone_reader()
     }
 
-    fn send_paste(&self, text: &str) -> Result<(), Error> {
+    fn send_paste(&self, text: &str) -> anyhow::Result<()> {
         self.terminal.borrow_mut().send_paste(text, &mut *self.pty.borrow_mut())
     }
 

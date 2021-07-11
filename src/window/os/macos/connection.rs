@@ -7,7 +7,6 @@ use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular};
 use cocoa::base::{id, nil};
 use core_foundation::date::CFAbsoluteTimeGetCurrent;
 use core_foundation::runloop::*;
-use failure::Fallible;
 use objc::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,7 +20,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub(crate) fn create_new() -> Fallible<Self> {
+    pub(crate) fn create_new() -> anyhow::Result<Self> {
         SPAWN_QUEUE.run();
 
         unsafe {
@@ -64,7 +63,7 @@ impl ConnectionOps for Connection {
         }
     }
 
-    fn run_message_loop(&self) -> Fallible<()> {
+    fn run_message_loop(&self) -> anyhow::Result<()> {
         unsafe {
             self.ns_app.run();
         }

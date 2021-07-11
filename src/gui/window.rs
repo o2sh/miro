@@ -16,10 +16,10 @@ use crate::term::keyassignment::{KeyAssignment, KeyMap};
 use crate::term::Terminal;
 use crate::term::{CursorPosition, Line};
 use crate::window;
+use crate::window::bitmaps::atlas::OutOfTextureSpace;
 use crate::window::bitmaps::atlas::SpriteSlice;
 use crate::window::bitmaps::Texture2d;
 use crate::window::*;
-use failure::Fallible;
 use glium::{uniform, Surface};
 use std::any::Any;
 use std::cell::Ref;
@@ -61,7 +61,7 @@ impl<'a> term::TerminalHost for Host<'a> {
         self.writer
     }
 
-    fn get_clipboard(&mut self) -> Fallible<Arc<dyn Clipboard>> {
+    fn get_clipboard(&mut self) -> anyhow::Result<Arc<dyn Clipboard>> {
         Ok(Arc::clone(self.clipboard))
     }
 
@@ -85,7 +85,7 @@ impl WindowCallbacks for TermWindow {
         &mut self,
         window: &Window,
         ctx: std::rc::Rc<glium::backend::Context>,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         self.window.replace(window.clone());
         let mux = Mux::get().unwrap();
         self.render_state = Some(RenderState::new(
@@ -334,13 +334,25 @@ impl WindowCallbacks for TermWindow {
         let tab = mux.get_tab();
 
         self.update_text_cursor(&tab);
-        self.paint_screen(&tab, frame).expect("failed to paint screen");
+        if let Err(err) = self.paint_screen(&tab, frame) {
+            if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
+                log::error!("out of texture space, allocating {}", size);
+                if let Err(err) = self.recreate_texture_atlas(Some(size)) {
+                    log::error!("failed recreate atlas with size {}: {}", size, err);
+                    self.recreate_texture_atlas(None)
+                        .expect("OutOfTextureSpace and failed to recreate atlas");
+                }
+                tab.renderer().make_all_lines_dirty();
+                // Recursively initiate a new paint
+                return self.paint(frame);
+            }
+        }
         self.update_title();
     }
 }
 
 impl TermWindow {
-    pub fn new_window(fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
+    pub fn new_window(fontconfig: &Rc<FontConfiguration>) -> anyhow::Result<()> {
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
         let (physical_rows, physical_cols) = tab.renderer().physical_dimensions();
@@ -415,7 +427,7 @@ impl TermWindow {
         &mut self,
         tab: &Ref<Tab>,
         assignment: &KeyAssignment,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         use KeyAssignment::*;
         match assignment {
             ToggleFullScreen => {}
@@ -472,7 +484,7 @@ impl TermWindow {
         self.recreate_texture_atlas(None).expect("failed to recreate atlas");
     }
 
-    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> Fallible<()> {
+    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> anyhow::Result<()> {
         self.render_state.as_mut().unwrap().recreate_texture_atlas(
             &self.fonts,
             &self.render_metrics,
@@ -559,7 +571,7 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn paint_screen(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> Fallible<()> {
+    fn paint_screen(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> anyhow::Result<()> {
         self.frame_count += 1;
         let palette = tab.palette();
         let gl_state = self.render_state.as_ref().unwrap();
@@ -584,7 +596,7 @@ impl TermWindow {
         gl_state: &RenderState,
         palette: &ColorPalette,
         frame: &mut glium::Frame,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let mut term = tab.renderer();
 
         let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
@@ -667,7 +679,7 @@ impl TermWindow {
         terminal: &Terminal,
         palette: &ColorPalette,
         quads: &mut MappedQuads,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let gl_state = self.render_state.as_ref().unwrap();
         let (_num_rows, num_cols) = terminal.physical_dimensions();
 

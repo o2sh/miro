@@ -1,6 +1,6 @@
 use crate::font::locator::FontDataHandle;
 use crate::window::PixelLength;
-use failure::{format_err, Error, Fallible};
+use anyhow::Error;
 use serde_derive::*;
 use std::sync::Mutex;
 
@@ -16,7 +16,12 @@ pub struct RasterizedGlyph {
 }
 
 pub trait FontRasterizer {
-    fn rasterize_glyph(&self, glyph_pos: u32, size: f64, dpi: u32) -> Fallible<RasterizedGlyph>;
+    fn rasterize_glyph(
+        &self,
+        glyph_pos: u32,
+        size: f64,
+        dpi: u32,
+    ) -> anyhow::Result<RasterizedGlyph>;
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -44,7 +49,10 @@ impl FontRasterizerSelection {
         vec!["FreeType"]
     }
 
-    pub fn new_rasterizer(self, handle: &FontDataHandle) -> Fallible<Box<dyn FontRasterizer>> {
+    pub fn new_rasterizer(
+        self,
+        handle: &FontDataHandle,
+    ) -> anyhow::Result<Box<dyn FontRasterizer>> {
         match self {
             Self::FreeType => Ok(Box::new(freetype::FreeTypeRasterizer::from_locator(handle)?)),
         }
@@ -56,7 +64,7 @@ impl std::str::FromStr for FontRasterizerSelection {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_ref() {
             "freetype" => Ok(Self::FreeType),
-            _ => Err(format_err!(
+            _ => Err(anyhow::anyhow!(
                 "{} is not a valid FontRasterizerSelection variant, possible values are {:?}",
                 s,
                 Self::variants()

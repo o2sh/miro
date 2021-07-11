@@ -6,7 +6,7 @@ use crate::mux::tab::Tab;
 use crate::pty::{unix, PtySize, PtySystem};
 use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
-use failure::{bail, Error, Fallible};
+use anyhow::bail;
 use log::error;
 use std::cell::{Ref, RefCell};
 use std::io::Read;
@@ -66,7 +66,7 @@ impl<'a> TerminalHost for Host<'a> {
         }
     }
 
-    fn get_clipboard(&mut self) -> Fallible<Arc<dyn Clipboard>> {
+    fn get_clipboard(&mut self) -> anyhow::Result<Arc<dyn Clipboard>> {
         bail!("peer requested clipboard; ignoring");
     }
 
@@ -78,7 +78,7 @@ thread_local! {
 }
 
 impl Mux {
-    pub fn new(config: &Arc<Config>, size: PtySize) -> Result<Self, Error> {
+    pub fn new(config: &Arc<Config>, size: PtySize) -> anyhow::Result<Self> {
         let pty_system = Box::new(unix::UnixPtySystem);
         let pair = pty_system.openpty(size)?;
         let child = pair.slave.spawn_command(Command::new(crate::pty::get_shell()?))?;
@@ -97,7 +97,7 @@ impl Mux {
         Ok(Self { tab: RefCell::new(tab), config: Arc::clone(config) })
     }
 
-    pub fn start(&self) -> Result<(), Error> {
+    pub fn start(&self) -> anyhow::Result<()> {
         let reader = self.tab.borrow().reader()?;
         let config = Arc::clone(&self.config);
         thread::spawn(move || read_from_tab_pty(config, reader));

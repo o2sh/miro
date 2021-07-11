@@ -1,4 +1,4 @@
-use failure::{ensure, err_msg, format_err, Error};
+use anyhow::{anyhow, ensure, Error};
 pub use fontconfig::fontconfig::*;
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -68,12 +68,12 @@ impl FcResultWrap {
     pub fn as_err(&self) -> Error {
         #[allow(non_upper_case_globals)]
         match self.0 {
-            FcResultMatch => err_msg("FcResultMatch"),
-            FcResultNoMatch => err_msg("FcResultNoMatch"),
-            FcResultTypeMismatch => err_msg("FcResultTypeMismatch"),
-            FcResultNoId => err_msg("FcResultNoId"),
-            FcResultOutOfMemory => err_msg("FcResultOutOfMemory"),
-            _ => format_err!("FcResult holds invalid value {}", self.0),
+            FcResultMatch => anyhow!("FcResultMatch"),
+            FcResultNoMatch => anyhow!("FcResultNoMatch"),
+            FcResultTypeMismatch => anyhow!("FcResultTypeMismatch"),
+            FcResultNoId => anyhow!("FcResultNoId"),
+            FcResultOutOfMemory => anyhow!("FcResultOutOfMemory"),
+            _ => anyhow!("FcResult holds invalid value {}", self.0),
         }
     }
 

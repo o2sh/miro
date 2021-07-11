@@ -1,9 +1,9 @@
 use freetype;
 
+use anyhow::ensure;
 pub use harfbuzz::*;
 use harfbuzz_sys as harfbuzz;
 
-use failure::{ensure, Error};
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -16,7 +16,7 @@ extern "C" {
     pub fn hb_ft_font_create_referenced(face: freetype::freetype::FT_Face) -> *mut hb_font_t;
 }
 
-pub fn language_from_string(s: &str) -> Result<hb_language_t, Error> {
+pub fn language_from_string(s: &str) -> anyhow::Result<hb_language_t> {
     unsafe {
         let lang = hb_language_from_string(s.as_ptr() as *const i8, s.len() as i32);
         ensure!(!lang.is_null(), "failed to convert {} to language");
@@ -24,7 +24,7 @@ pub fn language_from_string(s: &str) -> Result<hb_language_t, Error> {
     }
 }
 
-pub fn feature_from_string(s: &str) -> Result<hb_feature_t, Error> {
+pub fn feature_from_string(s: &str) -> anyhow::Result<hb_feature_t> {
     unsafe {
         let mut feature = mem::zeroed();
         ensure!(
@@ -84,7 +84,7 @@ impl Drop for Buffer {
 }
 
 impl Buffer {
-    pub fn new() -> Result<Buffer, Error> {
+    pub fn new() -> anyhow::Result<Buffer> {
         let buf = unsafe { hb_buffer_create() };
         ensure!(unsafe { hb_buffer_allocation_successful(buf) } != 0, "hb_buffer_create failed");
         Ok(Buffer { buf })

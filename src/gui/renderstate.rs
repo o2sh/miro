@@ -4,7 +4,7 @@ use super::quad::*;
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::config::Theme;
 use crate::font::FontConfiguration;
-use failure::Fallible;
+use anyhow::anyhow;
 use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;
 use glium::{IndexBuffer, VertexBuffer};
@@ -47,7 +47,7 @@ impl RenderState {
         pixel_width: usize,
         pixel_height: usize,
         theme: &Theme,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         let glyph_cache = RefCell::new(GlyphCache::new_gl(&context, fonts, size)?);
         let util_sprites = UtilSprites::new(&mut *glyph_cache.borrow_mut(), metrics)?;
         let mut glyph_errors = vec![];
@@ -73,9 +73,8 @@ impl RenderState {
             };
         }
 
-        let glyph_program = glyph_program.ok_or_else(|| {
-            failure::format_err!("Failed to compile shaders: {}", glyph_errors.join("\n"))
-        })?;
+        let glyph_program = glyph_program
+            .ok_or_else(|| anyhow!("Failed to compile shaders: {}", glyph_errors.join("\n")))?;
 
         let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &context,
@@ -104,7 +103,7 @@ impl RenderState {
         metrics: &RenderMetrics,
         pixel_width: usize,
         pixel_height: usize,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let (glyph_vertex_buffer, glyph_index_buffer, quads) = Self::compute_glyph_vertices(
             &self.context,
             metrics,
@@ -122,7 +121,7 @@ impl RenderState {
         fonts: &Rc<FontConfiguration>,
         metrics: &RenderMetrics,
         size: Option<usize>,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let size = size.unwrap_or_else(|| self.glyph_cache.borrow().atlas.size());
         let mut glyph_cache = GlyphCache::new_gl(&self.context, fonts, size)?;
         self.util_sprites = UtilSprites::new(&mut glyph_cache, metrics)?;
@@ -134,7 +133,7 @@ impl RenderState {
         metrics: &RenderMetrics,
         width: f32,
         height: f32,
-    ) -> Fallible<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
+    ) -> anyhow::Result<(VertexBuffer<Vertex>, IndexBuffer<u32>, Quads)> {
         let cell_width = metrics.cell_size.width as f32;
         let cell_height = metrics.cell_size.height as f32;
         let mut verts = Vec::new();

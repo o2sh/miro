@@ -1,12 +1,11 @@
-use failure::{format_err, Error, Fallible};
-mod hbwrap;
-
+use anyhow::{anyhow, Error};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
 pub mod ftwrap;
+mod hbwrap;
 pub mod locator;
 pub mod rasterizer;
 pub mod shaper;
@@ -36,7 +35,7 @@ impl LoadedFont {
         self.metrics
     }
 
-    pub fn shape(&self, text: &str) -> Fallible<Vec<GlyphInfo>> {
+    pub fn shape(&self, text: &str) -> anyhow::Result<Vec<GlyphInfo>> {
         self.shaper.shape(text, self.font_size, self.dpi)
     }
 
@@ -44,11 +43,11 @@ impl LoadedFont {
         &self,
         glyph_pos: u32,
         fallback: FallbackIdx,
-    ) -> Fallible<RasterizedGlyph> {
+    ) -> anyhow::Result<RasterizedGlyph> {
         let rasterizer = self
             .rasterizers
             .get(fallback)
-            .ok_or_else(|| format_err!("no such fallback index: {}", fallback))?;
+            .ok_or_else(|| anyhow!("no such fallback index: {}", fallback))?;
         rasterizer.rasterize_glyph(glyph_pos, self.font_size, self.dpi)
     }
 }
@@ -75,7 +74,7 @@ impl FontConfiguration {
         }
     }
 
-    pub fn resolve_font(&self, style: &TextStyle) -> Fallible<Rc<LoadedFont>> {
+    pub fn resolve_font(&self, style: &TextStyle) -> anyhow::Result<Rc<LoadedFont>> {
         let mut fonts = self.fonts.borrow_mut();
 
         if let Some(entry) = fonts.get(style) {
@@ -108,7 +107,7 @@ impl FontConfiguration {
         self.metrics.borrow_mut().take();
     }
 
-    pub fn default_font(&self) -> Fallible<Rc<LoadedFont>> {
+    pub fn default_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
         self.resolve_font(&self.config.font)
     }
 

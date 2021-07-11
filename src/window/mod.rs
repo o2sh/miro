@@ -1,4 +1,3 @@
-use failure::Fallible;
 use std::any::Any;
 pub mod bitmaps;
 pub mod color;
@@ -63,7 +62,7 @@ pub trait WindowCallbacks: Any {
         &mut self,
         _window: &Window,
         _context: std::rc::Rc<glium::backend::Context>,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         Ok(())
     }
     fn as_any(&mut self) -> &mut dyn Any;

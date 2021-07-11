@@ -1,8 +1,4 @@
-#[macro_use]
-extern crate failure;
-
 use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
-use failure::Error;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -21,7 +17,7 @@ mod pty;
 mod term;
 mod window;
 
-fn run(theme: Theme) -> Result<(), Error> {
+fn run(theme: Theme) -> anyhow::Result<()> {
     let config = Arc::new(config::Config::default_config(theme));
     let fontconfig = Rc::new(FontConfiguration::new(Arc::clone(&config)));
     let gui = gui::new()?;
@@ -35,7 +31,7 @@ fn run(theme: Theme) -> Result<(), Error> {
     gui.run_forever()
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> anyhow::Result<()> {
     let matches = App::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())

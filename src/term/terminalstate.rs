@@ -9,7 +9,7 @@ use crate::core::escape::{
 };
 use crate::core::hyperlink::Rule as HyperlinkRule;
 use crate::term::color::ColorPalette;
-use failure::bail;
+use anyhow::bail;
 use log::{debug, error};
 use std::fmt::Write;
 use std::sync::Arc;
@@ -352,7 +352,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         self.selection_range = None;
         self.selection_start = Some(SelectionCoordinate {
             x: event.x,
@@ -366,7 +366,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         let y = event.y as ScrollbackOrVisibleRowIndex
             - self.viewport_offset as ScrollbackOrVisibleRowIndex;
 
@@ -422,7 +422,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         let y = event.y as ScrollbackOrVisibleRowIndex
             - self.viewport_offset as ScrollbackOrVisibleRowIndex;
         self.selection_start = Some(SelectionCoordinate { x: event.x, y });
@@ -440,7 +440,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         self.current_mouse_button = MouseButton::Left;
         self.dirty_selection_lines();
         match self.last_mouse_click.as_ref() {
@@ -468,7 +468,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         self.current_mouse_button = MouseButton::None;
         if let Some(&LastMouseClick { streak: 1, .. }) = self.last_mouse_click.as_ref() {
             let text = self.get_selection_text();
@@ -484,7 +484,7 @@ impl TerminalState {
         }
     }
 
-    fn mouse_drag_left(&mut self, event: MouseEvent) -> Result<(), Error> {
+    fn mouse_drag_left(&mut self, event: MouseEvent) -> anyhow::Result<()> {
         self.dirty_selection_lines();
         let end = SelectionCoordinate {
             x: event.x,
@@ -505,7 +505,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         writer: &mut dyn std::io::Write,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         let (report_button, scroll_delta, key) = match event.button {
             MouseButton::WheelUp(amount) => (64, -(amount as i64), KeyCode::UpArrow),
             MouseButton::WheelDown(amount) => (65, amount as i64, KeyCode::DownArrow),
@@ -528,7 +528,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         self.current_mouse_button = event.button;
         if let Some(button) = match event.button {
             MouseButton::Left => Some(0),
@@ -553,7 +553,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         writer: &mut dyn std::io::Write,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         if self.current_mouse_button != MouseButton::None {
             self.current_mouse_button = MouseButton::None;
             if self.sgr_mouse {
@@ -568,7 +568,7 @@ impl TerminalState {
         &mut self,
         event: MouseEvent,
         writer: &mut dyn std::io::Write,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         if let Some(button) = match (self.current_mouse_button, self.button_event_mouse) {
             (MouseButton::Left, true) => Some(32),
             (MouseButton::Middle, true) => Some(33),
@@ -586,7 +586,7 @@ impl TerminalState {
         &mut self,
         mut event: MouseEvent,
         host: &mut dyn TerminalHost,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         event.y = event.y.min(self.screen().physical_rows as i64 - 1);
         event.x = event.x.min(self.screen().physical_cols - 1);
 
@@ -638,7 +638,11 @@ impl TerminalState {
         }
     }
 
-    pub fn send_paste(&mut self, text: &str, writer: &mut dyn std::io::Write) -> Result<(), Error> {
+    pub fn send_paste(
+        &mut self,
+        text: &str,
+        writer: &mut dyn std::io::Write,
+    ) -> anyhow::Result<()> {
         if self.bracketed_paste {
             let buf = format!("\x1b[200~{}\x1b[201~", text);
             writer.write_all(buf.as_bytes())?;
@@ -653,7 +657,7 @@ impl TerminalState {
         key: KeyCode,
         mods: KeyModifiers,
         writer: &mut dyn std::io::Write,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         const CTRL: KeyModifiers = KeyModifiers::CTRL;
         const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
         const ALT: KeyModifiers = KeyModifiers::ALT;

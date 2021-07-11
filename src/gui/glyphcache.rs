@@ -4,7 +4,6 @@ use crate::window::bitmaps::atlas::{Atlas, Sprite};
 use crate::window::bitmaps::{Image, Texture2d};
 use crate::window::PixelLength;
 use euclid::num::Zero;
-use failure::Fallible;
 use glium::backend::Context as GliumContext;
 use glium::texture::SrgbTexture2d;
 use std::collections::HashMap;
@@ -38,7 +37,7 @@ impl GlyphCache<SrgbTexture2d> {
         backend: &Rc<GliumContext>,
         fonts: &Rc<FontConfiguration>,
         size: usize,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         let surface = Rc::new(SrgbTexture2d::empty_with_format(
             backend,
             glium::texture::SrgbFormat::U8U8U8U8,
@@ -57,7 +56,7 @@ impl<T: Texture2d> GlyphCache<T> {
         &mut self,
         info: &GlyphInfo,
         style: &TextStyle,
-    ) -> Fallible<Rc<CachedGlyph<T>>> {
+    ) -> anyhow::Result<Rc<CachedGlyph<T>>> {
         let key =
             GlyphKey { font_idx: info.font_idx, glyph_pos: info.glyph_pos, style: style.clone() };
 
@@ -71,7 +70,11 @@ impl<T: Texture2d> GlyphCache<T> {
     }
 
     #[allow(clippy::float_cmp)]
-    fn load_glyph(&mut self, info: &GlyphInfo, style: &TextStyle) -> Fallible<Rc<CachedGlyph<T>>> {
+    fn load_glyph(
+        &mut self,
+        info: &GlyphInfo,
+        style: &TextStyle,
+    ) -> anyhow::Result<Rc<CachedGlyph<T>>> {
         let metrics;
         let glyph;
 

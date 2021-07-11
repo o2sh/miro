@@ -1,4 +1,4 @@
-use failure::{ensure, err_msg, Error};
+use anyhow::{anyhow, ensure, Error};
 use regex::{Captures, Regex};
 use serde::{self, Deserialize, Deserializer};
 use serde_derive::*;
@@ -45,8 +45,8 @@ impl Hyperlink {
             if !param_str.is_empty() {
                 for pair in param_str.split(':') {
                     let mut iter = pair.splitn(2, '=');
-                    let key = iter.next().ok_or_else(|| err_msg("bad params"))?;
-                    let value = iter.next().ok_or_else(|| err_msg("bad params"))?;
+                    let key = iter.next().ok_or_else(|| anyhow!("bad params"))?;
+                    let value = iter.next().ok_or_else(|| anyhow!("bad params"))?;
                     params.insert(key.to_owned(), value.to_owned());
                 }
             }

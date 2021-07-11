@@ -5,6 +5,7 @@ use crate::window::{
     Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons, MouseCursor, MouseEvent,
     MouseEventKind, MousePress, Point, Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
 };
+use anyhow::{bail, ensure};
 use cocoa::appkit::{
     NSApplicationActivateIgnoringOtherApps, NSBackingStoreBuffered, NSEvent, NSEventModifierFlags,
     NSRunningApplication, NSView, NSViewHeightSizable, NSViewWidthSizable, NSWindow,
@@ -12,7 +13,6 @@ use cocoa::appkit::{
 };
 use cocoa::base::*;
 use cocoa::foundation::{NSArray, NSNotFound, NSPoint, NSRect, NSSize, NSUInteger};
-use failure::Fallible;
 use objc::declare::ClassDecl;
 use objc::rc::{StrongPtr, WeakPtr};
 use objc::runtime::{Class, Object, Protocol, Sel};
@@ -79,7 +79,7 @@ mod opengl {
     }
 
     impl GlContextPair {
-        pub fn create(view: id) -> Fallible<Self> {
+        pub fn create(view: id) -> anyhow::Result<Self> {
             let backend = Rc::new(GlState::create(view)?);
 
             let context = unsafe {
@@ -104,7 +104,7 @@ mod opengl {
     }
 
     impl GlState {
-        pub fn create(view: id) -> Fallible<Self> {
+        pub fn create(view: id) -> anyhow::Result<Self> {
             let pixel_format = unsafe {
                 StrongPtr::new(NSOpenGLPixelFormat::alloc(nil).initWithAttributes_(&[
                     appkit::NSOpenGLPFAOpenGLProfile as u32,
@@ -124,7 +124,7 @@ mod opengl {
                     0,
                 ]))
             };
-            failure::ensure!(!pixel_format.is_null(), "failed to create NSOpenGLPixelFormat");
+            ensure!(!pixel_format.is_null(), "failed to create NSOpenGLPixelFormat");
 
             unsafe {
                 let _: () = msg_send![view, setWantsBestResolutionOpenGLSurface: YES];
@@ -135,7 +135,7 @@ mod opengl {
                     NSOpenGLContext::alloc(nil).initWithFormat_shareContext_(*pixel_format, nil),
                 )
             };
-            failure::ensure!(!gl_context.is_null(), "failed to create NSOpenGLContext");
+            ensure!(!gl_context.is_null(), "failed to create NSOpenGLContext");
             unsafe {
                 gl_context.setView_(view);
             }
@@ -241,7 +241,7 @@ impl Window {
         width: usize,
         height: usize,
         callbacks: Box<dyn WindowCallbacks>,
-    ) -> Fallible<Window> {
+    ) -> anyhow::Result<Window> {
         unsafe {
             let style_mask = NSWindowStyleMask::NSTitledWindowMask
                 | NSWindowStyleMask::NSClosableWindowMask
@@ -364,6 +364,8 @@ impl WindowOps for Window {
 
             if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
                 func(window_view.inner.borrow_mut().callbacks.as_any(), &window);
+            } else {
+                bail!("apply: window is invalid");
             }
         });
     }
@@ -439,7 +441,7 @@ struct Inner {
 }
 
 impl Inner {
-    fn enable_opengl(&mut self) -> Fallible<()> {
+    fn enable_opengl(&mut self) -> anyhow::Result<()> {
         let window = Window(self.window_id);
 
         let view = self.view_id.as_ref().unwrap().load();
@@ -917,7 +919,7 @@ impl WindowView {
         }
     }
 
-    fn alloc(inner: &Rc<RefCell<Inner>>) -> Fallible<StrongPtr> {
+    fn alloc(inner: &Rc<RefCell<Inner>>) -> anyhow::Result<StrongPtr> {
         let cls = Self::get_class();
 
         let view_id: StrongPtr = unsafe { StrongPtr::new(msg_send![cls, new]) };

@@ -3,7 +3,7 @@ use crate::font::hbwrap as harfbuzz;
 use crate::font::locator::FontDataHandle;
 use crate::font::shaper::{FallbackIdx, FontMetrics, FontShaper, GlyphInfo};
 use crate::window::PixelLength;
-use failure::{bail, Fallible};
+use anyhow::bail;
 use log::{debug, error};
 use std::cell::RefCell;
 
@@ -40,7 +40,7 @@ pub struct HarfbuzzShaper {
 }
 
 impl HarfbuzzShaper {
-    pub fn new(handles: &[FontDataHandle]) -> Fallible<Self> {
+    pub fn new(handles: &[FontDataHandle]) -> anyhow::Result<Self> {
         let lib = ftwrap::Library::new()?;
         let mut fonts = vec![];
         for handle in handles {
@@ -60,7 +60,7 @@ impl HarfbuzzShaper {
         s: &str,
         font_size: f64,
         dpi: u32,
-    ) -> Fallible<Vec<GlyphInfo>> {
+    ) -> anyhow::Result<Vec<GlyphInfo>> {
         let features = vec![
             harfbuzz::feature_from_string("kern")?,
             harfbuzz::feature_from_string("liga")?,
@@ -182,11 +182,11 @@ impl HarfbuzzShaper {
 }
 
 impl FontShaper for HarfbuzzShaper {
-    fn shape(&self, text: &str, size: f64, dpi: u32) -> Fallible<Vec<GlyphInfo>> {
+    fn shape(&self, text: &str, size: f64, dpi: u32) -> anyhow::Result<Vec<GlyphInfo>> {
         self.do_shape(0, text, size, dpi)
     }
 
-    fn metrics(&self, size: f64, dpi: u32) -> Fallible<FontMetrics> {
+    fn metrics(&self, size: f64, dpi: u32) -> anyhow::Result<FontMetrics> {
         let mut pair = self.fonts[0].borrow_mut();
         let (cell_width, cell_height) = pair.face.set_font_size(size, dpi)?;
         let y_scale = unsafe { (*(*pair.face.face).size).metrics.y_scale as f64 / 65536.0 };

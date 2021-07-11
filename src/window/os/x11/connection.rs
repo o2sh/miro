@@ -3,7 +3,7 @@ use crate::core::promise;
 use crate::window::connection::{ConnectionOps, FPS};
 use crate::window::os::x11::WindowInner;
 use crate::window::spawn::SPAWN_QUEUE;
-use failure::Fallible;
+use anyhow::{anyhow, bail};
 use mio::unix::EventedFd;
 use mio::{Evented, Events, Poll, PollOpt, Ready, Token};
 use std::cell::RefCell;
@@ -181,7 +181,7 @@ impl ConnectionOps for Connection {
         *self.should_terminate.borrow_mut() = true;
     }
 
-    fn run_message_loop(&self) -> Fallible<()> {
+    fn run_message_loop(&self) -> anyhow::Result<()> {
         self.conn.flush();
         const TOK_XCB: usize = 0xffff_fffc;
         const TOK_SPAWN: usize = 0xffff_fffd;
@@ -225,7 +225,7 @@ impl ConnectionOps for Connection {
                 Ok(_) => {}
 
                 Err(err) => {
-                    failure::bail!("polling for events: {:?}", err);
+                    bail!("polling for events: {:?}", err);
                 }
             }
         }
@@ -243,12 +243,12 @@ impl ConnectionOps for Connection {
 }
 
 impl Connection {
-    fn process_queued_xcb(&self) -> Fallible<()> {
+    fn process_queued_xcb(&self) -> anyhow::Result<()> {
         match self.conn.poll_for_event() {
             None => match self.conn.has_error() {
                 Ok(_) => (),
                 Err(err) => {
-                    failure::bail!("X11 connection is broken: {:?}", err);
+                    bail!("X11 connection is broken: {:?}", err);
                 }
             },
             Some(event) => {
@@ -268,7 +268,7 @@ impl Connection {
         }
     }
 
-    fn process_xcb_event(&self, event: &xcb::GenericEvent) -> Fallible<()> {
+    fn process_xcb_event(&self, event: &xcb::GenericEvent) -> anyhow::Result<()> {
         if let Some(window_id) = window_id_from_event(event) {
             self.process_window_event(window_id, event)?;
         } else {
@@ -288,7 +288,7 @@ impl Connection {
         &self,
         window_id: xcb::xproto::Window,
         event: &xcb::GenericEvent,
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         if let Some(window) = self.window_by_id(window_id) {
             let mut inner = window.lock().unwrap();
             inner.dispatch_event(event)?;
@@ -296,10 +296,10 @@ impl Connection {
         Ok(())
     }
 
-    pub(crate) fn create_new() -> Fallible<Connection> {
+    pub(crate) fn create_new() -> anyhow::Result<Connection> {
         let display = unsafe { x11::xlib::XOpenDisplay(std::ptr::null()) };
         if display.is_null() {
-            failure::bail!("failed to open display");
+            bail!("failed to open display");
         }
         let screen_num = unsafe { x11::xlib::XDefaultScreen(display) };
         let conn = unsafe { xcb::Connection::from_raw_conn(XGetXCBConnection(display)) };
@@ -318,7 +318,7 @@ impl Connection {
             .get_setup()
             .roots()
             .nth(screen_num as usize)
-            .ok_or_else(|| failure::err_msg("no screen?"))?;
+            .ok_or_else(|| anyhow!("no screen?"))?;
 
         let visual = screen
             .allowed_depths()
@@ -332,7 +332,7 @@ impl Connection {
                 }
             })
             .nth(0)
-            .ok_or_else(|| failure::err_msg("did not find 24-bit visual"))?;
+            .ok_or_else(|| anyhow!("did not find 24-bit visual"))?;
         eprintln!(
             "picked visual {:x}, screen root visual is {:x}",
             visual.visual_id(),

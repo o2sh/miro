@@ -1,10 +1,11 @@
 use crate::window::bitmaps::{BitmapImage, Texture2d, TextureRect};
 use crate::window::{Point, Rect, Size};
-use failure::{ensure, Fallible};
+use anyhow::ensure;
 use std::rc::Rc;
+use thiserror::*;
 
-#[derive(Debug, Fail)]
-#[fail(display = "Texture Size exceeded, need {}", size)]
+#[derive(Debug, Error)]
+#[error("Texture Size exceeded, need {}", size)]
 pub struct OutOfTextureSpace {
     pub size: usize,
 }
@@ -24,7 +25,7 @@ impl<T> Atlas<T>
 where
     T: Texture2d,
 {
-    pub fn new(texture: &Rc<T>) -> Fallible<Self> {
+    pub fn new(texture: &Rc<T>) -> anyhow::Result<Self> {
         ensure!(texture.width() == texture.height(), "texture must be square!");
         Ok(Self {
             texture: Rc::clone(texture),
@@ -40,7 +41,10 @@ where
         Rc::clone(&self.texture)
     }
 
-    pub fn allocate(&mut self, im: &dyn BitmapImage) -> Result<Sprite<T>, OutOfTextureSpace> {
+    pub fn allocate(
+        &mut self,
+        im: &dyn BitmapImage,
+    ) -> anyhow::Result<Sprite<T>, OutOfTextureSpace> {
         let (width, height) = im.image_dimensions();
 
         let reserve_width = width + 2;

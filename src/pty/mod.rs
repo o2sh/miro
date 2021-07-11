@@ -1,4 +1,4 @@
-use failure::{Error, Fallible};
+use anyhow::anyhow;
 use serde_derive::*;
 use std::io::Result as IoResult;
 use std::process::Command;
@@ -23,11 +23,11 @@ impl Default for PtySize {
 }
 
 pub trait MasterPty: std::io::Write {
-    fn resize(&self, size: PtySize) -> Result<(), Error>;
+    fn resize(&self, size: PtySize) -> anyhow::Result<()>;
 
-    fn get_size(&self) -> Result<PtySize, Error>;
+    fn get_size(&self) -> anyhow::Result<PtySize>;
 
-    fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error>;
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>>;
 }
 
 pub trait Child: std::fmt::Debug {
@@ -39,7 +39,7 @@ pub trait Child: std::fmt::Debug {
 }
 
 pub trait SlavePty {
-    fn spawn_command(&self, cmd: Command) -> Result<Box<dyn Child>, Error>;
+    fn spawn_command(&self, cmd: Command) -> anyhow::Result<Box<dyn Child>>;
 }
 
 #[derive(Debug)]
@@ -59,7 +59,7 @@ pub struct PtyPair {
 }
 
 pub trait PtySystem {
-    fn openpty(&self, size: PtySize) -> Fallible<PtyPair>;
+    fn openpty(&self, size: PtySize) -> anyhow::Result<PtyPair>;
 }
 
 impl Child for std::process::Child {
@@ -79,7 +79,7 @@ impl Child for std::process::Child {
     }
 }
 
-pub fn get_shell() -> Fallible<String> {
+pub fn get_shell() -> anyhow::Result<String> {
     std::env::var("SHELL").or_else(|_| {
         let ent = unsafe { libc::getpwuid(libc::getuid()) };
 
@@ -92,7 +92,7 @@ pub fn get_shell() -> Fallible<String> {
             shell
                 .to_str()
                 .map(str::to_owned)
-                .map_err(|e| format_err!("failed to resolve shell: {:?}", e))
+                .map_err(|e| anyhow!("failed to resolve shell: {:?}", e))
         }
     })
 }

@@ -1,5 +1,5 @@
 use crate::pty::{Child, MasterPty, PtyPair, PtySize, PtySystem, SlavePty};
-use failure::{bail, Error, Fallible};
+use anyhow::bail;
 use filedescriptor::FileDescriptor;
 use libc::{self, winsize};
 use std::io;
@@ -13,7 +13,7 @@ use std::ptr;
 pub struct UnixPtySystem;
 
 impl PtySystem for UnixPtySystem {
-    fn openpty(&self, size: PtySize) -> Fallible<PtyPair> {
+    fn openpty(&self, size: PtySize) -> anyhow::Result<PtyPair> {
         let mut master: RawFd = -1;
         let mut slave: RawFd = -1;
 
@@ -51,7 +51,7 @@ pub struct UnixSlavePty {
     fd: FileDescriptor,
 }
 
-fn cloexec(fd: RawFd) -> Result<(), Error> {
+fn cloexec(fd: RawFd) -> anyhow::Result<()> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
     if flags == -1 {
         bail!("fcntl to read flags failed: {:?}", io::Error::last_os_error());
@@ -64,7 +64,7 @@ fn cloexec(fd: RawFd) -> Result<(), Error> {
 }
 
 impl SlavePty for UnixSlavePty {
-    fn spawn_command(&self, mut cmd: Command) -> Result<Box<dyn Child>, Error> {
+    fn spawn_command(&self, mut cmd: Command) -> anyhow::Result<Box<dyn Child>> {
         unsafe {
             cmd.stdin(self.as_stdio()?).stdout(self.as_stdio()?).stderr(self.as_stdio()?).pre_exec(
                 move || {
@@ -105,7 +105,7 @@ impl SlavePty for UnixSlavePty {
 }
 
 impl UnixSlavePty {
-    fn as_stdio(&self) -> Result<Stdio, Error> {
+    fn as_stdio(&self) -> anyhow::Result<Stdio> {
         let dup = match self.fd.try_clone() {
             Ok(v) => v,
             Err(_) => bail!(""),
@@ -115,7 +115,7 @@ impl UnixSlavePty {
 }
 
 impl MasterPty for UnixMasterPty {
-    fn resize(&self, size: PtySize) -> Result<(), Error> {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
         let ws_size = winsize {
             ws_row: size.rows,
             ws_col: size.cols,
@@ -131,7 +131,7 @@ impl MasterPty for UnixMasterPty {
         Ok(())
     }
 
-    fn get_size(&self) -> Result<PtySize, Error> {
+    fn get_size(&self) -> anyhow::Result<PtySize> {
         let mut size: winsize = unsafe { mem::zeroed() };
         if unsafe { libc::ioctl(self.fd.as_raw_fd(), libc::TIOCGWINSZ, &mut size as *mut _) } != 0 {
             bail!("failed to ioctl(TIOCGWINSZ): {:?}", io::Error::last_os_error());
@@ -144,7 +144,7 @@ impl MasterPty for UnixMasterPty {
         })
     }
 
-    fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, Error> {
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
         let fd = match self.fd.try_clone() {
             Ok(v) => v,
             Err(_) => bail!(""),

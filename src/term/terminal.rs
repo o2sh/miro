@@ -2,12 +2,11 @@ use super::*;
 use crate::core::escape::parser::Parser;
 use crate::core::hyperlink::Rule as HyperlinkRule;
 use crate::term::clipboard::Clipboard;
-use failure::Fallible;
 use std::sync::Arc;
 
 pub trait TerminalHost {
     fn writer(&mut self) -> &mut dyn std::io::Write;
-    fn get_clipboard(&mut self) -> Fallible<Arc<dyn Clipboard>>;
+    fn get_clipboard(&mut self) -> anyhow::Result<Arc<dyn Clipboard>>;
     fn set_title(&mut self, title: &str);
     fn click_link(&mut self, link: &Arc<Hyperlink>);
 }

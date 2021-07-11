@@ -1,7 +1,6 @@
 use crate::font::FontConfiguration;
 use crate::mux::Mux;
 use crate::window::*;
-use failure::{Error, Fallible};
 use std::rc::Rc;
 
 mod glyphcache;
@@ -16,13 +15,13 @@ pub struct GuiFrontEnd {
     connection: Rc<Connection>,
 }
 
-pub fn new() -> Result<Rc<dyn FrontEnd>, Error> {
+pub fn new() -> anyhow::Result<Rc<dyn FrontEnd>> {
     let front_end = GuiFrontEnd::new()?;
     Ok(front_end)
 }
 
 impl GuiFrontEnd {
-    pub fn new() -> Fallible<Rc<dyn FrontEnd>> {
+    pub fn new() -> anyhow::Result<Rc<dyn FrontEnd>> {
         let connection = Connection::init()?;
         let front_end = Rc::new(GuiFrontEnd { connection });
         Ok(front_end)
@@ -30,12 +29,12 @@ impl GuiFrontEnd {
 }
 
 pub trait FrontEnd {
-    fn run_forever(&self) -> Result<(), Error>;
-    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()>;
+    fn run_forever(&self) -> anyhow::Result<()>;
+    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> anyhow::Result<()>;
 }
 
 impl FrontEnd for GuiFrontEnd {
-    fn run_forever(&self) -> Fallible<()> {
+    fn run_forever(&self) -> anyhow::Result<()> {
         self.connection.schedule_timer(std::time::Duration::from_millis(200), move || {
             let mux = Mux::get().unwrap();
             if mux.can_close() {
@@ -46,7 +45,7 @@ impl FrontEnd for GuiFrontEnd {
         self.connection.run_message_loop()
     }
 
-    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> Fallible<()> {
+    fn spawn_new_window(&self, fontconfig: &Rc<FontConfiguration>) -> anyhow::Result<()> {
         window::TermWindow::new_window(fontconfig)
     }
 }

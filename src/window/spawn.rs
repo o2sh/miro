@@ -1,7 +1,6 @@
 use crate::core::promise::{self, SpawnFunc};
 #[cfg(target_os = "macos")]
 use core_foundation::runloop::*;
-use failure::Fallible;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -26,7 +25,7 @@ pub(crate) struct SpawnQueue {
 }
 
 impl SpawnQueue {
-    pub fn new() -> Fallible<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         Self::new_impl()
     }
 
@@ -72,10 +71,10 @@ impl SpawnQueue {
 
 #[cfg(not(target_os = "macos"))]
 impl SpawnQueue {
-    fn new_impl() -> Fallible<Self> {
+    fn new_impl() -> anyhow::Result<Self> {
         let mut pipe = match Pipe::new() {
             Ok(v) => v,
-            Err(_) => bail!(""),
+            Err(_) => anyhow::bail!(""),
         };
         pipe.write.set_non_blocking(true).unwrap();
         pipe.read.set_non_blocking(true).unwrap();
@@ -140,7 +139,7 @@ impl Evented for SpawnQueue {
 
 #[cfg(target_os = "macos")]
 impl SpawnQueue {
-    fn new_impl() -> Fallible<Self> {
+    fn new_impl() -> anyhow::Result<Self> {
         let spawned_funcs = Mutex::new(VecDeque::new());
         let spawned_funcs_low_pri = Mutex::new(VecDeque::new());
 

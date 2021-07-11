@@ -4,7 +4,7 @@ use crate::window::{
     Dimensions, KeyEvent, MouseButtons, MouseCursor, MouseEvent, MouseEventKind, MousePress,
     WindowCallbacks, WindowOps, WindowOpsMut,
 };
-use failure::Fallible;
+use anyhow::anyhow;
 use std::any::Any;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -27,7 +27,7 @@ impl Drop for WindowInner {
 }
 
 impl WindowInner {
-    fn enable_opengl(&mut self) -> Fallible<()> {
+    fn enable_opengl(&mut self) -> anyhow::Result<()> {
         let gl_state = crate::window::egl::GlState::create(
             Some(self.conn.display as *const _),
             self.window_id as *mut _,
@@ -50,7 +50,7 @@ impl WindowInner {
         self.callbacks.created(&window_handle, gl_state)
     }
 
-    pub fn paint(&mut self) -> Fallible<()> {
+    pub fn paint(&mut self) -> anyhow::Result<()> {
         if let Some(gl_context) = self.gl_state.as_ref() {
             let mut frame = glium::Frame::new(
                 Rc::clone(&gl_context),
@@ -65,12 +65,12 @@ impl WindowInner {
         Ok(())
     }
 
-    fn do_mouse_event(&mut self, event: &MouseEvent) -> Fallible<()> {
+    fn do_mouse_event(&mut self, event: &MouseEvent) -> anyhow::Result<()> {
         self.callbacks.mouse_event(&event, &Window::from_id(self.window_id));
         Ok(())
     }
 
-    fn set_cursor(&mut self, cursor: Option<MouseCursor>) -> Fallible<()> {
+    fn set_cursor(&mut self, cursor: Option<MouseCursor>) -> anyhow::Result<()> {
         if cursor == self.cursor {
             return Ok(());
         }
@@ -108,7 +108,7 @@ impl WindowInner {
         Ok(())
     }
 
-    pub fn dispatch_event(&mut self, event: &xcb::GenericEvent) -> Fallible<()> {
+    pub fn dispatch_event(&mut self, event: &xcb::GenericEvent) -> anyhow::Result<()> {
         let r = event.response_type() & 0x7f;
         match r {
             xcb::CONFIGURE_NOTIFY => {
@@ -224,9 +224,9 @@ impl Window {
         width: usize,
         height: usize,
         callbacks: Box<dyn WindowCallbacks>,
-    ) -> Fallible<Window> {
+    ) -> anyhow::Result<Window> {
         let conn = Connection::get().ok_or_else(|| {
-            failure::err_msg(
+            anyhow!(
                 "new_window must be called on the gui thread after Connection::init has succeeded",
             )
         })?;
@@ -237,7 +237,7 @@ impl Window {
             let screen = setup
                 .roots()
                 .nth(conn.screen_num() as usize)
-                .ok_or_else(|| failure::err_msg("no screen?"))?;
+                .ok_or_else(|| anyhow!("no screen?"))?;
 
             window_id = conn.conn().generate_id();
 

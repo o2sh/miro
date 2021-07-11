@@ -1,12 +1,14 @@
 use crate::config::FontAttributes;
 use crate::font::locator::{FontDataHandle, FontLocator};
-use failure::Fallible;
 use font_loader::system_fonts;
 
 pub struct FontLoaderFontLocator {}
 
 impl FontLocator for FontLoaderFontLocator {
-    fn load_fonts(&self, fonts_selection: &[FontAttributes]) -> Fallible<Vec<FontDataHandle>> {
+    fn load_fonts(
+        &self,
+        fonts_selection: &[FontAttributes],
+    ) -> anyhow::Result<Vec<FontDataHandle>> {
         let mut fonts = Vec::new();
         for font_attr in fonts_selection {
             let mut font_props =

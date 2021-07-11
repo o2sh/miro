@@ -1,8 +1,8 @@
 use crate::core::color::RgbColor;
 pub use crate::core::hyperlink::Hyperlink;
+use anyhow::bail;
 use base64;
 use bitflags::bitflags;
-use failure::{bail, ensure, err_msg, Fallible};
 use num;
 use num_derive::*;
 use std::fmt::{Display, Error as FmtError, Formatter};
@@ -79,7 +79,7 @@ pub struct Selection :u16{
 }
 
 impl Selection {
-    fn try_parse(buf: &[u8]) -> Fallible<Selection> {
+    fn try_parse(buf: &[u8]) -> anyhow::Result<Selection> {
         if buf == b"" {
             Ok(Selection::SELECT | Selection::CUT0)
         } else {
@@ -145,7 +145,7 @@ impl OperatingSystemCommand {
         })
     }
 
-    fn parse_selection(osc: &[&[u8]]) -> Fallible<Self> {
+    fn parse_selection(osc: &[&[u8]]) -> anyhow::Result<Self> {
         if osc.len() == 2 {
             Selection::try_parse(osc[1]).map(OperatingSystemCommand::ClearSelection)
         } else if osc.len() == 3 && osc[2] == b"?" {
@@ -160,7 +160,7 @@ impl OperatingSystemCommand {
         }
     }
 
-    fn parse_change_color_number(osc: &[&[u8]]) -> Fallible<Self> {
+    fn parse_change_color_number(osc: &[&[u8]]) -> anyhow::Result<Self> {
         let mut pairs = vec![];
         let mut iter = osc.iter();
         iter.next();
@@ -173,7 +173,7 @@ impl OperatingSystemCommand {
             } else {
                 ColorOrQuery::Color(
                     RgbColor::from_named_or_rgb_string(spec)
-                        .ok_or_else(|| err_msg("invalid color spec"))?,
+                        .ok_or_else(|| anyhow::anyhow!("invalid color spec"))?,
                 )
             };
 
@@ -183,9 +183,9 @@ impl OperatingSystemCommand {
         Ok(OperatingSystemCommand::ChangeColorNumber(pairs))
     }
 
-    fn parse_change_dynamic_color_number(idx: u8, osc: &[&[u8]]) -> Fallible<Self> {
+    fn parse_change_dynamic_color_number(idx: u8, osc: &[&[u8]]) -> anyhow::Result<Self> {
         let which_color: DynamicColorNumber = num::FromPrimitive::from_u8(idx)
-            .ok_or_else(|| err_msg("osc code is not a valid DynamicColorNumber!?"))?;
+            .ok_or_else(|| anyhow::anyhow!("osc code is not a valid DynamicColorNumber!?"))?;
         let mut colors = vec![];
         for spec in osc.iter().skip(1) {
             if spec == b"?" {
@@ -194,7 +194,7 @@ impl OperatingSystemCommand {
                 let spec = str::from_utf8(spec)?;
                 colors.push(ColorOrQuery::Color(
                     RgbColor::from_named_or_rgb_string(spec)
-                        .ok_or_else(|| err_msg("invalid color spec"))?,
+                        .ok_or_else(|| anyhow::anyhow!("invalid color spec"))?,
                 ));
             }
         }
@@ -202,12 +202,12 @@ impl OperatingSystemCommand {
         Ok(OperatingSystemCommand::ChangeDynamicColors(which_color, colors))
     }
 
-    fn internal_parse(osc: &[&[u8]]) -> Fallible<Self> {
-        ensure!(!osc.is_empty(), "no params");
+    fn internal_parse(osc: &[&[u8]]) -> anyhow::Result<Self> {
+        anyhow::ensure!(!osc.is_empty(), "no params");
         let p1str = String::from_utf8_lossy(osc[0]);
         let code: i64 = p1str.parse()?;
         let osc_code: OperatingSystemCommandCode =
-            num::FromPrimitive::from_i64(code).ok_or_else(|| err_msg("unknown code"))?;
+            num::FromPrimitive::from_i64(code).ok_or_else(|| anyhow::anyhow!("unknown code"))?;
 
         macro_rules! single_string {
             ($variant:ident) => {{

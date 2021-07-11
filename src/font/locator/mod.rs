@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::config::FontAttributes;
-use failure::{format_err, Error, Fallible};
+use anyhow::{anyhow, Error};
 use serde_derive::*;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -16,7 +16,8 @@ pub enum FontDataHandle {
 }
 
 pub trait FontLocator {
-    fn load_fonts(&self, fonts_selection: &[FontAttributes]) -> Fallible<Vec<FontDataHandle>>;
+    fn load_fonts(&self, fonts_selection: &[FontAttributes])
+        -> anyhow::Result<Vec<FontDataHandle>>;
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -73,7 +74,7 @@ impl std::str::FromStr for FontLocatorSelection {
         match s.to_lowercase().as_ref() {
             "fontconfig" => Ok(Self::FontConfig),
             "fontloader" => Ok(Self::FontLoader),
-            _ => Err(format_err!(
+            _ => Err(anyhow!(
                 "{} is not a valid FontLocatorSelection variant, possible values are {:?}",
                 s,
                 Self::variants()

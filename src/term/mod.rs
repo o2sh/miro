@@ -1,6 +1,5 @@
 use serde_derive::*;
 
-use failure::Error;
 use std::ops::{Deref, DerefMut, Range};
 use std::str;
 

@@ -1,6 +1,5 @@
 use crate::window::bitmaps::TextureRect;
 use crate::window::Color;
-use failure::{format_err, Fallible};
 use glium::VertexBuffer;
 use std::cell::RefMut;
 
@@ -64,16 +63,16 @@ pub struct MappedQuads<'a> {
 }
 
 impl<'a> MappedQuads<'a> {
-    pub fn cell<'b>(&'b mut self, x: usize, y: usize) -> Fallible<Quad<'b>> {
+    pub fn cell<'b>(&'b mut self, x: usize, y: usize) -> anyhow::Result<Quad<'b>> {
         if x >= self.quads.cols {
-            format_err!("column {} is outside of the vertex buffer range", x);
+            anyhow::bail!("column {} is outside of the vertex buffer range", x);
         }
 
         let start = self
             .quads
             .row_starts
             .get(y)
-            .ok_or_else(|| format_err!("line {} is outside the vertex buffer range", y))?
+            .ok_or_else(|| anyhow::anyhow!("line {} is outside the vertex buffer range", y))?
             + x * VERTICES_PER_CELL;
 
         Ok(Quad { vert: &mut self.mapping[start..start + VERTICES_PER_CELL] })
