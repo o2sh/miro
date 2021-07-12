@@ -1,5 +1,4 @@
 use super::*;
-use log::debug;
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
@@ -121,8 +120,6 @@ impl Screen {
         let phys_scroll = self.phys_range(scroll_region);
         let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);
 
-        debug!("scroll_up {:?} num_rows={} phys_scroll={:?}", scroll_region, num_rows, phys_scroll);
-
         for y in phys_scroll.clone() {
             self.line_mut(y).set_dirty();
         }
@@ -172,7 +169,6 @@ impl Screen {
     }
 
     pub fn scroll_down(&mut self, scroll_region: &Range<VisibleRowIndex>, num_rows: usize) {
-        debug!("scroll_down {:?} {}", scroll_region, num_rows);
         let phys_scroll = self.phys_range(scroll_region);
         let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);
 

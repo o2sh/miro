@@ -4,7 +4,6 @@ use crate::font::locator::FontDataHandle;
 use crate::font::shaper::{FallbackIdx, FontMetrics, FontShaper, GlyphInfo};
 use crate::window::PixelLength;
 use anyhow::bail;
-use log::{debug, error};
 use std::cell::RefCell;
 
 fn make_glyphinfo(
@@ -128,8 +127,7 @@ impl HarfbuzzShaper {
                 let substr = &s[start_pos..pos];
                 let mut shape = match self.do_shape(font_idx + 1, substr, font_size, dpi) {
                     Ok(shape) => Ok(shape),
-                    Err(e) => {
-                        error!("{:?} for {:?}", e, substr);
+                    Err(_) => {
                         if font_idx == 0 && s == "?" {
                             bail!("unable to find any usable glyphs for `?` in font_idx 0");
                         }
@@ -157,13 +155,10 @@ impl HarfbuzzShaper {
 
         if let Some(start_pos) = first_fallback_pos {
             let substr = &s[start_pos..];
-            if false {
-                debug!("at end {:?}-{:?} needs fallback {}", start_pos, s.len() - 1, substr,);
-            }
+            if false {}
             let mut shape = match self.do_shape(font_idx + 1, substr, font_size, dpi) {
                 Ok(shape) => Ok(shape),
-                Err(e) => {
-                    error!("{:?} for {:?}", e, substr);
+                Err(_) => {
                     if font_idx == 0 && s == "?" {
                         bail!("unable to find any usable glyphs for `?` in font_idx 0");
                     }

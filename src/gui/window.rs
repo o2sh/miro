@@ -71,12 +71,7 @@ impl<'a> term::TerminalHost for Host<'a> {
 
     fn click_link(&mut self, link: &Arc<term::cell::Hyperlink>) {
         let link = link.clone();
-        promise::spawn(async move {
-            log::error!("clicking {}", link.uri());
-            if let Err(err) = open::that(link.uri()) {
-                log::error!("failed to open {}: {:?}", link.uri(), err);
-            }
-        });
+        promise::spawn(async move { if let Err(_) = open::that(link.uri()) {} });
     }
 }
 
@@ -185,7 +180,6 @@ impl WindowCallbacks for TermWindow {
                 if let Some(focused) = self.focused.as_ref() {
                     let now = Instant::now();
                     if now - *focused <= Duration::from_millis(200) {
-                        log::trace!("discard mouse click because it focused the window");
                         return;
                     }
                 }
@@ -334,20 +328,18 @@ impl WindowCallbacks for TermWindow {
         let tab = mux.get_tab();
 
         self.update_text_cursor(&tab);
+        self.update_title();
+
         if let Err(err) = self.paint_screen(&tab, frame) {
             if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
-                log::error!("out of texture space, allocating {}", size);
-                if let Err(err) = self.recreate_texture_atlas(Some(size)) {
-                    log::error!("failed recreate atlas with size {}: {}", size, err);
+                if let Err(_) = self.recreate_texture_atlas(Some(size)) {
                     self.recreate_texture_atlas(None)
                         .expect("OutOfTextureSpace and failed to recreate atlas");
                 }
                 tab.renderer().make_all_lines_dirty();
-                // Recursively initiate a new paint
                 return self.paint(frame);
             }
         }
-        self.update_title();
     }
 }
 
@@ -553,9 +545,8 @@ impl TermWindow {
         tab.resize(size).ok();
         self.update_title();
 
-        if let Some(cell_dims) = scale_changed_cells {
+        if let Some(_) = scale_changed_cells {
             if let Some(window) = self.window.as_ref() {
-                log::error!("scale changed so resize to {:?} {:?}", cell_dims, dims);
                 window.set_inner_size(dims.pixel_width, dims.pixel_height);
             }
         }

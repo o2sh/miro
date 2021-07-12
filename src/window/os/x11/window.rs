@@ -134,7 +134,6 @@ impl WindowInner {
                     self.callbacks.key_event(&key, &Window::from_id(self.window_id));
                 }
             }
-
             xcb::MOTION_NOTIFY => {
                 let motion: &xcb::MotionNotifyEvent = unsafe { xcb::cast_event(event) };
 
@@ -291,14 +290,10 @@ impl Window {
         );
 
         let window_handle = Window::from_id(window_id);
-
         window.lock().unwrap().enable_opengl()?;
-
         conn.windows.borrow_mut().insert(window_id, window.clone());
-
         window_handle.set_title(name);
         window_handle.show();
-
         Ok(window_handle)
     }
 }

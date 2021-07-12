@@ -36,8 +36,6 @@ impl Drop for Face {
 
 impl Face {
     pub fn set_font_size(&mut self, size: f64, dpi: u32) -> anyhow::Result<(f64, f64)> {
-        log::debug!("set_char_size {} dpi={}", size, dpi);
-
         let size = (size * 64.0) as FT_F26Dot6;
 
         let (cell_width, cell_height) = match self.set_char_size(size, size, dpi, dpi) {

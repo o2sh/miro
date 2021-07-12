@@ -10,7 +10,6 @@ use crate::core::escape::{
 use crate::core::hyperlink::Rule as HyperlinkRule;
 use crate::term::color::ColorPalette;
 use anyhow::bail;
-use log::{debug, error};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -414,7 +413,6 @@ impl TerminalState {
 
         self.dirty_selection_lines();
         let text = self.get_selection_text();
-        debug!("finish 2click selection {:?} '{}'", self.selection_range, text);
         host.get_clipboard()?.set_contents(Some(text))
     }
 
@@ -432,7 +430,6 @@ impl TerminalState {
         });
         self.dirty_selection_lines();
         let text = self.get_selection_text();
-        debug!("finish 3click selection {:?} '{}'", self.selection_range, text);
         host.get_clipboard()?.set_contents(Some(text))
     }
 
@@ -473,7 +470,6 @@ impl TerminalState {
         if let Some(&LastMouseClick { streak: 1, .. }) = self.last_mouse_click.as_ref() {
             let text = self.get_selection_text();
             if !text.is_empty() {
-                debug!("finish drag selection {:?} '{}'", self.selection_range, text);
                 host.get_clipboard()?.set_contents(Some(text))?;
             } else if let Some(link) = self.current_highlight() {
                 host.click_link(&link);
@@ -1045,7 +1041,7 @@ impl TerminalState {
 
     fn perform_device(&mut self, dev: Device, host: &mut dyn TerminalHost) {
         match dev {
-            Device::DeviceAttributes(a) => error!("unhandled: {:?}", a),
+            Device::DeviceAttributes(_) => {}
             Device::SoftReset => {
                 self.pen = CellAttributes::default();
             }
@@ -1171,32 +1167,23 @@ impl TerminalState {
                 }
             }
             Mode::SaveDecPrivateMode(DecPrivateMode::Code(_))
-            | Mode::RestoreDecPrivateMode(DecPrivateMode::Code(_)) => {
-                error!("save/restore dec mode unimplemented")
-            }
+            | Mode::RestoreDecPrivateMode(DecPrivateMode::Code(_)) => {}
 
-            Mode::SetDecPrivateMode(DecPrivateMode::Unspecified(n))
-            | Mode::ResetDecPrivateMode(DecPrivateMode::Unspecified(n))
-            | Mode::SaveDecPrivateMode(DecPrivateMode::Unspecified(n))
-            | Mode::RestoreDecPrivateMode(DecPrivateMode::Unspecified(n)) => {
-                error!("unhandled DecPrivateMode {}", n);
-            }
+            Mode::SetDecPrivateMode(DecPrivateMode::Unspecified(_))
+            | Mode::ResetDecPrivateMode(DecPrivateMode::Unspecified(_))
+            | Mode::SaveDecPrivateMode(DecPrivateMode::Unspecified(_))
+            | Mode::RestoreDecPrivateMode(DecPrivateMode::Unspecified(_)) => {}
 
-            Mode::SetMode(TerminalMode::Unspecified(n))
-            | Mode::ResetMode(TerminalMode::Unspecified(n)) => {
-                error!("unhandled TerminalMode {}", n);
-            }
+            Mode::SetMode(TerminalMode::Unspecified(_))
+            | Mode::ResetMode(TerminalMode::Unspecified(_)) => {}
 
-            Mode::SetMode(m) | Mode::ResetMode(m) => {
-                error!("unhandled TerminalMode {:?}", m);
-            }
+            Mode::SetMode(_) | Mode::ResetMode(_) => {}
         }
     }
 
     fn checksum_rectangle(&mut self, left: u32, top: u32, right: u32, bottom: u32) -> u16 {
         let screen = self.screen_mut();
         let mut checksum = 0;
-        debug!("checksum left={} top={} right={} bottom={}", left, top, right, bottom);
         for y in top..=bottom {
             let line_idx = screen.phys_row(VisibleRowIndex::from(y));
             let line = screen.line_mut(line_idx);
@@ -1206,8 +1193,6 @@ impl TerminalState {
                 }
 
                 let ch = cell.str().chars().nth(0).unwrap() as u32;
-                debug!("y={} col={} ch={:x} cell={:?}", y, col, ch, cell);
-
                 checksum += u16::from(ch as u8);
             }
         }
@@ -1240,7 +1225,7 @@ impl TerminalState {
             | Window::PushIconAndWindowTitle
             | Window::PushIconTitle
             | Window::PushWindowTitle => {}
-            _ => error!("unhandled Window CSI {:?}", window),
+            _ => {}
         }
     }
 
@@ -1260,7 +1245,6 @@ impl TerminalState {
             }
             EraseInDisplay::EraseDisplay => 0..rows,
             EraseInDisplay::EraseScrollback => {
-                error!("TODO: ed: no support for xterm Erase Saved Lines yet");
                 return;
             }
         };
@@ -1450,14 +1434,13 @@ impl TerminalState {
             }
             Cursor::SaveCursor => self.save_cursor(),
             Cursor::RestoreCursor => self.restore_cursor(),
-            Cursor::CursorStyle(style) => error!("unhandled: CursorStyle {:?}", style),
+            Cursor::CursorStyle(_) => {}
         }
     }
 
     fn save_cursor(&mut self) {
         let saved =
             SavedCursor { position: self.cursor, insert: self.insert, wrap_next: self.wrap_next };
-        debug!("saving cursor {:?} is_alt={}", saved, self.screen.is_alt_screen_active());
         *self.screen.saved_cursor() = Some(saved);
     }
     fn restore_cursor(&mut self) {
@@ -1466,7 +1449,6 @@ impl TerminalState {
             insert: false,
             wrap_next: false,
         });
-        debug!("restore cursor {:?} is_alt={}", saved, self.screen.is_alt_screen_active());
         let x = saved.position.x;
         let y = saved.position.y;
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Absolute(y));
@@ -1475,7 +1457,6 @@ impl TerminalState {
     }
 
     fn perform_csi_sgr(&mut self, sgr: Sgr) {
-        debug!("{:?}", sgr);
         match sgr {
             Sgr::Reset => {
                 let link = self.pen.hyperlink.take();
@@ -1617,11 +1598,10 @@ impl<'a> Performer<'a> {
     }
 
     pub fn perform(&mut self, action: Action) {
-        debug!("perform {:?}", action);
         match action {
             Action::Print(c) => self.print(c),
             Action::Control(code) => self.control(code),
-            Action::DeviceControl(ctrl) => error!("Unhandled {:?}", ctrl),
+            Action::DeviceControl(_) => {}
             Action::OperatingSystemCommand(osc) => self.osc_dispatch(*osc),
             Action::Esc(esc) => self.esc_dispatch(esc),
             Action::CSI(csi) => self.csi_dispatch(csi),
@@ -1645,8 +1625,8 @@ impl<'a> Performer<'a> {
                 self.set_cursor_pos(&Position::Relative(-1), &Position::Relative(0));
             }
             ControlCode::HorizontalTab => self.c0_horizontal_tab(),
-            ControlCode::Bell => error!("Ding! (this is the bell)"),
-            _ => error!("unhandled ControlCode {:?}", control),
+            ControlCode::Bell => {}
+            _ => {}
         }
     }
 
@@ -1658,11 +1638,9 @@ impl<'a> Performer<'a> {
             CSI::Edit(edit) => self.state.perform_csi_edit(edit),
             CSI::Mode(mode) => self.state.perform_csi_mode(mode),
             CSI::Device(dev) => self.state.perform_device(*dev, self.host),
-            CSI::Mouse(mouse) => error!("mouse report sent by app? {:?}", mouse),
+            CSI::Mouse(_) => {}
             CSI::Window(window) => self.state.perform_csi_window(window, self.host),
-            CSI::Unspecified(unspec) => {
-                error!("unknown unspecified CSI: {:?}", format!("{}", unspec))
-            }
+            CSI::Unspecified(_) => {}
         };
     }
 
@@ -1671,11 +1649,9 @@ impl<'a> Performer<'a> {
         match esc {
             Esc::Code(EscCode::StringTerminator) => {}
             Esc::Code(EscCode::DecApplicationKeyPad) => {
-                debug!("DECKPAM on");
                 self.application_keypad = true;
             }
             Esc::Code(EscCode::DecNormalKeyPad) => {
-                debug!("DECKPAM off");
                 self.application_keypad = false;
             }
             Esc::Code(EscCode::ReverseIndex) => self.c1_reverse_index(),
@@ -1690,7 +1666,7 @@ impl<'a> Performer<'a> {
             }
             Esc::Code(EscCode::DecSaveCursorPosition) => self.save_cursor(),
             Esc::Code(EscCode::DecRestoreCursorPosition) => self.restore_cursor(),
-            _ => error!("ESC: unhandled {:?}", esc),
+            _ => {}
         }
     }
 
@@ -1712,7 +1688,6 @@ impl<'a> Performer<'a> {
                 for item in unspec {
                     write!(&mut output, " {}", String::from_utf8_lossy(&item)).ok();
                 }
-                error!("{}", output);
             }
 
             OperatingSystemCommand::ClearSelection(_) => {
@@ -1725,17 +1700,12 @@ impl<'a> Performer<'a> {
                 if let Ok(clip) = self.host.get_clipboard() {
                     match clip.set_contents(Some(selection_data)) {
                         Ok(_) => (),
-                        Err(err) => {
-                            error!("failed to set clipboard in response to OSC 52: {:?}", err)
-                        }
+                        Err(_) => {}
                     }
                 }
             }
-            OperatingSystemCommand::SystemNotification(message) => {
-                error!("Application sends SystemNotification: {}", message);
-            }
+            OperatingSystemCommand::SystemNotification(_) => {}
             OperatingSystemCommand::ChangeColorNumber(specs) => {
-                error!("ChangeColorNumber: {:?}", specs);
                 for pair in specs {
                     match pair.color {
                         ColorOrQuery::Query => {
@@ -1756,7 +1726,6 @@ impl<'a> Performer<'a> {
                 self.make_all_lines_dirty();
             }
             OperatingSystemCommand::ChangeDynamicColors(first_color, colors) => {
-                error!("ChangeDynamicColors: {:?} {:?}", first_color, colors);
                 use crate::core::escape::osc::DynamicColorNumber;
                 let mut idx: u8 = first_color as u8;
                 for color in colors {

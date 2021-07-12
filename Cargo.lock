@@ -822,7 +822,6 @@ dependencies = [
  "libc",
  "libloading",
  "line_drawing",
- "log",
  "mio",
  "num",
  "num-derive",

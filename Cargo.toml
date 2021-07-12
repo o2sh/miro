@@ -29,7 +29,6 @@ image = "0.23.14"
 lazy_static = "1.4.0"
 libc = "0.2.91"
 line_drawing = "0.8.0"
-log = "0.4.14"
 num = "0.4.0"
 num-derive = {version = "0.3.3", features = ["full-syntax"]}
 num-traits = "0.2.14"

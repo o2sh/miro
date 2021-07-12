@@ -1,9 +1,7 @@
 use serde_derive::*;
 
-pub mod change;
 pub mod line;
 
-pub use self::change::Change;
 pub use self::line::Line;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

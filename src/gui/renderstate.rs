@@ -63,7 +63,6 @@ impl RenderState {
                 uses_point_size: false,
                 geometry_shader: None,
             };
-            log::error!("compiling a prog with version {}", version);
             match glium::Program::new(&context, glyph_source) {
                 Ok(prog) => {
                     glyph_program = Some(prog);
@@ -116,6 +115,7 @@ impl RenderState {
         self.quads = quads;
         self.header.advise_of_window_size_change(metrics, pixel_width, pixel_height)
     }
+
     pub fn recreate_texture_atlas(
         &mut self,
         fonts: &Rc<FontConfiguration>,
@@ -128,6 +128,7 @@ impl RenderState {
         *self.glyph_cache.borrow_mut() = glyph_cache;
         Ok(())
     }
+
     fn compute_glyph_vertices(
         context: &Rc<GliumContext>,
         metrics: &RenderMetrics,

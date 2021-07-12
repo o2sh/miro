@@ -21,7 +21,6 @@ impl RateLimiter {
                 Ok(_) => return,
                 Err(NegativeMultiDecision::BatchNonConforming(_, over)) => {
                     let duration = over.wait_time_from(std::time::Instant::now());
-                    log::trace!("RateLimiter: sleep for {:?}", duration);
                     std::thread::sleep(duration);
                 }
                 Err(err) => panic!("{}", err),

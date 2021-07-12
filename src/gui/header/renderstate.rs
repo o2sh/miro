@@ -95,7 +95,6 @@ impl HeaderRenderState {
                 uses_point_size: false,
                 geometry_shader: None,
             };
-            log::error!("compiling a prog with version {}", version);
             match glium::Program::new(&context, rect_source) {
                 Ok(prog) => {
                     rect_program = Some(prog);
@@ -133,7 +132,6 @@ impl HeaderRenderState {
                 uses_point_size: false,
                 geometry_shader: None,
             };
-            log::error!("compiling a prog with version {}", version);
             match glium::Program::new(&context, sprite_source) {
                 Ok(prog) => {
                     sprite_program = Some(prog);

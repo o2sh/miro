@@ -7,7 +7,6 @@ use crate::pty::{unix, PtySize, PtySystem};
 use crate::term::clipboard::Clipboard;
 use crate::term::TerminalHost;
 use anyhow::bail;
-use log::error;
 use std::cell::{Ref, RefCell};
 use std::io::Read;
 use std::process::Command;
@@ -62,7 +61,7 @@ impl<'a> TerminalHost for Host<'a> {
     fn click_link(&mut self, link: &Arc<Hyperlink>) {
         match open::that(link.uri()) {
             Ok(_) => {}
-            Err(err) => error!("failed to open {}: {:?}", link.uri(), err),
+            Err(_) => {}
         }
     }
 
