@@ -16,6 +16,7 @@ pub(crate) struct WindowInner {
     callbacks: Box<dyn WindowCallbacks>,
     width: u16,
     height: u16,
+    paint_all: bool,
     cursor: Option<MouseCursor>,
     gl_state: Option<Rc<glium::backend::Context>>,
 }
@@ -57,7 +58,13 @@ impl WindowInner {
                 (u32::from(self.width), u32::from(self.height)),
             );
 
-            self.callbacks.paint(&mut frame);
+            if self.paint_all {
+                self.paint_all = false;
+                self.callbacks.paint(&mut frame);
+            } else {
+                self.callbacks.paint_with_header(&mut frame);
+            }
+
             frame.finish()?;
             return Ok(());
         }
@@ -274,6 +281,7 @@ impl Window {
                 callbacks,
                 width: width.try_into()?,
                 height: height.try_into()?,
+                paint_all: true,
                 cursor: None,
                 gl_state: None,
             }))
@@ -320,6 +328,10 @@ impl WindowOpsMut for WindowInner {
         );
     }
 
+    fn invalidate(&mut self) {
+        self.paint_all = true;
+    }
+
     fn set_title(&mut self, title: &str) {
         xcb_util::icccm::set_wm_name(self.conn.conn(), self.window_id, title);
     }
@@ -347,6 +359,10 @@ impl WindowOps for Window {
 
     fn set_inner_size(&self, width: usize, height: usize) {
         Connection::with_window_inner(self.0, move |inner| inner.set_inner_size(width, height));
+    }
+
+    fn invalidate(&self) {
+        Connection::with_window_inner(self.0, |inner| inner.invalidate());
     }
 
     fn apply<F: Send + 'static + Fn(&mut dyn Any, &dyn WindowOps)>(&self, func: F)

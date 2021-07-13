@@ -52,6 +52,7 @@ pub trait WindowCallbacks: Any {
     fn destroy(&mut self) {}
     fn resize(&mut self, dimensions: Dimensions) {}
     fn paint(&mut self, frame: &mut glium::Frame) {}
+    fn paint_with_header(&mut self, frame: &mut glium::Frame) {}
     fn key_event(&mut self, key: &KeyEvent, context: &dyn WindowOps) -> bool {
         false
     }
@@ -74,6 +75,7 @@ pub trait WindowOps {
     fn close(&self);
     fn set_cursor(&self, cursor: Option<MouseCursor>);
     fn set_title(&self, title: &str);
+    fn invalidate(&self);
     fn set_inner_size(&self, width: usize, height: usize);
     fn set_text_cursor_position(&self, _cursor: Rect) {}
     fn apply<F: Send + 'static + Fn(&mut dyn Any, &dyn WindowOps)>(&self, func: F)
@@ -87,6 +89,7 @@ pub trait WindowOpsMut {
     fn close(&mut self);
     fn set_cursor(&mut self, cursor: Option<MouseCursor>);
     fn set_title(&mut self, title: &str);
+    fn invalidate(&mut self);
     fn set_inner_size(&self, width: usize, height: usize);
     fn set_text_cursor_position(&mut self, _cursor: Rect) {}
 }
