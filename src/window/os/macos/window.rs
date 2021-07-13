@@ -5,7 +5,7 @@ use crate::window::{
     Connection, Dimensions, KeyCode, KeyEvent, Modifiers, MouseButtons, MouseCursor, MouseEvent,
     MouseEventKind, MousePress, Point, Rect, Size, WindowCallbacks, WindowOps, WindowOpsMut,
 };
-use anyhow::{bail, ensure};
+use anyhow::ensure;
 use cocoa::appkit::{
     NSApplicationActivateIgnoringOtherApps, NSBackingStoreBuffered, NSEvent, NSEventModifierFlags,
     NSRunningApplication, NSView, NSViewHeightSizable, NSViewWidthSizable, NSWindow,
@@ -364,8 +364,6 @@ impl WindowOps for Window {
 
             if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
                 func(window_view.inner.borrow_mut().callbacks.as_any(), &window);
-            } else {
-                bail!("apply: window is invalid");
             }
         });
     }
