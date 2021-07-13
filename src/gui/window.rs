@@ -6,32 +6,23 @@ use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::core::surface::CursorShape;
 use crate::font::FontConfiguration;
-use crate::gui::selection::{Selection, SelectionCoordinate, SelectionMode, SelectionRange};
-use crate::gui::RenderableDimensions;
 use crate::mux::tab::Tab;
 use crate::mux::Mux;
 use crate::pty::PtySize;
 use crate::term;
-use crate::term::cell::Hyperlink;
 use crate::term::clipboard::{Clipboard, SystemClipboard};
 use crate::term::color::ColorPalette;
-use crate::term::input::LastMouseClick;
-use crate::term::input::MouseButton as TMB;
-use crate::term::input::MouseEventKind as TMEK;
-use crate::term::keyassignment::{InputMap, KeyAssignment, MouseEventTrigger};
-use crate::term::StableRowIndex;
+use crate::term::keyassignment::{KeyAssignment, KeyMap};
 use crate::term::Terminal;
 use crate::term::{CursorPosition, Line};
 use crate::window;
 use crate::window::bitmaps::atlas::OutOfTextureSpace;
 use crate::window::bitmaps::atlas::SpriteSlice;
 use crate::window::bitmaps::Texture2d;
-use crate::window::MouseButtons as WMB;
-use crate::window::MouseEventKind as WMEK;
 use crate::window::*;
 use glium::{uniform, Surface};
 use std::any::Any;
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::Ref;
 use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -45,53 +36,18 @@ struct RowsAndCols {
     cols: usize,
 }
 
-#[derive(Clone)]
-struct PrevCursorPos {
-    pos: CursorPosition,
-    when: Instant,
-}
-
-#[derive(Default, Clone)]
-pub struct TabState {
-    viewport: Option<StableRowIndex>,
-    selection: Selection,
-}
-
 pub struct TermWindow {
-    pub window: Option<Window>,
-    focused: Option<Instant>,
-    last_mouse_terminal_coords: (usize, StableRowIndex),
+    window: Option<Window>,
     fonts: Rc<FontConfiguration>,
     dimensions: Dimensions,
-    terminal_size: PtySize,
     render_metrics: RenderMetrics,
     render_state: Option<RenderState>,
-    input_map: InputMap,
-    show_tab_bar: bool,
-    last_mouse_coords: (usize, i64),
-    frame_count: u32,
     clipboard: Arc<dyn Clipboard>,
+    keys: KeyMap,
+    frame_count: u32,
+    terminal_size: PtySize,
     header: Header,
-    tab_state: RefCell<TabState>,
-    current_mouse_button: Option<MousePress>,
-    last_mouse_click: Option<LastMouseClick>,
-    current_highlight: Option<Arc<Hyperlink>>,
-    last_blink_paint: Instant,
-}
-
-fn mouse_press_to_tmb(press: &MousePress) -> TMB {
-    match press {
-        MousePress::Left => TMB::Left,
-        MousePress::Right => TMB::Right,
-        MousePress::Middle => TMB::Middle,
-    }
-}
-
-#[derive(Debug)]
-enum Key {
-    Code(crate::core::input::KeyCode),
-    Composed(String),
-    None,
+    focused: Option<Instant>,
 }
 
 struct Host<'a> {
@@ -146,6 +102,13 @@ impl WindowCallbacks for TermWindow {
         Ok(())
     }
 
+    fn focus_change(&mut self, focused: bool) {
+        self.focused = if focused { Some(Instant::now()) } else { None };
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+        tab.renderer().make_all_lines_dirty();
+    }
+
     fn can_close(&self) -> bool {
         let mux = Mux::get().unwrap();
         mux.close();
@@ -156,75 +119,85 @@ impl WindowCallbacks for TermWindow {
         self
     }
 
-    fn focus_change(&mut self, focused: bool) {
-        self.focused = if focused { Some(Instant::now()) } else { None };
-
-        if self.focused.is_none() {
-            self.last_mouse_click = None;
-            self.current_mouse_button = None;
-        }
-
-        // force cursor to be repainted
-        self.window.as_ref().unwrap().invalidate();
-    }
-
     fn mouse_event(&mut self, event: &MouseEvent, context: &dyn WindowOps) {
+        use term::input::MouseButton as TMB;
+        use term::input::MouseEventKind as TMEK;
+        use window::MouseButtons as WMB;
+        use window::MouseEventKind as WMEK;
+
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
 
-        let x = (event.coords.x as isize / self.render_metrics.cell_size.width) as usize;
-        let y = (event.coords.y as isize / self.render_metrics.cell_size.height) as i64;
+        let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
+        let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
 
-        let first_line_offset = if self.show_tab_bar { 1 } else { 0 };
-        self.last_mouse_coords = (x, y);
+        let adjusted_y = y.saturating_sub(self.header.offset as i64);
 
-        // y position relative to top of viewport (not including tab bar)
-        let term_y = y.saturating_sub(first_line_offset);
+        tab.mouse_event(
+            term::MouseEvent {
+                kind: match event.kind {
+                    WMEK::Move => TMEK::Move,
+                    WMEK::VertWheel(_) | WMEK::HorzWheel(_) | WMEK::Press(_) => TMEK::Press,
+                    WMEK::Release(_) => TMEK::Release,
+                },
+                button: match event.kind {
+                    WMEK::Release(ref press) | WMEK::Press(ref press) => match press {
+                        MousePress::Left => TMB::Left,
+                        MousePress::Middle => TMB::Middle,
+                        MousePress::Right => TMB::Right,
+                    },
+                    WMEK::Move => {
+                        if event.mouse_buttons == WMB::LEFT {
+                            TMB::Left
+                        } else if event.mouse_buttons == WMB::RIGHT {
+                            TMB::Right
+                        } else if event.mouse_buttons == WMB::MIDDLE {
+                            TMB::Middle
+                        } else {
+                            TMB::None
+                        }
+                    }
+                    WMEK::VertWheel(amount) => {
+                        if amount > 0 {
+                            TMB::WheelUp(amount as usize)
+                        } else {
+                            TMB::WheelDown((-amount) as usize)
+                        }
+                    }
+                    WMEK::HorzWheel(_) => TMB::None,
+                },
+                x,
+                y: adjusted_y,
+                modifiers: window_mods_to_termwiz_mods(event.modifiers),
+            },
+            &mut Host { writer: &mut *tab.writer(), context, clipboard: &self.clipboard },
+        )
+        .ok();
 
         match event.kind {
-            WMEK::Release(_) => {
-                self.current_mouse_button = None;
-            }
-
-            WMEK::Press(ref press) => {
+            WMEK::Move => {}
+            WMEK::Press(_) => {
                 if let Some(focused) = self.focused.as_ref() {
-                    if focused.elapsed() <= Duration::from_millis(200) {
+                    let now = Instant::now();
+                    if now - *focused <= Duration::from_millis(200) {
                         return;
                     }
                 }
-
-                // Perform click counting
-                let button = mouse_press_to_tmb(press);
-
-                let click = match self.last_mouse_click.take() {
-                    None => LastMouseClick::new(button),
-                    Some(click) => click.add(button),
-                };
-                self.last_mouse_click = Some(click);
-                self.current_mouse_button = Some(press.clone());
             }
-
-            WMEK::VertWheel(amount) => {
-                // adjust viewport
-                let dims = tab.renderer().get_dimensions();
-                let position =
-                    self.get_viewport().unwrap_or(dims.physical_top).saturating_sub(amount.into());
-                self.set_viewport(Some(position), dims);
-                context.invalidate();
-                return;
-            }
-
-            WMEK::Move => {}
             _ => {}
         }
 
-        self.mouse_event_terminal(tab, x, term_y, event, context);
+        context.set_cursor(Some(if y < self.header.offset as i64 {
+            MouseCursor::Arrow
+        } else if tab.renderer().current_highlight().is_some() {
+            MouseCursor::Hand
+        } else {
+            MouseCursor::Text
+        }));
     }
 
     fn resize(&mut self, dimensions: Dimensions) {
         if dimensions.pixel_width == 0 || dimensions.pixel_height == 0 {
-            // on windows, this can happen when minimizing the window.
-            // NOP!
             return;
         }
         self.scaling_changed(dimensions, self.fonts.get_font_scale());
@@ -234,13 +207,88 @@ impl WindowCallbacks for TermWindow {
         if !key.key_is_down {
             return false;
         }
+
+        enum Key {
+            Code(crate::core::input::KeyCode),
+            Composed(String),
+            None,
+        }
+
+        fn win_key_code_to_termwiz_key_code(key: &window::KeyCode) -> Key {
+            use crate::core::input::KeyCode as KC;
+            use window::KeyCode as WK;
+
+            let code = match key {
+                WK::Char('\r') => KC::Enter,
+                WK::Char('\t') => KC::Tab,
+                WK::Char('\u{08}') => KC::Backspace,
+                WK::Char('\u{1b}') => KC::Escape,
+                WK::Char('\u{7f}') => KC::Delete,
+                WK::Char(c) => KC::Char(*c),
+                WK::Function(f) => KC::Function(*f),
+                WK::LeftArrow => KC::LeftArrow,
+                WK::RightArrow => KC::RightArrow,
+                WK::UpArrow => KC::UpArrow,
+                WK::DownArrow => KC::DownArrow,
+                WK::Home => KC::Home,
+                WK::End => KC::End,
+                WK::PageUp => KC::PageUp,
+                WK::PageDown => KC::PageDown,
+                WK::Insert => KC::Insert,
+                WK::Super => KC::Super,
+                WK::Clear => KC::Clear,
+                WK::Shift => KC::Shift,
+                WK::Control => KC::Control,
+                WK::Alt => KC::Alt,
+                WK::Pause => KC::Pause,
+                WK::CapsLock => KC::CapsLock,
+                WK::Print => KC::Print,
+                WK::Help => KC::Help,
+                WK::Multiply => KC::Multiply,
+                WK::Applications => KC::Applications,
+                WK::Add => KC::Add,
+                WK::Numpad(0) => KC::Numpad0,
+                WK::Numpad(1) => KC::Numpad1,
+                WK::Numpad(2) => KC::Numpad2,
+                WK::Numpad(3) => KC::Numpad3,
+                WK::Numpad(4) => KC::Numpad4,
+                WK::Numpad(5) => KC::Numpad5,
+                WK::Numpad(6) => KC::Numpad6,
+                WK::Numpad(7) => KC::Numpad7,
+                WK::Numpad(8) => KC::Numpad8,
+                WK::Numpad(9) => KC::Numpad9,
+                WK::Numpad(_) => return Key::None,
+                WK::Separator => KC::Separator,
+                WK::Subtract => KC::Subtract,
+                WK::Decimal => KC::Decimal,
+                WK::Divide => KC::Divide,
+                WK::NumLock => KC::NumLock,
+                WK::ScrollLock => KC::ScrollLock,
+                WK::BrowserBack => KC::BrowserBack,
+                WK::BrowserForward => KC::BrowserForward,
+                WK::BrowserRefresh => KC::BrowserRefresh,
+                WK::BrowserStop => KC::BrowserStop,
+                WK::BrowserFavorites => KC::BrowserFavorites,
+                WK::BrowserHome => KC::BrowserHome,
+                WK::VolumeMute => KC::VolumeMute,
+                WK::VolumeDown => KC::VolumeDown,
+                WK::VolumeUp => KC::VolumeUp,
+                WK::Cancel => KC::Cancel,
+                WK::Composed(ref s) => {
+                    return Key::Composed(s.to_owned());
+                }
+                WK::PrintScreen => KC::PrintScreen,
+            };
+            Key::Code(code)
+        }
+
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
         let modifiers = window_mods_to_termwiz_mods(key.modifiers);
 
         if let Some(key) = &key.raw_key {
-            if let Key::Code(key) = self.win_key_code_to_termwiz_key_code(&key) {
-                if let Some(assignment) = self.input_map.lookup_key(key, modifiers) {
+            if let Key::Code(key) = win_key_code_to_termwiz_key_code(&key) {
+                if let Some(assignment) = self.keys.lookup(key, modifiers) {
                     self.perform_key_assignment(&tab, &assignment).ok();
                     return true;
                 }
@@ -255,10 +303,10 @@ impl WindowCallbacks for TermWindow {
             }
         }
 
-        let key = self.win_key_code_to_termwiz_key_code(&key.key);
+        let key = win_key_code_to_termwiz_key_code(&key.key);
         match key {
             Key::Code(key) => {
-                if let Some(assignment) = self.input_map.lookup_key(key, modifiers) {
+                if let Some(assignment) = self.keys.lookup(key, modifiers) {
                     self.perform_key_assignment(&tab, &assignment).ok();
                     return true;
                 } else if tab.key_down(key, modifiers).is_ok() {
@@ -282,7 +330,7 @@ impl WindowCallbacks for TermWindow {
         self.update_text_cursor(&tab);
         self.update_title();
 
-        if let Err(err) = self.paint_tab(&tab, frame) {
+        if let Err(err) = self.paint_screen(&tab, frame) {
             if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
                 if let Err(_) = self.recreate_texture_atlas(Some(size)) {
                     self.recreate_texture_atlas(None)
@@ -314,11 +362,12 @@ impl TermWindow {
 
         let dimensions = Dimensions {
             pixel_width: (terminal_size.cols * render_metrics.cell_size.width as u16) as usize,
-            pixel_height: (terminal_size.rows as usize) * render_metrics.cell_size.height as usize,
+            pixel_height: (header.offset + terminal_size.rows as usize)
+                * render_metrics.cell_size.height as usize,
             dpi: 96,
         };
 
-        let window = Window::new_window(
+        Window::new_window(
             "miro",
             "miro",
             dimensions.pixel_width,
@@ -330,148 +379,15 @@ impl TermWindow {
                 render_metrics,
                 dimensions,
                 render_state: None,
-                input_map: InputMap::new(),
-                show_tab_bar: false,
+                clipboard: Arc::new(SystemClipboard::new()),
+                keys: KeyMap::new(),
                 header,
                 frame_count: 0,
-                clipboard: Arc::new(SystemClipboard::new()),
                 terminal_size,
-                last_mouse_terminal_coords: (0, 0),
-                tab_state: RefCell::new(TabState::default()),
-                current_mouse_button: None,
-                last_mouse_click: None,
-                current_highlight: None,
-                last_blink_paint: Instant::now(),
-                last_mouse_coords: (0, -1),
             }),
         )?;
 
-        Self::start_periodic_maintenance(window.clone());
-
         Ok(())
-    }
-
-    fn start_periodic_maintenance(window: Window) {
-        Connection::get().unwrap().schedule_timer(
-            std::time::Duration::from_millis(35),
-            move || {
-                window.apply(move |myself, window| {
-                    if let Some(myself) = myself.downcast_mut::<Self>() {
-                        myself.periodic_window_maintenance(window).unwrap();
-                    }
-                });
-            },
-        );
-    }
-
-    fn periodic_window_maintenance(&mut self, _window: &dyn WindowOps) -> anyhow::Result<()> {
-        let mux = Mux::get().unwrap();
-        let tab = mux.get_tab();
-
-        let mut needs_invalidate = false;
-
-        let render = tab.renderer();
-
-        // If the model is dirty, arrange to re-paint
-        let dims = render.get_dimensions();
-        let viewport = self.get_viewport().unwrap_or(dims.physical_top);
-        let visible_range = viewport..viewport + dims.viewport_rows as StableRowIndex;
-        let dirty = render.get_dirty_lines(visible_range);
-
-        if !dirty.is_empty() {
-            needs_invalidate = true;
-        }
-
-        if needs_invalidate {
-            self.window.as_ref().unwrap().invalidate();
-        }
-
-        Ok(())
-    }
-
-    fn win_key_code_to_termwiz_key_code(&self, key: &window::KeyCode) -> Key {
-        use crate::core::input::KeyCode as KC;
-        use window::KeyCode as WK;
-
-        let code = match key {
-            // TODO: consider eliminating these codes from termwiz::input::KeyCode
-            WK::Char('\r') => KC::Enter,
-            WK::Char('\t') => KC::Tab,
-            WK::Char('\u{08}') => KC::Backspace,
-            WK::Char('\u{7f}') => KC::Delete,
-            WK::Char('\u{1b}') => KC::Escape,
-
-            WK::Char(c) => KC::Char(*c),
-            WK::Composed(ref s) => {
-                let mut chars = s.chars();
-                if let Some(first_char) = chars.next() {
-                    if chars.next().is_none() {
-                        // Was just a single char after all
-                        return self.win_key_code_to_termwiz_key_code(&WK::Char(first_char));
-                    }
-                }
-                return Key::Composed(s.to_owned());
-            }
-            WK::Function(f) => KC::Function(*f),
-            WK::LeftArrow => KC::LeftArrow,
-            WK::RightArrow => KC::RightArrow,
-            WK::UpArrow => KC::UpArrow,
-            WK::DownArrow => KC::DownArrow,
-            WK::Home => KC::Home,
-            WK::End => KC::End,
-            WK::PageUp => KC::PageUp,
-            WK::PageDown => KC::PageDown,
-            WK::Insert => KC::Insert,
-            WK::Super => KC::Super,
-            WK::Cancel => KC::Cancel,
-            WK::Clear => KC::Clear,
-            WK::Shift => KC::Shift,
-            WK::Control => KC::Control,
-            WK::Alt => KC::Alt,
-            WK::Pause => KC::Pause,
-            WK::CapsLock => KC::CapsLock,
-            WK::Print => KC::Print,
-            WK::PrintScreen => KC::PrintScreen,
-            WK::Help => KC::Help,
-            WK::Multiply => KC::Multiply,
-            WK::Applications => KC::Applications,
-            WK::Add => KC::Add,
-            WK::Numpad(0) => KC::Numpad0,
-            WK::Numpad(1) => KC::Numpad1,
-            WK::Numpad(2) => KC::Numpad2,
-            WK::Numpad(3) => KC::Numpad3,
-            WK::Numpad(4) => KC::Numpad4,
-            WK::Numpad(5) => KC::Numpad5,
-            WK::Numpad(6) => KC::Numpad6,
-            WK::Numpad(7) => KC::Numpad7,
-            WK::Numpad(8) => KC::Numpad8,
-            WK::Numpad(9) => KC::Numpad9,
-            WK::Numpad(_) => return Key::None,
-            WK::Separator => KC::Separator,
-            WK::Subtract => KC::Subtract,
-            WK::Decimal => KC::Decimal,
-            WK::Divide => KC::Divide,
-            WK::NumLock => KC::NumLock,
-            WK::ScrollLock => KC::ScrollLock,
-            WK::BrowserBack => KC::BrowserBack,
-            WK::BrowserForward => KC::BrowserForward,
-            WK::BrowserRefresh => KC::BrowserRefresh,
-            WK::BrowserStop => KC::BrowserStop,
-            WK::BrowserFavorites => KC::BrowserFavorites,
-            WK::BrowserHome => KC::BrowserHome,
-            WK::VolumeMute => KC::VolumeMute,
-            WK::VolumeDown => KC::VolumeDown,
-            WK::VolumeUp => KC::VolumeUp,
-        };
-        Key::Code(code)
-    }
-
-    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> anyhow::Result<()> {
-        self.render_state.as_mut().unwrap().recreate_texture_atlas(
-            &self.fonts,
-            &self.render_metrics,
-            size,
-        )
     }
 
     fn update_title(&mut self) {
@@ -514,8 +430,6 @@ impl TermWindow {
             DecreaseFontSize => self.decrease_font_size(),
             IncreaseFontSize => self.increase_font_size(),
             ResetFontSize => self.reset_font_size(),
-            SelectTextAtMouseCursor(mode) => self.select_text_at_mouse_cursor(*mode, tab),
-            ExtendSelectionToMouseCursor(mode) => self.extend_selection_at_mouse_cursor(*mode, tab),
             Hide => {
                 if let Some(w) = self.window.as_ref() {
                     w.hide();
@@ -525,98 +439,6 @@ impl TermWindow {
         Ok(())
     }
 
-    fn apply_scale_change(&mut self, dimensions: &Dimensions, font_scale: f64) {
-        self.fonts.change_scaling(font_scale, dimensions.dpi as f64 / 96.);
-        self.render_metrics = RenderMetrics::new(&self.fonts);
-
-        self.recreate_texture_atlas(None).expect("failed to recreate atlas");
-    }
-
-    fn apply_dimensions(
-        &mut self,
-        dimensions: &Dimensions,
-        scale_changed_cells: Option<RowsAndCols>,
-    ) {
-        self.dimensions = *dimensions;
-
-        // Technically speaking, we should compute the rows and cols
-        // from the new dimensions and apply those to the tabs, and
-        // then for the scaling changed case, try to re-apply the
-        // original rows and cols, but if we do that we end up
-        // double resizing the tabs, so we speculatively apply the
-        // final size, which in that case should result in a NOP
-        // change to the tab size.
-
-        let (size, dims) = if let Some(cell_dims) = scale_changed_cells {
-            // Scaling preserves existing terminal dimensions, yielding a new
-            // overall set of window dimensions
-            let size = PtySize {
-                rows: cell_dims.rows as u16,
-                cols: cell_dims.cols as u16,
-                pixel_height: cell_dims.rows as u16 * self.render_metrics.cell_size.height as u16,
-                pixel_width: cell_dims.cols as u16 * self.render_metrics.cell_size.width as u16,
-            };
-
-            let rows = size.rows + if self.show_tab_bar { 1 } else { 0 };
-            let cols = size.cols;
-
-            let pixel_height = rows * self.render_metrics.cell_size.height as u16;
-            let pixel_width = cols * self.render_metrics.cell_size.width as u16;
-
-            let dims = Dimensions {
-                pixel_width: pixel_width as usize,
-                pixel_height: pixel_height as usize,
-                dpi: dimensions.dpi,
-            };
-
-            (size, dims)
-        } else {
-            // Resize of the window dimensions may result in changed terminal dimensions
-            let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
-            let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
-
-            let size = PtySize {
-                rows: rows as u16,
-                cols: cols as u16,
-                pixel_height: dimensions.pixel_height as u16,
-                pixel_width: dimensions.pixel_width as u16,
-            };
-
-            (size, *dimensions)
-        };
-        let gl_state = self.render_state.as_mut().unwrap();
-        gl_state
-            .advise_of_window_size_change(
-                &self.render_metrics,
-                dimensions.pixel_width,
-                dimensions.pixel_height,
-            )
-            .expect("failed to advise of resize");
-
-        self.terminal_size = size;
-
-        let mux = Mux::get().unwrap();
-        let tab = mux.get_tab();
-
-        tab.resize(size).ok();
-        self.update_title();
-
-        // Queue up a speculative resize in order to preserve the number of rows+cols
-        if let Some(_) = scale_changed_cells {
-            if let Some(window) = self.window.as_ref() {
-                window.set_inner_size(dims.pixel_width, dims.pixel_height);
-            }
-        }
-    }
-
-    fn current_cell_dimensions(&self) -> RowsAndCols {
-        RowsAndCols {
-            rows: self.terminal_size.rows as usize,
-            cols: self.terminal_size.cols as usize,
-        }
-    }
-
-    #[allow(clippy::float_cmp)]
     fn scaling_changed(&mut self, dimensions: Dimensions, font_scale: f64) {
         let scale_changed =
             dimensions.dpi != self.dimensions.dpi || font_scale != self.fonts.get_font_scale();
@@ -632,6 +454,104 @@ impl TermWindow {
         self.apply_dimensions(&dimensions, scale_changed_cells);
     }
 
+    fn current_cell_dimensions(&self) -> RowsAndCols {
+        RowsAndCols {
+            rows: self.terminal_size.rows as usize,
+            cols: self.terminal_size.cols as usize,
+        }
+    }
+
+    fn apply_scale_change(&mut self, dimensions: &Dimensions, font_scale: f64) {
+        self.fonts.change_scaling(font_scale, dimensions.dpi as f64 / 96.);
+        self.render_metrics = RenderMetrics::new(&self.fonts);
+        let gl_state = self.render_state.as_mut().unwrap();
+        gl_state
+            .header
+            .change_scaling(
+                dimensions.dpi as f32 / 96.,
+                self.dimensions.pixel_width,
+                self.dimensions.pixel_height,
+            )
+            .expect("failed to rescale header");
+        self.recreate_texture_atlas(None).expect("failed to recreate atlas");
+    }
+
+    fn recreate_texture_atlas(&mut self, size: Option<usize>) -> anyhow::Result<()> {
+        self.render_state.as_mut().unwrap().recreate_texture_atlas(
+            &self.fonts,
+            &self.render_metrics,
+            size,
+        )
+    }
+
+    fn apply_dimensions(
+        &mut self,
+        dimensions: &Dimensions,
+        scale_changed_cells: Option<RowsAndCols>,
+    ) {
+        self.dimensions = *dimensions;
+
+        let (size, dims) = if let Some(cell_dims) = scale_changed_cells {
+            let size = PtySize {
+                rows: cell_dims.rows as u16,
+                cols: cell_dims.cols as u16,
+                pixel_height: cell_dims.rows as u16 * self.render_metrics.cell_size.height as u16,
+                pixel_width: cell_dims.cols as u16 * self.render_metrics.cell_size.width as u16,
+            };
+
+            let rows = size.rows + self.header.offset as u16;
+            let cols = size.cols;
+
+            let pixel_height = rows * self.render_metrics.cell_size.height as u16;
+
+            let pixel_width = cols * self.render_metrics.cell_size.width as u16;
+
+            let dims = Dimensions {
+                pixel_width: pixel_width as usize,
+                pixel_height: pixel_height as usize,
+                dpi: dimensions.dpi,
+            };
+
+            (size, dims)
+        } else {
+            let rows = (dimensions.pixel_height / self.render_metrics.cell_size.height as usize)
+                .saturating_sub(self.header.offset);
+            let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
+
+            let size = PtySize {
+                rows: rows as u16,
+                cols: cols as u16,
+                pixel_height: dimensions.pixel_height as u16,
+                pixel_width: dimensions.pixel_width as u16,
+            };
+
+            (size, *dimensions)
+        };
+
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+        let gl_state = self.render_state.as_mut().unwrap();
+
+        gl_state
+            .advise_of_window_size_change(
+                &self.render_metrics,
+                dimensions.pixel_width,
+                dimensions.pixel_height,
+            )
+            .expect("failed to advise of resize");
+
+        self.terminal_size = size;
+
+        tab.resize(size).ok();
+        self.update_title();
+
+        if let Some(_) = scale_changed_cells {
+            if let Some(window) = self.window.as_ref() {
+                window.set_inner_size(dims.pixel_width, dims.pixel_height);
+            }
+        }
+    }
+
     fn decrease_font_size(&mut self) {
         self.scaling_changed(self.dimensions, self.fonts.get_font_scale() * 0.9);
     }
@@ -642,50 +562,51 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn paint_tab(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> anyhow::Result<()> {
+    fn paint_screen(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> anyhow::Result<()> {
+        self.frame_count += 1;
         let palette = tab.palette();
-
-        let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
-        let (r, g, b, a) = background_color.to_tuple_rgba();
-        frame.clear_color_srgb(r, g, b, a);
-
-        let first_line_offset = if self.show_tab_bar { 1 } else { 0 };
-
-        let mut term = tab.renderer();
-        let cursor = term.get_cursor_position();
-
-        let current_viewport = self.get_viewport();
-        let (stable_top, lines);
-        let dims = term.get_dimensions();
-
-        {
-            let stable_range = match current_viewport {
-                Some(top) => top..top + dims.viewport_rows as StableRowIndex,
-                None => dims.physical_top..dims.physical_top + dims.viewport_rows as StableRowIndex,
-            };
-
-            let (top, vp_lines) = term.get_lines(stable_range);
-            stable_top = top;
-            lines = vp_lines;
-        }
-
         let gl_state = self.render_state.as_ref().unwrap();
+        self.clear(&palette, frame);
+        self.paint_term(tab, &gl_state, &palette, frame)?;
+        self.header.paint(
+            &gl_state,
+            &palette,
+            &self.dimensions,
+            self.frame_count,
+            &self.render_metrics,
+            self.fonts.as_ref(),
+            frame,
+        )?;
+
+        Ok(())
+    }
+
+    fn paint_term(
+        &self,
+        tab: &Ref<Tab>,
+        gl_state: &RenderState,
+        palette: &ColorPalette,
+        frame: &mut glium::Frame,
+    ) -> anyhow::Result<()> {
+        let mut term = tab.renderer();
+
         let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
         let mut quads = gl_state.quads.map(&mut vb);
 
+        let cursor = {
+            let cursor = term.cursor_pos();
+            CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
+        };
+
         let empty_line = Line::from("");
-        if self.show_tab_bar {
-            self.render_screen_line(0, &empty_line, 0..0, &cursor, &*term, &palette, &mut quads)?;
+        for i in 0..=self.header.offset - 1 {
+            self.render_screen_line(i, &empty_line, 0..0, &cursor, &*term, &palette, &mut quads)?;
         }
 
-        let selrange = self.selection().range.clone();
-
-        for (line_idx, line) in lines.iter().enumerate() {
-            let stable_row = stable_top + line_idx as StableRowIndex;
-            let selrange = selrange.map(|sel| sel.cols_for_row(stable_row)).unwrap_or(0..0);
-
+        let dirty_lines = term.get_dirty_lines();
+        for (line_idx, line, selrange) in dirty_lines {
             self.render_screen_line(
-                line_idx + first_line_offset,
+                line_idx + self.header.offset,
                 &line,
                 selrange,
                 &cursor,
@@ -735,6 +656,8 @@ impl TermWindow {
             &draw_params,
         )?;
 
+        term.clean_dirty_lines();
+
         Ok(())
     }
 
@@ -750,13 +673,15 @@ impl TermWindow {
     ) -> anyhow::Result<()> {
         let gl_state = self.render_state.as_ref().unwrap();
         let (_num_rows, num_cols) = terminal.physical_dimensions();
+
+        let current_highlight = terminal.current_highlight();
         let cursor_border_color = rgbcolor_to_window_color(palette.cursor_border);
 
         let cell_clusters = line.cluster();
         let mut last_cell_idx = 0;
         for cluster in cell_clusters {
             let attrs = &cluster.attrs;
-            let is_highlited_hyperlink = match (&attrs.hyperlink, &self.current_highlight) {
+            let is_highlited_hyperlink = match (&attrs.hyperlink, &current_highlight) {
                 (&Some(ref this), &Some(ref highlight)) => Arc::ptr_eq(this, highlight),
                 _ => false,
             };
@@ -929,252 +854,10 @@ impl TermWindow {
         (fg_color, bg_color, cursor_shape)
     }
 
-    pub fn tab_state(&self) -> RefMut<TabState> {
-        self.tab_state.borrow_mut()
-    }
-    pub fn selection(&self) -> RefMut<Selection> {
-        RefMut::map(self.tab_state(), |state| &mut state.selection)
-    }
-
-    pub fn get_viewport(&self) -> Option<StableRowIndex> {
-        self.tab_state().viewport
-    }
-
-    pub fn set_viewport(&mut self, position: Option<StableRowIndex>, dims: RenderableDimensions) {
-        let pos = match position {
-            Some(pos) => {
-                // Drop out of scrolling mode if we're off the bottom
-                if pos >= dims.physical_top {
-                    None
-                } else {
-                    Some(pos.max(dims.scrollback_top))
-                }
-            }
-            None => None,
-        };
-
-        let mut state = self.tab_state();
-        state.viewport = pos;
-    }
-
-    fn extend_selection_at_mouse_cursor(&mut self, mode: Option<SelectionMode>, tab: &Ref<Tab>) {
-        let mode = mode.unwrap_or(SelectionMode::Cell);
-        let (x, y) = self.last_mouse_terminal_coords;
-        match mode {
-            SelectionMode::Cell => {
-                let end = SelectionCoordinate { x, y };
-                let selection_range = self.selection().range.take();
-                let sel = match selection_range {
-                    None => {
-                        SelectionRange::start(self.selection().start.unwrap_or(end)).extend(end)
-                    }
-                    Some(sel) => sel.extend(end),
-                };
-                self.selection().range = Some(sel);
-            }
-            SelectionMode::Word => {
-                let end_word =
-                    SelectionRange::word_around(SelectionCoordinate { x, y }, &mut *tab.renderer());
-
-                let start_coord = self.selection().start.clone().unwrap_or(end_word.start);
-                let start_word = SelectionRange::word_around(start_coord, &mut *tab.renderer());
-
-                let selection_range = start_word.extend_with(end_word);
-                self.selection().range = Some(selection_range);
-            }
-            SelectionMode::Line => {
-                let end_line = SelectionRange::line_around(SelectionCoordinate { x, y });
-
-                let start_coord = self.selection().start.clone().unwrap_or(end_line.start);
-                let start_line = SelectionRange::line_around(start_coord);
-
-                let selection_range = start_line.extend_with(end_line);
-                self.selection().range = Some(selection_range);
-            }
-        }
-
-        // When the mouse gets close enough to the top or bottom then scroll
-        // the viewport so that we can see more in that direction and are able
-        // to select more than fits in the viewport.
-
-        // This is similar to the logic in the copy mode overlay, but the gap
-        // is smaller because it feels more natural for mouse selection to have
-        // a smaller gpa.
-        const VERTICAL_GAP: isize = 2;
-        let dims = tab.renderer().get_dimensions();
-        let top = self.get_viewport().unwrap_or(dims.physical_top);
-        let vertical_gap = if dims.physical_top <= VERTICAL_GAP { 1 } else { VERTICAL_GAP };
-        let top_gap = y - top;
-        if top_gap < vertical_gap {
-            // Increase the gap so we can "look ahead"
-            self.set_viewport(Some(y.saturating_sub(vertical_gap)), dims);
-        } else {
-            let bottom_gap = (dims.viewport_rows as isize).saturating_sub(top_gap);
-            if bottom_gap < vertical_gap {
-                self.set_viewport(Some(top + vertical_gap - bottom_gap), dims);
-            }
-        }
-
-        self.window.as_ref().unwrap().invalidate();
-    }
-
-    fn select_text_at_mouse_cursor(&mut self, mode: SelectionMode, tab: &Ref<Tab>) {
-        let (x, y) = self.last_mouse_terminal_coords;
-        match mode {
-            SelectionMode::Line => {
-                let start = SelectionCoordinate { x, y };
-                let selection_range = SelectionRange::line_around(start);
-
-                self.selection().start = Some(start);
-                self.selection().range = Some(selection_range);
-            }
-            SelectionMode::Word => {
-                let selection_range =
-                    SelectionRange::word_around(SelectionCoordinate { x, y }, &mut *tab.renderer());
-
-                self.selection().start = Some(selection_range.start);
-                self.selection().range = Some(selection_range);
-            }
-            SelectionMode::Cell => {
-                self.selection().begin(SelectionCoordinate { x, y });
-            }
-        }
-
-        self.window.as_ref().unwrap().invalidate();
-    }
-
-    fn mouse_event_terminal(
-        &mut self,
-        tab: Ref<Tab>,
-        x: usize,
-        y: i64,
-        event: &MouseEvent,
-        context: &dyn WindowOps,
-    ) {
-        let dims = tab.renderer().get_dimensions();
-        let stable_row = self.get_viewport().unwrap_or(dims.physical_top) + y as StableRowIndex;
-
-        self.last_mouse_terminal_coords = (x, stable_row);
-        let (top, mut lines) = tab.renderer().get_lines(stable_row..stable_row + 1);
-        let new_highlight = if top == stable_row {
-            if let Some(line) = lines.get_mut(0) {
-                if let Some(cell) = line.cells().get(x) {
-                    cell.attrs().hyperlink.as_ref().cloned()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        match (self.current_highlight.as_ref(), new_highlight) {
-            (Some(old_link), Some(new_link)) if Arc::ptr_eq(&old_link, &new_link) => {
-                // Unchanged
-            }
-            (_, rhs) => {
-                // We're hovering over a different URL, so invalidate and repaint
-                // so that we render the underline correctly
-                self.current_highlight = rhs;
-                context.invalidate();
-            }
-        };
-
-        context.set_cursor(Some(if self.current_highlight.is_some() {
-            // When hovering over a hyperlink, show an appropriate
-            // mouse cursor to give the cue that it is clickable
-            MouseCursor::Hand
-        } else {
-            MouseCursor::Text
-        }));
-
-        let mouse_event = crate::term::MouseEvent {
-            kind: match event.kind {
-                WMEK::Move => TMEK::Move,
-                WMEK::VertWheel(_) | WMEK::HorzWheel(_) | WMEK::Press(_) => TMEK::Press,
-                WMEK::Release(_) => TMEK::Release,
-            },
-            button: match event.kind {
-                WMEK::Release(ref press) | WMEK::Press(ref press) => mouse_press_to_tmb(press),
-                WMEK::Move => {
-                    if event.mouse_buttons == WMB::LEFT {
-                        TMB::Left
-                    } else if event.mouse_buttons == WMB::RIGHT {
-                        TMB::Right
-                    } else if event.mouse_buttons == WMB::MIDDLE {
-                        TMB::Middle
-                    } else {
-                        TMB::None
-                    }
-                }
-                WMEK::VertWheel(amount) => {
-                    if amount > 0 {
-                        TMB::WheelUp(amount as usize)
-                    } else {
-                        TMB::WheelDown((-amount) as usize)
-                    }
-                }
-                WMEK::HorzWheel(_) => TMB::None,
-            },
-            x,
-            y,
-            modifiers: window_mods_to_termwiz_mods(event.modifiers),
-        };
-
-        let event_trigger_type = match &event.kind {
-            WMEK::Press(press) => {
-                let press = mouse_press_to_tmb(press);
-                match self.last_mouse_click.as_ref() {
-                    Some(LastMouseClick { streak, button, .. }) if *button == press => {
-                        Some(MouseEventTrigger::Down { streak: *streak, button: press })
-                    }
-                    _ => None,
-                }
-            }
-            WMEK::Release(press) => {
-                let press = mouse_press_to_tmb(press);
-                match self.last_mouse_click.as_ref() {
-                    Some(LastMouseClick { streak, button, .. }) if *button == press => {
-                        Some(MouseEventTrigger::Up { streak: *streak, button: press })
-                    }
-                    _ => None,
-                }
-            }
-            WMEK::Move => {
-                if let Some(LastMouseClick { streak, button, .. }) = self.last_mouse_click.as_ref()
-                {
-                    if Some(*button) == self.current_mouse_button.as_ref().map(mouse_press_to_tmb) {
-                        Some(MouseEventTrigger::Drag { streak: *streak, button: *button })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            WMEK::VertWheel(_) | WMEK::HorzWheel(_) => None,
-        };
-
-        let event_trigger_type = match event_trigger_type {
-            Some(ett) => ett,
-            None => return,
-        };
-
-        let modifiers = window_mods_to_termwiz_mods(event.modifiers);
-
-        if let Some(action) = self.input_map.lookup_mouse(event_trigger_type.clone(), modifiers) {
-            self.perform_key_assignment(&tab, &action).ok();
-        }
-        tab.mouse_event(mouse_event).ok();
-
-        match event.kind {
-            WMEK::Move => {}
-            _ => {
-                context.invalidate();
-            }
-        }
+    fn clear(&self, palette: &ColorPalette, frame: &mut glium::Frame) {
+        let background_color = palette.resolve_bg(term::color::ColorAttribute::Default);
+        let (r, g, b, a) = background_color.to_tuple_rgba();
+        frame.clear_color(r, g, b, a);
     }
 }
 

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use serde_derive::*;
 use std::io::Result as IoResult;
 use std::process::Command;
@@ -8,8 +8,11 @@ pub mod unix;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PtySize {
     pub rows: u16,
+
     pub cols: u16,
+
     pub pixel_width: u16,
+
     pub pixel_height: u16,
 }
 
@@ -21,19 +24,22 @@ impl Default for PtySize {
 
 pub trait MasterPty: std::io::Write {
     fn resize(&self, size: PtySize) -> anyhow::Result<()>;
+
     fn get_size(&self) -> anyhow::Result<PtySize>;
+
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>>;
-    fn try_clone_writer(&self) -> Result<Box<dyn std::io::Write + Send>, Error>;
 }
 
 pub trait Child: std::fmt::Debug {
     fn try_wait(&mut self) -> IoResult<Option<ExitStatus>>;
+
     fn kill(&mut self) -> IoResult<()>;
+
     fn wait(&mut self) -> IoResult<ExitStatus>;
 }
 
 pub trait SlavePty {
-    fn spawn_command(&self, cmd: Command) -> Result<Box<dyn Child + Send>, Error>;
+    fn spawn_command(&self, cmd: Command) -> anyhow::Result<Box<dyn Child>>;
 }
 
 #[derive(Debug)]

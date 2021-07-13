@@ -56,16 +56,20 @@ impl Tab {
         Ok(())
     }
 
-    pub fn advance_bytes(&self, buf: &[u8]) {
-        self.terminal.borrow_mut().advance_bytes(buf)
+    pub fn advance_bytes(&self, buf: &[u8], host: &mut dyn TerminalHost) {
+        self.terminal.borrow_mut().advance_bytes(buf, host)
     }
 
-    pub fn mouse_event(&self, event: MouseEvent) -> anyhow::Result<()> {
-        self.terminal.borrow_mut().mouse_event(event)
+    pub fn mouse_event(
+        &self,
+        event: MouseEvent,
+        host: &mut dyn TerminalHost,
+    ) -> anyhow::Result<()> {
+        self.terminal.borrow_mut().mouse_event(event, host)
     }
 
     pub fn key_down(&self, key: KeyCode, mods: KeyModifiers) -> anyhow::Result<()> {
-        self.terminal.borrow_mut().key_down(key, mods)
+        self.terminal.borrow_mut().key_down(key, mods, &mut *self.pty.borrow_mut())
     }
 
     pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {
@@ -88,7 +92,7 @@ impl Tab {
     }
 
     fn send_paste(&self, text: &str) -> anyhow::Result<()> {
-        self.terminal.borrow_mut().send_paste(text)
+        self.terminal.borrow_mut().send_paste(text, &mut *self.pty.borrow_mut())
     }
 
     pub fn get_title(&self) -> String {

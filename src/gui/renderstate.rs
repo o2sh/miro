@@ -142,7 +142,6 @@ impl RenderState {
 
         let num_cols = width as usize / cell_width as usize;
         let num_rows = height as usize / cell_height as usize;
-
         let mut quads = Quads::default();
         quads.cols = num_cols;
 

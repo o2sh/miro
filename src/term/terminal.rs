@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::escape::parser::Parser;
+use crate::core::hyperlink::Rule as HyperlinkRule;
 use crate::term::clipboard::Clipboard;
 use std::sync::Arc;
 
@@ -36,7 +37,7 @@ impl Terminal {
         pixel_width: usize,
         pixel_height: usize,
         scrollback_size: usize,
-        writer: Box<dyn std::io::Write>,
+        hyperlink_rules: Vec<HyperlinkRule>,
     ) -> Terminal {
         Terminal {
             state: TerminalState::new(
@@ -45,15 +46,15 @@ impl Terminal {
                 pixel_height,
                 pixel_width,
                 scrollback_size,
-                writer,
+                hyperlink_rules,
             ),
             parser: Parser::new(),
         }
     }
 
-    pub fn advance_bytes<B: AsRef<[u8]>>(&mut self, bytes: B) {
+    pub fn advance_bytes<B: AsRef<[u8]>>(&mut self, bytes: B, host: &mut dyn TerminalHost) {
         let bytes = bytes.as_ref();
-        let mut performer = Performer::new(&mut self.state);
+        let mut performer = Performer::new(&mut self.state, host);
         self.parser.parse(bytes, |action| performer.perform(action));
     }
 }

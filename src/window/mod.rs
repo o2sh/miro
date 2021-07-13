@@ -36,10 +36,7 @@ pub type Point = euclid::Point2D<isize, PixelUnit>;
 pub type Rect = euclid::Rect<isize, PixelUnit>;
 pub type Size = euclid::Size2D<isize, PixelUnit>;
 
-pub struct ScreenPixelUnit;
-pub type ScreenPoint = euclid::Point2D<isize, ScreenPixelUnit>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseCursor {
     Arrow,
     Hand,
@@ -76,7 +73,6 @@ pub trait WindowOps {
     fn hide(&self);
     fn close(&self);
     fn set_cursor(&self, cursor: Option<MouseCursor>);
-    fn invalidate(&self);
     fn set_title(&self, title: &str);
     fn set_inner_size(&self, width: usize, height: usize);
     fn set_text_cursor_position(&self, _cursor: Rect) {}
@@ -90,7 +86,6 @@ pub trait WindowOpsMut {
     fn hide(&mut self);
     fn close(&mut self);
     fn set_cursor(&mut self, cursor: Option<MouseCursor>);
-    fn invalidate(&mut self);
     fn set_title(&mut self, title: &str);
     fn set_inner_size(&self, width: usize, height: usize);
     fn set_text_cursor_position(&mut self, _cursor: Rect) {}
