@@ -323,12 +323,23 @@ impl WindowCallbacks for TermWindow {
         false
     }
 
-    fn paint_with_header(&mut self, frame: &mut glium::Frame) {
-        self.do_paint(frame, true);
-    }
-
     fn paint(&mut self, frame: &mut glium::Frame) {
-        self.do_paint(frame, false);
+        let mux = Mux::get().unwrap();
+        let tab = mux.get_tab();
+
+        self.update_text_cursor(&tab);
+        self.update_title();
+
+        if let Err(err) = self.paint_screen(&tab, frame) {
+            if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
+                if let Err(_) = self.recreate_texture_atlas(Some(size)) {
+                    self.recreate_texture_atlas(None)
+                        .expect("OutOfTextureSpace and failed to recreate atlas");
+                }
+                tab.renderer().make_all_lines_dirty();
+                return self.paint(frame);
+            }
+        }
     }
 }
 
@@ -356,7 +367,7 @@ impl TermWindow {
             dpi: 96,
         };
 
-        let window = Window::new_window(
+        Window::new_window(
             "miro",
             "miro",
             dimensions.pixel_width,
@@ -375,19 +386,6 @@ impl TermWindow {
                 terminal_size,
             }),
         )?;
-
-        let cloned_window = window.clone();
-
-        Connection::get().unwrap().schedule_timer(
-            std::time::Duration::from_millis(35),
-            move || {
-                let mux = Mux::get().unwrap();
-                let tab = mux.get_tab();
-                if tab.renderer().has_dirty_lines() {
-                    cloned_window.invalidate();
-                }
-            },
-        );
 
         Ok(())
     }
@@ -564,47 +562,21 @@ impl TermWindow {
         self.scaling_changed(self.dimensions, 1.);
     }
 
-    fn do_paint(&mut self, frame: &mut glium::Frame, with_header: bool) {
-        let mux = Mux::get().unwrap();
-        let tab = mux.get_tab();
-
-        self.update_text_cursor(&tab);
-        self.update_title();
-
-        if let Err(err) = self.paint_screen(&tab, frame, with_header) {
-            if let Some(&OutOfTextureSpace { size }) = err.downcast_ref::<OutOfTextureSpace>() {
-                if let Err(_) = self.recreate_texture_atlas(Some(size)) {
-                    self.recreate_texture_atlas(None)
-                        .expect("OutOfTextureSpace and failed to recreate atlas");
-                }
-                tab.renderer().make_all_lines_dirty();
-                return self.do_paint(frame, with_header);
-            }
-        }
-    }
-
-    fn paint_screen(
-        &mut self,
-        tab: &Ref<Tab>,
-        frame: &mut glium::Frame,
-        with_header: bool,
-    ) -> anyhow::Result<()> {
+    fn paint_screen(&mut self, tab: &Ref<Tab>, frame: &mut glium::Frame) -> anyhow::Result<()> {
         self.frame_count += 1;
         let palette = tab.palette();
         let gl_state = self.render_state.as_ref().unwrap();
         self.clear(&palette, frame);
         self.paint_term(tab, &gl_state, &palette, frame)?;
-        if with_header {
-            self.header.paint(
-                &gl_state,
-                &palette,
-                &self.dimensions,
-                self.frame_count,
-                &self.render_metrics,
-                self.fonts.as_ref(),
-                frame,
-            )?;
-        }
+        self.header.paint(
+            &gl_state,
+            &palette,
+            &self.dimensions,
+            self.frame_count,
+            &self.render_metrics,
+            self.fonts.as_ref(),
+            frame,
+        )?;
 
         Ok(())
     }

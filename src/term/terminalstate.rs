@@ -908,20 +908,6 @@ impl TerminalState {
         }
     }
 
-    pub fn has_dirty_lines(&self) -> bool {
-        let screen = self.screen();
-        let height = screen.physical_rows;
-        let len = screen.lines.len() - self.viewport_offset as usize;
-
-        for line in screen.lines.iter().skip(len - height) {
-            if line.is_dirty() {
-                return true;
-            }
-        }
-
-        false
-    }
-
     pub fn physical_dimensions(&self) -> (usize, usize) {
         let screen = self.screen();
         (screen.physical_rows, screen.physical_cols)
