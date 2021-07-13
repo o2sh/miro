@@ -184,7 +184,7 @@ impl WindowCallbacks for TermWindow {
                     }
                 }
             }
-            _ => {}
+            _ => context.invalidate(),
         }
 
         context.set_cursor(Some(if y < self.header.offset as i64 {
@@ -367,7 +367,7 @@ impl TermWindow {
             dpi: 96,
         };
 
-        Window::new_window(
+        let window = Window::new_window(
             "miro",
             "miro",
             dimensions.pixel_width,
@@ -386,6 +386,19 @@ impl TermWindow {
                 terminal_size,
             }),
         )?;
+
+        let cloned_window = window.clone();
+
+        Connection::get().unwrap().schedule_timer(
+            std::time::Duration::from_millis(35),
+            move || {
+                let mux = Mux::get().unwrap();
+                let tab = mux.get_tab();
+                if tab.renderer().has_dirty_lines() {
+                    cloned_window.invalidate();
+                }
+            },
+        );
 
         Ok(())
     }
@@ -501,9 +514,7 @@ impl TermWindow {
 
             let rows = size.rows + self.header.offset as u16;
             let cols = size.cols;
-
             let pixel_height = rows * self.render_metrics.cell_size.height as u16;
-
             let pixel_width = cols * self.render_metrics.cell_size.width as u16;
 
             let dims = Dimensions {
@@ -550,6 +561,7 @@ impl TermWindow {
                 window.set_inner_size(dims.pixel_width, dims.pixel_height);
             }
         }
+        tab.renderer().make_all_lines_dirty();
     }
 
     fn decrease_font_size(&mut self) {
@@ -590,13 +602,13 @@ impl TermWindow {
     ) -> anyhow::Result<()> {
         let mut term = tab.renderer();
 
-        let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
-        let mut quads = gl_state.quads.map(&mut vb);
-
         let cursor = {
             let cursor = term.cursor_pos();
             CursorPosition { x: cursor.x, y: cursor.y + self.header.offset as i64 }
         };
+
+        let mut vb = gl_state.glyph_vertex_buffer.borrow_mut();
+        let mut quads = gl_state.quads.map(&mut vb);
 
         let empty_line = Line::from("");
         for i in 0..=self.header.offset - 1 {
@@ -673,7 +685,6 @@ impl TermWindow {
     ) -> anyhow::Result<()> {
         let gl_state = self.render_state.as_ref().unwrap();
         let (_num_rows, num_cols) = terminal.physical_dimensions();
-
         let current_highlight = terminal.current_highlight();
         let cursor_border_color = rgbcolor_to_window_color(palette.cursor_border);
 

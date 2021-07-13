@@ -197,6 +197,10 @@ impl Cell {
     pub fn attrs(&self) -> &CellAttributes {
         &self.attrs
     }
+
+    pub fn attrs_mut(&mut self) -> &mut CellAttributes {
+        &mut self.attrs
+    }
 }
 
 pub fn unicode_column_width(s: &str) -> usize {

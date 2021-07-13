@@ -104,9 +104,19 @@ impl ScreenOrAlt {
         }
     }
 
-    pub fn resize(&mut self, physical_rows: usize, physical_cols: usize) {
-        self.screen.resize(physical_rows, physical_cols);
-        self.alt_screen.resize(physical_rows, physical_cols);
+    pub fn resize(
+        &mut self,
+        physical_rows: usize,
+        physical_cols: usize,
+        cursor: CursorPosition,
+    ) -> CursorPosition {
+        let cursor_main = self.screen.resize(physical_rows, physical_cols, cursor);
+        let cursor_alt = self.alt_screen.resize(physical_rows, physical_cols, cursor);
+        if self.alt_screen_is_active {
+            cursor_alt
+        } else {
+            cursor_main
+        }
     }
 
     pub fn activate_alt_screen(&mut self) {
@@ -278,7 +288,7 @@ impl TerminalState {
             Some(sel) => {
                 let sel = sel.normalize();
                 let sel_cols = sel.cols_for_row(row);
-                if intersects_range(cols, sel_cols) {
+                if intersects_range2(cols, sel_cols) {
                     self.clear_selection();
                     true
                 } else {
@@ -298,7 +308,7 @@ impl TerminalState {
         match sel {
             Some(sel) => {
                 let sel_rows = sel.rows();
-                if intersects_range(rows, sel_rows) {
+                if intersects_range2(rows, sel_rows) {
                     self.clear_selection();
                     true
                 } else {
@@ -855,14 +865,29 @@ impl TerminalState {
         pixel_width: usize,
         pixel_height: usize,
     ) {
-        self.screen.resize(physical_rows, physical_cols);
+        let adjusted_cursor = self.screen.resize(physical_rows, physical_cols, self.cursor);
         self.scroll_region = 0..physical_rows as i64;
         self.pixel_height = pixel_height;
         self.pixel_width = pixel_width;
         self.tabs.resize(physical_cols);
-        self.set_scroll_viewport(0);
+        self.set_cursor_pos(
+            &Position::Absolute(adjusted_cursor.x as i64),
+            &Position::Absolute(adjusted_cursor.y),
+        );
+    }
 
-        self.set_cursor_pos(&Position::Relative(0), &Position::Relative(0));
+    pub fn clean_dirty_lines(&mut self) {
+        let screen = self.screen_mut();
+        for line in &mut screen.lines {
+            line.clear_dirty();
+        }
+    }
+
+    pub fn make_all_lines_dirty(&mut self) {
+        let screen = self.screen_mut();
+        for line in &mut screen.lines {
+            line.set_dirty();
+        }
     }
 
     pub fn get_dirty_lines(&self) -> Vec<(usize, &Line, Range<usize>)> {
@@ -894,18 +919,32 @@ impl TerminalState {
         res
     }
 
-    pub fn clean_dirty_lines(&mut self) {
-        let screen = self.screen_mut();
-        for line in &mut screen.lines {
-            line.clear_dirty();
+    /*     fn get_dirty_lines(&self, lines: Range<StableRowIndex>) -> RangeSet<StableRowIndex> {
+        let screen = self.screen();
+        let phys = screen.stable_range(&lines);
+        let mut set = RangeSet::new();
+        for (idx, line) in
+            screen.lines.iter().enumerate().skip(phys.start).take(phys.end - phys.start)
+        {
+            if line.is_dirty() {
+                set.add(screen.phys_to_stable_row_index(idx))
+            }
         }
-    }
+        set
+    } */
 
-    pub fn make_all_lines_dirty(&mut self) {
-        let screen = self.screen_mut();
-        for line in &mut screen.lines {
-            line.set_dirty();
+    pub fn has_dirty_lines(&self) -> bool {
+        let screen = self.screen();
+        let height = screen.physical_rows;
+        let len = screen.lines.len() - self.viewport_offset as usize;
+
+        for line in screen.lines.iter().skip(len - height) {
+            if line.is_dirty() {
+                return true;
+            }
         }
+
+        false
     }
 
     pub fn physical_dimensions(&self) -> (usize, usize) {
