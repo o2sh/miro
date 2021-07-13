@@ -1,5 +1,6 @@
 use crate::font::FontConfiguration;
 use crate::mux::Mux;
+use crate::term::StableRowIndex;
 use crate::window::*;
 use std::rc::Rc;
 
@@ -7,9 +8,19 @@ mod glyphcache;
 mod header;
 mod quad;
 mod renderstate;
+mod selection;
 mod spritesheet;
 mod utilsprites;
 mod window;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RenderableDimensions {
+    pub cols: usize,
+    pub viewport_rows: usize,
+    pub scrollback_rows: usize,
+    pub physical_top: StableRowIndex,
+    pub scrollback_top: StableRowIndex,
+}
 
 pub struct GuiFrontEnd {
     connection: Rc<Connection>,

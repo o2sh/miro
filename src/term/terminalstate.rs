@@ -8,6 +8,7 @@ use crate::core::escape::{
     Action, ControlCode, Esc, EscCode, OneBased, OperatingSystemCommand, CSI,
 };
 use crate::core::hyperlink::Rule as HyperlinkRule;
+use crate::gui::RenderableDimensions;
 use crate::term::color::ColorPalette;
 use anyhow::bail;
 use std::fmt::Write;
@@ -876,13 +877,6 @@ impl TerminalState {
         );
     }
 
-    pub fn clean_dirty_lines(&mut self) {
-        let screen = self.screen_mut();
-        for line in &mut screen.lines {
-            line.clear_dirty();
-        }
-    }
-
     pub fn make_all_lines_dirty(&mut self) {
         let screen = self.screen_mut();
         for line in &mut screen.lines {
@@ -890,36 +884,13 @@ impl TerminalState {
         }
     }
 
-    pub fn get_dirty_lines(&self) -> Vec<(usize, &Line, Range<usize>)> {
-        let mut res = Vec::new();
+    pub fn get_cursor_position(&self) -> CursorPosition {
+        let pos = self.cursor_pos();
 
-        let screen = self.screen();
-        let height = screen.physical_rows;
-        let len = screen.lines.len() - self.viewport_offset as usize;
-
-        let selection = self.selection_range.map(|r| r.normalize());
-
-        for (i, line) in screen.lines.iter().skip(len - height).enumerate() {
-            if i >= height {
-                break;
-            }
-            if line.is_dirty() {
-                let selrange = match selection {
-                    None => 0..0,
-                    Some(sel) => {
-                        let row = (i as ScrollbackOrVisibleRowIndex)
-                            - self.viewport_offset as ScrollbackOrVisibleRowIndex;
-                        sel.cols_for_row(row)
-                    }
-                };
-                res.push((i, &*line, selrange));
-            }
-        }
-
-        res
+        CursorPosition { x: pos.x, y: self.screen().visible_row_to_stable_row(pos.y) as i64 }
     }
 
-    /*     fn get_dirty_lines(&self, lines: Range<StableRowIndex>) -> RangeSet<StableRowIndex> {
+    pub fn get_dirty_lines(&self, lines: Range<StableRowIndex>) -> RangeSet<StableRowIndex> {
         let screen = self.screen();
         let phys = screen.stable_range(&lines);
         let mut set = RangeSet::new();
@@ -931,20 +902,36 @@ impl TerminalState {
             }
         }
         set
-    } */
+    }
 
-    pub fn has_dirty_lines(&self) -> bool {
+    pub fn get_lines(&mut self, lines: Range<StableRowIndex>) -> (StableRowIndex, Vec<Line>) {
+        let screen = self.screen_mut();
+        let phys_range = screen.stable_range(&lines);
+        (
+            screen.phys_to_stable_row_index(phys_range.start),
+            screen
+                .lines
+                .iter_mut()
+                .skip(phys_range.start)
+                .take(phys_range.end - phys_range.start)
+                .map(|line| {
+                    let cloned = line.clone();
+                    line.clear_dirty();
+                    cloned
+                })
+                .collect(),
+        )
+    }
+
+    pub fn get_dimensions(&self) -> RenderableDimensions {
         let screen = self.screen();
-        let height = screen.physical_rows;
-        let len = screen.lines.len() - self.viewport_offset as usize;
-
-        for line in screen.lines.iter().skip(len - height) {
-            if line.is_dirty() {
-                return true;
-            }
+        RenderableDimensions {
+            cols: screen.physical_cols,
+            viewport_rows: screen.physical_rows,
+            scrollback_rows: screen.lines.len(),
+            physical_top: screen.visible_row_to_stable_row(0),
+            scrollback_top: screen.phys_to_stable_row_index(0),
         }
-
-        false
     }
 
     pub fn physical_dimensions(&self) -> (usize, usize) {
