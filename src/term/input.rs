@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 pub use crate::core::input::KeyCode;
 pub use crate::core::input::Modifiers as KeyModifiers;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, Hash)]
 pub enum MouseButton {
     Left,
     Middle,
@@ -38,7 +38,7 @@ pub struct MouseEvent {
 
 #[derive(Debug)]
 pub struct LastMouseClick {
-    button: MouseButton,
+    pub button: MouseButton,
     time: Instant,
     pub streak: usize,
 }

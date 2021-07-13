@@ -6,7 +6,7 @@ use crate::core::color::RgbColor;
 use crate::core::promise;
 use crate::core::surface::CursorShape;
 use crate::font::FontConfiguration;
-use crate::gui::selection::Selection;
+use crate::gui::selection::{Selection, SelectionCoordinate, SelectionMode, SelectionRange};
 use crate::gui::RenderableDimensions;
 use crate::mux::tab::Tab;
 use crate::mux::Mux;
@@ -18,7 +18,7 @@ use crate::term::color::ColorPalette;
 use crate::term::input::LastMouseClick;
 use crate::term::input::MouseButton as TMB;
 use crate::term::input::MouseEventKind as TMEK;
-use crate::term::keyassignment::{KeyAssignment, KeyMap};
+use crate::term::keyassignment::{InputMap, KeyAssignment, MouseEventTrigger};
 use crate::term::StableRowIndex;
 use crate::term::Terminal;
 use crate::term::{CursorPosition, Line};
@@ -60,12 +60,13 @@ pub struct TabState {
 pub struct TermWindow {
     pub window: Option<Window>,
     focused: Option<Instant>,
+    last_mouse_terminal_coords: (usize, StableRowIndex),
     fonts: Rc<FontConfiguration>,
     dimensions: Dimensions,
     terminal_size: PtySize,
     render_metrics: RenderMetrics,
     render_state: Option<RenderState>,
-    keys: KeyMap,
+    input_map: InputMap,
     show_tab_bar: bool,
     last_mouse_coords: (usize, i64),
     frame_count: u32,
@@ -171,8 +172,8 @@ impl WindowCallbacks for TermWindow {
         let mux = Mux::get().unwrap();
         let tab = mux.get_tab();
 
-        let x = (event.x as isize / self.render_metrics.cell_size.width) as usize;
-        let y = (event.y as isize / self.render_metrics.cell_size.height) as i64;
+        let x = (event.coords.x as isize / self.render_metrics.cell_size.width) as usize;
+        let y = (event.coords.y as isize / self.render_metrics.cell_size.height) as i64;
 
         let first_line_offset = if self.show_tab_bar { 1 } else { 0 };
         self.last_mouse_coords = (x, y);
@@ -239,7 +240,7 @@ impl WindowCallbacks for TermWindow {
 
         if let Some(key) = &key.raw_key {
             if let Key::Code(key) = self.win_key_code_to_termwiz_key_code(&key) {
-                if let Some(assignment) = self.keys.lookup(key, modifiers) {
+                if let Some(assignment) = self.input_map.lookup_key(key, modifiers) {
                     self.perform_key_assignment(&tab, &assignment).ok();
                     return true;
                 }
@@ -257,7 +258,7 @@ impl WindowCallbacks for TermWindow {
         let key = self.win_key_code_to_termwiz_key_code(&key.key);
         match key {
             Key::Code(key) => {
-                if let Some(assignment) = self.keys.lookup(key, modifiers) {
+                if let Some(assignment) = self.input_map.lookup_key(key, modifiers) {
                     self.perform_key_assignment(&tab, &assignment).ok();
                     return true;
                 } else if tab.key_down(key, modifiers).is_ok() {
@@ -313,8 +314,7 @@ impl TermWindow {
 
         let dimensions = Dimensions {
             pixel_width: (terminal_size.cols * render_metrics.cell_size.width as u16) as usize,
-            pixel_height: (header.offset + terminal_size.rows as usize)
-                * render_metrics.cell_size.height as usize,
+            pixel_height: (terminal_size.rows as usize) * render_metrics.cell_size.height as usize,
             dpi: 96,
         };
 
@@ -330,12 +330,13 @@ impl TermWindow {
                 render_metrics,
                 dimensions,
                 render_state: None,
-                keys: KeyMap::new(),
+                input_map: InputMap::new(),
                 show_tab_bar: false,
                 header,
                 frame_count: 0,
                 clipboard: Arc::new(SystemClipboard::new()),
                 terminal_size,
+                last_mouse_terminal_coords: (0, 0),
                 tab_state: RefCell::new(TabState::default()),
                 current_mouse_button: None,
                 last_mouse_click: None,
@@ -513,6 +514,8 @@ impl TermWindow {
             DecreaseFontSize => self.decrease_font_size(),
             IncreaseFontSize => self.increase_font_size(),
             ResetFontSize => self.reset_font_size(),
+            SelectTextAtMouseCursor(mode) => self.select_text_at_mouse_cursor(*mode, tab),
+            ExtendSelectionToMouseCursor(mode) => self.extend_selection_at_mouse_cursor(*mode, tab),
             Hide => {
                 if let Some(w) = self.window.as_ref() {
                     w.hide();
@@ -569,8 +572,7 @@ impl TermWindow {
             (size, dims)
         } else {
             // Resize of the window dimensions may result in changed terminal dimensions
-            let rows = (dimensions.pixel_height / self.render_metrics.cell_size.height as usize)
-                .saturating_sub(self.header.offset);
+            let rows = dimensions.pixel_height / self.render_metrics.cell_size.height as usize;
             let cols = dimensions.pixel_width / self.render_metrics.cell_size.width as usize;
 
             let size = PtySize {
@@ -748,14 +750,13 @@ impl TermWindow {
     ) -> anyhow::Result<()> {
         let gl_state = self.render_state.as_ref().unwrap();
         let (_num_rows, num_cols) = terminal.physical_dimensions();
-        let current_highlight = terminal.current_highlight();
         let cursor_border_color = rgbcolor_to_window_color(palette.cursor_border);
 
         let cell_clusters = line.cluster();
         let mut last_cell_idx = 0;
         for cluster in cell_clusters {
             let attrs = &cluster.attrs;
-            let is_highlited_hyperlink = match (&attrs.hyperlink, &current_highlight) {
+            let is_highlited_hyperlink = match (&attrs.hyperlink, &self.current_highlight) {
                 (&Some(ref this), &Some(ref highlight)) => Arc::ptr_eq(this, highlight),
                 _ => false,
             };
@@ -956,6 +957,92 @@ impl TermWindow {
         state.viewport = pos;
     }
 
+    fn extend_selection_at_mouse_cursor(&mut self, mode: Option<SelectionMode>, tab: &Ref<Tab>) {
+        let mode = mode.unwrap_or(SelectionMode::Cell);
+        let (x, y) = self.last_mouse_terminal_coords;
+        match mode {
+            SelectionMode::Cell => {
+                let end = SelectionCoordinate { x, y };
+                let selection_range = self.selection().range.take();
+                let sel = match selection_range {
+                    None => {
+                        SelectionRange::start(self.selection().start.unwrap_or(end)).extend(end)
+                    }
+                    Some(sel) => sel.extend(end),
+                };
+                self.selection().range = Some(sel);
+            }
+            SelectionMode::Word => {
+                let end_word =
+                    SelectionRange::word_around(SelectionCoordinate { x, y }, &mut *tab.renderer());
+
+                let start_coord = self.selection().start.clone().unwrap_or(end_word.start);
+                let start_word = SelectionRange::word_around(start_coord, &mut *tab.renderer());
+
+                let selection_range = start_word.extend_with(end_word);
+                self.selection().range = Some(selection_range);
+            }
+            SelectionMode::Line => {
+                let end_line = SelectionRange::line_around(SelectionCoordinate { x, y });
+
+                let start_coord = self.selection().start.clone().unwrap_or(end_line.start);
+                let start_line = SelectionRange::line_around(start_coord);
+
+                let selection_range = start_line.extend_with(end_line);
+                self.selection().range = Some(selection_range);
+            }
+        }
+
+        // When the mouse gets close enough to the top or bottom then scroll
+        // the viewport so that we can see more in that direction and are able
+        // to select more than fits in the viewport.
+
+        // This is similar to the logic in the copy mode overlay, but the gap
+        // is smaller because it feels more natural for mouse selection to have
+        // a smaller gpa.
+        const VERTICAL_GAP: isize = 2;
+        let dims = tab.renderer().get_dimensions();
+        let top = self.get_viewport().unwrap_or(dims.physical_top);
+        let vertical_gap = if dims.physical_top <= VERTICAL_GAP { 1 } else { VERTICAL_GAP };
+        let top_gap = y - top;
+        if top_gap < vertical_gap {
+            // Increase the gap so we can "look ahead"
+            self.set_viewport(Some(y.saturating_sub(vertical_gap)), dims);
+        } else {
+            let bottom_gap = (dims.viewport_rows as isize).saturating_sub(top_gap);
+            if bottom_gap < vertical_gap {
+                self.set_viewport(Some(top + vertical_gap - bottom_gap), dims);
+            }
+        }
+
+        self.window.as_ref().unwrap().invalidate();
+    }
+
+    fn select_text_at_mouse_cursor(&mut self, mode: SelectionMode, tab: &Ref<Tab>) {
+        let (x, y) = self.last_mouse_terminal_coords;
+        match mode {
+            SelectionMode::Line => {
+                let start = SelectionCoordinate { x, y };
+                let selection_range = SelectionRange::line_around(start);
+
+                self.selection().start = Some(start);
+                self.selection().range = Some(selection_range);
+            }
+            SelectionMode::Word => {
+                let selection_range =
+                    SelectionRange::word_around(SelectionCoordinate { x, y }, &mut *tab.renderer());
+
+                self.selection().start = Some(selection_range.start);
+                self.selection().range = Some(selection_range);
+            }
+            SelectionMode::Cell => {
+                self.selection().begin(SelectionCoordinate { x, y });
+            }
+        }
+
+        self.window.as_ref().unwrap().invalidate();
+    }
+
     fn mouse_event_terminal(
         &mut self,
         tab: Ref<Tab>,
@@ -967,6 +1054,7 @@ impl TermWindow {
         let dims = tab.renderer().get_dimensions();
         let stable_row = self.get_viewport().unwrap_or(dims.physical_top) + y as StableRowIndex;
 
+        self.last_mouse_terminal_coords = (x, stable_row);
         let (top, mut lines) = tab.renderer().get_lines(stable_row..stable_row + 1);
         let new_highlight = if top == stable_row {
             if let Some(line) = lines.get_mut(0) {
@@ -1035,11 +1123,51 @@ impl TermWindow {
             modifiers: window_mods_to_termwiz_mods(event.modifiers),
         };
 
-        tab.mouse_event(
-            mouse_event,
-            &mut Host { writer: &mut *tab.writer(), context, clipboard: &self.clipboard },
-        )
-        .ok();
+        let event_trigger_type = match &event.kind {
+            WMEK::Press(press) => {
+                let press = mouse_press_to_tmb(press);
+                match self.last_mouse_click.as_ref() {
+                    Some(LastMouseClick { streak, button, .. }) if *button == press => {
+                        Some(MouseEventTrigger::Down { streak: *streak, button: press })
+                    }
+                    _ => None,
+                }
+            }
+            WMEK::Release(press) => {
+                let press = mouse_press_to_tmb(press);
+                match self.last_mouse_click.as_ref() {
+                    Some(LastMouseClick { streak, button, .. }) if *button == press => {
+                        Some(MouseEventTrigger::Up { streak: *streak, button: press })
+                    }
+                    _ => None,
+                }
+            }
+            WMEK::Move => {
+                if let Some(LastMouseClick { streak, button, .. }) = self.last_mouse_click.as_ref()
+                {
+                    if Some(*button) == self.current_mouse_button.as_ref().map(mouse_press_to_tmb) {
+                        Some(MouseEventTrigger::Drag { streak: *streak, button: *button })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            WMEK::VertWheel(_) | WMEK::HorzWheel(_) => None,
+        };
+
+        let event_trigger_type = match event_trigger_type {
+            Some(ett) => ett,
+            None => return,
+        };
+
+        let modifiers = window_mods_to_termwiz_mods(event.modifiers);
+
+        if let Some(action) = self.input_map.lookup_mouse(event_trigger_type.clone(), modifiers) {
+            self.perform_key_assignment(&tab, &action).ok();
+        }
+        tab.mouse_event(mouse_event).ok();
 
         match event.kind {
             WMEK::Move => {}

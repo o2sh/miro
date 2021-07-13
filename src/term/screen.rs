@@ -256,6 +256,15 @@ impl Screen {
         self.phys_to_stable_row_index(self.phys_row(vis))
     }
 
+    pub fn erase_scrollback(&mut self) {
+        let len = self.lines.len();
+        let to_clear = len - self.physical_rows;
+        for _ in 0..to_clear {
+            self.lines.pop_front();
+            self.stable_row_index_offset += 1;
+        }
+    }
+
     pub fn scroll_up(&mut self, scroll_region: &Range<VisibleRowIndex>, num_rows: usize) {
         let phys_scroll = self.phys_range(scroll_region);
         let num_rows = num_rows.min(phys_scroll.end - phys_scroll.start);

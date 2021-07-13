@@ -42,7 +42,7 @@ fn read_from_tab_pty(config: Arc<Config>, mut reader: Box<dyn std::io::Read>) {
                 promise::spawn_into_main_thread_with_low_priority(async move {
                     let mux = Mux::get().unwrap();
                     let tab = mux.get_tab();
-                    tab.advance_bytes(&data, &mut Host { writer: &mut *tab.writer() });
+                    tab.advance_bytes(&data);
                 });
             }
         }
@@ -82,13 +82,14 @@ impl Mux {
         let pair = pty_system.openpty(size)?;
         let child = pair.slave.spawn_command(Command::new(crate::pty::get_shell()?))?;
 
+        let writer = pair.master.try_clone_writer()?;
         let terminal = crate::term::Terminal::new(
             size.rows as usize,
             size.cols as usize,
             size.pixel_width as usize,
             size.pixel_height as usize,
             config.scrollback_lines.unwrap_or(3500),
-            config.hyperlink_rules.clone(),
+            Box::new(writer),
         );
 
         let tab = Tab::new(terminal, child, pair.master);

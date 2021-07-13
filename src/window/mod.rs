@@ -36,7 +36,10 @@ pub type Point = euclid::Point2D<isize, PixelUnit>;
 pub type Rect = euclid::Rect<isize, PixelUnit>;
 pub type Size = euclid::Size2D<isize, PixelUnit>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenPixelUnit;
+pub type ScreenPoint = euclid::Point2D<isize, ScreenPixelUnit>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseCursor {
     Arrow,
     Hand,

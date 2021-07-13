@@ -8,7 +8,7 @@ mod glyphcache;
 mod header;
 mod quad;
 mod renderstate;
-mod selection;
+pub mod selection;
 mod spritesheet;
 mod utilsprites;
 mod window;

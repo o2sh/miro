@@ -7,10 +7,10 @@ use crate::core::escape::osc::{ChangeColorPair, ColorOrQuery};
 use crate::core::escape::{
     Action, ControlCode, Esc, EscCode, OneBased, OperatingSystemCommand, CSI,
 };
-use crate::core::hyperlink::Rule as HyperlinkRule;
 use crate::gui::RenderableDimensions;
+use crate::term::clipboard::Clipboard;
 use crate::term::color::ColorPalette;
-use anyhow::bail;
+use anyhow::{bail, Result};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -42,6 +42,9 @@ impl TabStop {
         None
     }
 
+    /// Respond to the terminal resizing.
+    /// If the screen got bigger, we need to expand the tab stops
+    /// into the new columns with the appropriate width.
     fn resize(&mut self, screen_width: usize) {
         let current = self.tabs.len();
         if screen_width > current {
@@ -52,18 +55,21 @@ impl TabStop {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct SavedCursor {
     position: CursorPosition,
     wrap_next: bool,
-    insert: bool,
+    pen: CellAttributes,
+    dec_origin_mode: bool,
+    // TODO: selective_erase when supported
 }
 
 struct ScreenOrAlt {
+    /// The primary screen + scrollback
     screen: Screen,
-
+    /// The alternate screen; no scrollback
     alt_screen: Screen,
-
+    /// Tells us which screen is active
     alt_screen_is_active: bool,
     saved_cursor: Option<SavedCursor>,
     alt_saved_cursor: Option<SavedCursor>,
@@ -122,10 +128,23 @@ impl ScreenOrAlt {
 
     pub fn activate_alt_screen(&mut self) {
         self.alt_screen_is_active = true;
+        self.dirty_top_phys_rows();
     }
 
     pub fn activate_primary_screen(&mut self) {
         self.alt_screen_is_active = false;
+        self.dirty_top_phys_rows();
+    }
+
+    // When switching between alt and primary screen, we implicitly change
+    // the content associated with StableRowIndex 0..num_rows.  The muxer
+    // use case needs to know to invalidate its cache, so we mark those rows
+    // as dirty.
+    fn dirty_top_phys_rows(&mut self) {
+        let num_rows = self.screen.physical_rows;
+        for line_idx in 0..num_rows {
+            self.screen.line_mut(line_idx).set_dirty();
+        }
     }
 
     pub fn is_alt_screen_active(&self) -> bool {
@@ -141,56 +160,117 @@ impl ScreenOrAlt {
     }
 }
 
+/// Manages the state for the terminal
 pub struct TerminalState {
     screen: ScreenOrAlt,
+    /// The current set of attributes in effect for the next
+    /// attempt to print to the display
     pen: CellAttributes,
+    /// The current cursor position, relative to the top left
+    /// of the screen.  0-based index.
     cursor: CursorPosition,
+
+    /// if true, implicitly move to the next line on the next
+    /// printed character
     wrap_next: bool,
+    clipboard: Option<Arc<dyn Clipboard>>,
+
+    /// If true, writing a character inserts a new cell
     insert: bool,
+
+    /// https://vt100.net/docs/vt510-rm/DECAWM.html
+    dec_auto_wrap: bool,
+
+    /// Reverse Wraparound Mode
+    reverse_wraparound_mode: bool,
+
+    /// https://vt100.net/docs/vt510-rm/DECOM.html
+    /// When OriginMode is enabled, cursor is constrained to the
+    /// scroll region and its position is relative to the scroll
+    /// region.
+    dec_origin_mode: bool,
+
+    /// The scroll region
     scroll_region: Range<VisibleRowIndex>,
+
+    /// When set, modifies the sequence of bytes sent for keys
+    /// designated as cursor keys.  This includes various navigation
+    /// keys.  The code in key_down() is responsible for interpreting this.
     application_cursor_keys: bool,
+
+    dec_ansi_mode: bool,
+
+    /// https://vt100.net/docs/vt3xx-gp/chapter14.html has a discussion
+    /// on what sixel scrolling mode does
+    sixel_scrolling: bool,
+    use_private_color_registers_for_each_graphic: bool,
+
+    /// When set, modifies the sequence of bytes sent for keys
+    /// in the numeric keypad portion of the keyboard.
     application_keypad: bool,
+
+    /// When set, pasting the clipboard should bracket the data with
+    /// designated marker characters.
     bracketed_paste: bool,
+
+    /// Movement events enabled
+    any_event_mouse: bool,
+    /// SGR style mouse tracking and reporting is enabled
     sgr_mouse: bool,
+    mouse_tracking: bool,
+    /// Button events enabled
     button_event_mouse: bool,
     current_mouse_button: MouseButton,
-    mouse_position: CursorPosition,
     cursor_visible: bool,
     dec_line_drawing_mode: bool,
-    current_highlight: Option<Arc<Hyperlink>>,
-    last_mouse_click: Option<LastMouseClick>,
-    pub(crate) viewport_offset: VisibleRowIndex,
-    selection_start: Option<SelectionCoordinate>,
-    selection_range: Option<SelectionRange>,
+
     tabs: TabStop,
-    hyperlink_rules: Vec<HyperlinkRule>,
+
+    /// The terminal title string
     title: String,
     palette: ColorPalette,
+
     pixel_width: usize,
     pixel_height: usize,
+
+    writer: Box<dyn std::io::Write>,
 }
 
-fn is_double_click_word(s: &str) -> bool {
-    if s.len() > 1 {
-        true
-    } else if s.len() == 1 {
-        match s.chars().nth(0).unwrap() {
-            ' ' | '\t' | '\n' | '{' | '[' | '}' | ']' | '(' | ')' | '"' | '\'' => false,
-            _ => true,
-        }
-    } else {
-        false
+fn encode_modifiers(mods: KeyModifiers) -> u8 {
+    let mut number = 0;
+    if mods.contains(KeyModifiers::SHIFT) {
+        number |= 1;
+    }
+    if mods.contains(KeyModifiers::ALT) {
+        number |= 2;
+    }
+    if mods.contains(KeyModifiers::CTRL) {
+        number |= 4;
+    }
+    number
+}
+
+/// characters that when masked for CTRL could be an ascii control character
+/// or could be a key that a user legitimately wants to process in their
+/// terminal application
+fn is_ambiguous_ascii_ctrl(c: char) -> bool {
+    match c {
+        'i' | 'I' | 'm' | 'M' | '[' | '{' | '@' => true,
+        _ => false,
     }
 }
 
 impl TerminalState {
+    /// Constructs the terminal state.
+    /// You generally want the `Terminal` struct rather than this one;
+    /// Terminal contains and dereferences to `TerminalState`.
     pub fn new(
         physical_rows: usize,
         physical_cols: usize,
         pixel_width: usize,
         pixel_height: usize,
         scrollback_size: usize,
-        hyperlink_rules: Vec<HyperlinkRule>,
+        writer: Box<dyn std::io::Write>,
     ) -> TerminalState {
         let screen = ScreenOrAlt::new(physical_rows, physical_cols, scrollback_size);
 
@@ -200,562 +280,433 @@ impl TerminalState {
             cursor: CursorPosition::default(),
             scroll_region: 0..physical_rows as VisibleRowIndex,
             wrap_next: false,
+            // We default auto wrap to true even though the default for
+            // a dec terminal is false, because it is more useful this way.
+            dec_auto_wrap: true,
+            reverse_wraparound_mode: false,
+            dec_origin_mode: false,
             insert: false,
             application_cursor_keys: false,
+            dec_ansi_mode: false,
+            sixel_scrolling: true,
+            use_private_color_registers_for_each_graphic: false,
             application_keypad: false,
             bracketed_paste: false,
             sgr_mouse: false,
+            any_event_mouse: false,
             button_event_mouse: false,
+            mouse_tracking: false,
             cursor_visible: true,
             dec_line_drawing_mode: false,
             current_mouse_button: MouseButton::None,
-            mouse_position: CursorPosition::default(),
-            current_highlight: None,
-            last_mouse_click: None,
-            viewport_offset: 0,
-            selection_range: None,
-            selection_start: None,
             tabs: TabStop::new(physical_cols, 8),
-            hyperlink_rules,
             title: "miro".to_string(),
             palette: ColorPalette::default(),
             pixel_height,
             pixel_width,
+            clipboard: None,
+            writer,
         }
     }
 
+    pub fn set_clipboard(&mut self, clipboard: &Arc<dyn Clipboard>) {
+        self.clipboard.replace(Arc::clone(clipboard));
+    }
+
+    /// Returns the title text associated with the terminal session.
+    /// The title can be changed by the application using a number
+    /// of escape sequences.
     pub fn get_title(&self) -> &str {
         &self.title
     }
 
+    /// Returns a copy of the palette.
+    /// By default we don't keep a copy in the terminal state,
+    /// preferring to take the config values from the users
+    /// config file and updating to changes live.
+    /// However, if they have used dynamic color scheme escape
+    /// sequences we'll fork a copy of the palette at that time
+    /// so that we can start tracking those changes.
     pub fn palette(&self) -> &ColorPalette {
         &self.palette
     }
 
+    /// Returns a reference to the active screen (either the primary or
+    /// the alternate screen).
     pub fn screen(&self) -> &Screen {
         &self.screen
     }
 
+    /// Returns a mutable reference to the active screen (either the primary or
+    /// the alternate screen).
     pub fn screen_mut(&mut self) -> &mut Screen {
         &mut self.screen
     }
 
-    pub fn get_selection_text(&self) -> String {
-        let mut s = String::new();
+    fn set_clipboard_contents(&self, text: Option<String>) -> anyhow::Result<()> {
+        if let Some(clip) = self.clipboard.as_ref() {
+            clip.set_contents(text)?;
+        }
+        Ok(())
+    }
 
-        if let Some(sel) = self.selection_range.as_ref().map(|r| r.normalize()) {
-            let screen = self.screen();
-            let mut last_was_wrapped = false;
-            for y in sel.rows() {
-                let idx = screen.scrollback_or_visible_row(y);
-                let cols = sel.cols_for_row(y);
-                let last_col_idx = cols.end.min(screen.lines[idx].cells().len()) - 1;
-                if !s.is_empty() && !last_was_wrapped {
-                    s.push('\n');
-                }
-                s.push_str(screen.lines[idx].columns_as_str(cols).trim_end());
+    fn legacy_mouse_coord(position: i64) -> char {
+        let pos = if position < 0 || position > 255 - 32 { 0 as u8 } else { position as u8 };
 
-                let last_cell = &screen.lines[idx].cells()[last_col_idx];
+        (pos + 1 + 32) as char
+    }
 
-                last_was_wrapped = last_cell.attrs().wrapped() && last_cell.str() != " ";
-            }
+    fn mouse_report_button_number(&self, event: &MouseEvent) -> i8 {
+        let button = match event.button {
+            MouseButton::None => self.current_mouse_button,
+            b => b,
+        };
+        let mut code = match button {
+            MouseButton::None => 3,
+            MouseButton::Left => 0,
+            MouseButton::Middle => 1,
+            MouseButton::Right => 2,
+            MouseButton::WheelUp(_) => 64,
+            MouseButton::WheelDown(_) => 65,
+        };
+
+        if event.modifiers.contains(KeyModifiers::SHIFT) {
+            code += 4;
+        }
+        if event.modifiers.contains(KeyModifiers::ALT) {
+            code += 8;
+        }
+        if event.modifiers.contains(KeyModifiers::CTRL) {
+            code += 16;
         }
 
-        s
+        code
     }
 
-    fn dirty_selection_lines(&mut self) {
-        if let Some(sel) = self.selection_range.as_ref().map(|r| r.normalize()) {
-            let screen = self.screen_mut();
-            for y in screen.scrollback_or_visible_range(&sel.rows()) {
-                screen.line_mut(y).set_dirty();
-            }
-        }
-    }
+    fn mouse_wheel(&mut self, event: MouseEvent) -> Result<()> {
+        let button = self.mouse_report_button_number(&event);
 
-    pub fn clear_selection(&mut self) {
-        self.dirty_selection_lines();
-        self.selection_range = None;
-        self.selection_start = None;
-    }
-
-    fn clear_selection_if_intersects(
-        &mut self,
-        cols: Range<usize>,
-        row: ScrollbackOrVisibleRowIndex,
-    ) -> bool {
-        let sel = self.selection_range.take();
-        match sel {
-            Some(sel) => {
-                let sel = sel.normalize();
-                let sel_cols = sel.cols_for_row(row);
-                if intersects_range2(cols, sel_cols) {
-                    self.clear_selection();
-                    true
-                } else {
-                    self.selection_range = Some(sel);
-                    false
-                }
-            }
-            None => true,
-        }
-    }
-
-    fn clear_selection_if_intersects_rows(
-        &mut self,
-        rows: Range<ScrollbackOrVisibleRowIndex>,
-    ) -> bool {
-        let sel = self.selection_range.take();
-        match sel {
-            Some(sel) => {
-                let sel_rows = sel.rows();
-                if intersects_range2(rows, sel_rows) {
-                    self.clear_selection();
-                    true
-                } else {
-                    self.selection_range = Some(sel);
-                    false
-                }
-            }
-            None => true,
-        }
-    }
-
-    fn hyperlink_for_cell(
-        &mut self,
-        x: usize,
-        y: ScrollbackOrVisibleRowIndex,
-    ) -> Option<Arc<Hyperlink>> {
-        let rules = &self.hyperlink_rules;
-
-        let idx = self.screen.scrollback_or_visible_row(y);
-        match self.screen.lines.get_mut(idx) {
-            Some(ref mut line) => {
-                line.scan_and_create_hyperlinks(rules);
-                match line.cells().get(x) {
-                    Some(cell) => cell.attrs().hyperlink.as_ref().cloned(),
-                    None => None,
-                }
-            }
-            None => None,
-        }
-    }
-
-    fn invalidate_hyperlinks(&mut self) {
-        let screen = self.screen_mut();
-        for line in &mut screen.lines {
-            if line.has_hyperlink() {
-                line.set_dirty();
-            }
-        }
-    }
-
-    fn recompute_highlight(&mut self) {
-        let line_idx = self.mouse_position.y as ScrollbackOrVisibleRowIndex
-            - self.viewport_offset as ScrollbackOrVisibleRowIndex;
-        let x = self.mouse_position.x;
-        self.current_highlight = self.hyperlink_for_cell(x, line_idx);
-        self.invalidate_hyperlinks();
-    }
-
-    fn mouse_single_click_left(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
-        self.selection_range = None;
-        self.selection_start = Some(SelectionCoordinate {
-            x: event.x,
-            y: event.y as ScrollbackOrVisibleRowIndex
-                - self.viewport_offset as ScrollbackOrVisibleRowIndex,
-        });
-        host.get_clipboard()?.set_contents(None)
-    }
-
-    fn mouse_double_click_left(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
-        let y = event.y as ScrollbackOrVisibleRowIndex
-            - self.viewport_offset as ScrollbackOrVisibleRowIndex;
-
-        let idx = self.screen().scrollback_or_visible_row(y);
-        let selection_range = match self.screen().lines[idx]
-            .compute_double_click_range(event.x, is_double_click_word)
+        if self.sgr_mouse
+            && (self.mouse_tracking || self.button_event_mouse || self.any_event_mouse)
         {
-            DoubleClickRange::Range(click_range) => SelectionRange {
-                start: SelectionCoordinate { x: click_range.start, y },
-                end: SelectionCoordinate { x: click_range.end - 1, y },
-            },
-            DoubleClickRange::RangeWithWrap(range_start) => {
-                let start_coord = SelectionCoordinate { x: range_start.start, y };
-
-                let mut end_coord = SelectionCoordinate { x: range_start.end - 1, y };
-
-                for y_cont in idx + 1..self.screen().lines.len() {
-                    match self.screen().lines[y_cont]
-                        .compute_double_click_range(0, is_double_click_word)
-                    {
-                        DoubleClickRange::Range(range_end) => {
-                            if range_end.end > range_end.start {
-                                end_coord = SelectionCoordinate {
-                                    x: range_end.end - 1,
-                                    y: y + (y_cont - idx) as i32,
-                                };
-                            }
-                            break;
-                        }
-                        DoubleClickRange::RangeWithWrap(range_end) => {
-                            end_coord = SelectionCoordinate {
-                                x: range_end.end - 1,
-                                y: y + (y_cont - idx) as i32,
-                            };
-                        }
-                    }
-                }
-
-                SelectionRange { start: start_coord, end: end_coord }
-            }
-        };
-
-        self.selection_start = Some(selection_range.start);
-        self.selection_range = Some(selection_range);
-
-        self.dirty_selection_lines();
-        let text = self.get_selection_text();
-        host.get_clipboard()?.set_contents(Some(text))
-    }
-
-    fn mouse_triple_click_left(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
-        let y = event.y as ScrollbackOrVisibleRowIndex
-            - self.viewport_offset as ScrollbackOrVisibleRowIndex;
-        self.selection_start = Some(SelectionCoordinate { x: event.x, y });
-        self.selection_range = Some(SelectionRange {
-            start: SelectionCoordinate { x: 0, y },
-            end: SelectionCoordinate { x: usize::max_value(), y },
-        });
-        self.dirty_selection_lines();
-        let text = self.get_selection_text();
-        host.get_clipboard()?.set_contents(Some(text))
-    }
-
-    fn mouse_press_left(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
-        self.current_mouse_button = MouseButton::Left;
-        self.dirty_selection_lines();
-        match self.last_mouse_click.as_ref() {
-            Some(&LastMouseClick { streak: 1, .. }) => {
-                self.mouse_single_click_left(event, host)?;
-            }
-            Some(&LastMouseClick { streak: 2, .. }) => {
-                self.mouse_double_click_left(event, host)?;
-            }
-            Some(&LastMouseClick { streak: 3, .. }) => {
-                self.mouse_triple_click_left(event, host)?;
-            }
-
-            _ => {
-                self.selection_range = None;
-                self.selection_start = None;
-                host.get_clipboard()?.set_contents(None)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn mouse_release_left(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
-        self.current_mouse_button = MouseButton::None;
-        if let Some(&LastMouseClick { streak: 1, .. }) = self.last_mouse_click.as_ref() {
-            let text = self.get_selection_text();
-            if !text.is_empty() {
-                host.get_clipboard()?.set_contents(Some(text))?;
-            } else if let Some(link) = self.current_highlight() {
-                host.click_link(&link);
-            }
-            Ok(())
-        } else {
-            self.mouse_button_release(event, host.writer())
-        }
-    }
-
-    fn mouse_drag_left(&mut self, event: MouseEvent) -> anyhow::Result<()> {
-        self.dirty_selection_lines();
-        let end = SelectionCoordinate {
-            x: event.x,
-            y: event.y as ScrollbackOrVisibleRowIndex
-                - self.viewport_offset as ScrollbackOrVisibleRowIndex,
-        };
-        let sel = match self.selection_range.take() {
-            None => SelectionRange::start(self.selection_start.unwrap_or(end)).extend(end),
-            Some(sel) => sel.extend(end),
-        };
-        self.selection_range = Some(sel);
-
-        self.dirty_selection_lines();
-        Ok(())
-    }
-
-    fn mouse_wheel(
-        &mut self,
-        event: MouseEvent,
-        writer: &mut dyn std::io::Write,
-    ) -> anyhow::Result<()> {
-        let (report_button, scroll_delta, key) = match event.button {
-            MouseButton::WheelUp(amount) => (64, -(amount as i64), KeyCode::UpArrow),
-            MouseButton::WheelDown(amount) => (65, amount as i64, KeyCode::DownArrow),
-            _ => bail!("unexpected mouse event {:?}", event),
-        };
-
-        if self.sgr_mouse {
-            writer.write_all(
-                format!("\x1b[<{};{};{}M", report_button, event.x + 1, event.y + 1).as_bytes(),
+            write!(self.writer, "\x1b[<{};{};{}M", button, event.x + 1, event.y + 1)?;
+        } else if self.mouse_tracking || self.button_event_mouse || self.any_event_mouse {
+            write!(
+                self.writer,
+                "\x1b[M{}{}{}",
+                (32 + button) as u8 as char,
+                Self::legacy_mouse_coord(event.x as i64),
+                Self::legacy_mouse_coord(event.y),
             )?;
         } else if self.screen.is_alt_screen_active() {
-            self.key_down(key, KeyModifiers::default(), writer)?;
-        } else {
-            self.scroll_viewport(scroll_delta)
+            // Send cursor keys instead (equivalent to xterm's alternateScroll mode)
+            self.key_down(
+                match event.button {
+                    MouseButton::WheelDown(_) => KeyCode::DownArrow,
+                    MouseButton::WheelUp(_) => KeyCode::UpArrow,
+                    _ => panic!(""),
+                },
+                KeyModifiers::default(),
+            )?;
         }
         Ok(())
     }
 
-    fn mouse_button_press(
-        &mut self,
-        event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
+    fn mouse_button_press(&mut self, event: MouseEvent) -> Result<()> {
         self.current_mouse_button = event.button;
-        if let Some(button) = match event.button {
-            MouseButton::Left => Some(0),
-            MouseButton::Middle => Some(1),
-            MouseButton::Right => Some(2),
-            _ => None,
-        } {
+
+        if !(self.mouse_tracking || self.button_event_mouse || self.any_event_mouse) {
+            return Ok(());
+        }
+
+        let button = self.mouse_report_button_number(&event);
+        if self.sgr_mouse {
+            write!(self.writer, "\x1b[<{};{};{}M", button, event.x + 1, event.y + 1)?;
+        } else {
+            write!(
+                self.writer,
+                "\x1b[M{}{}{}",
+                (32 + button) as u8 as char,
+                Self::legacy_mouse_coord(event.x as i64),
+                Self::legacy_mouse_coord(event.y),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn mouse_button_release(&mut self, event: MouseEvent) -> Result<()> {
+        if self.current_mouse_button != MouseButton::None
+            && (self.mouse_tracking || self.button_event_mouse || self.any_event_mouse)
+        {
             if self.sgr_mouse {
-                host.writer().write_all(
-                    format!("\x1b[<{};{};{}M", button, event.x + 1, event.y + 1).as_bytes(),
+                let release_button = self.mouse_report_button_number(&event);
+                self.current_mouse_button = MouseButton::None;
+                write!(self.writer, "\x1b[<{};{};{}m", release_button, event.x + 1, event.y + 1)?;
+            } else {
+                let release_button = 3;
+                self.current_mouse_button = MouseButton::None;
+                write!(
+                    self.writer,
+                    "\x1b[M{}{}{}",
+                    (32 + release_button) as u8 as char,
+                    Self::legacy_mouse_coord(event.x as i64),
+                    Self::legacy_mouse_coord(event.y),
                 )?;
-            } else if event.button == MouseButton::Middle {
-                let clip = host.get_clipboard()?.get_contents()?;
-                self.send_paste(&clip, host.writer())?
             }
         }
 
         Ok(())
     }
 
-    fn mouse_button_release(
-        &mut self,
-        event: MouseEvent,
-        writer: &mut dyn std::io::Write,
-    ) -> anyhow::Result<()> {
-        if self.current_mouse_button != MouseButton::None {
-            self.current_mouse_button = MouseButton::None;
+    fn mouse_move(&mut self, event: MouseEvent) -> Result<()> {
+        let reportable = self.any_event_mouse || self.current_mouse_button != MouseButton::None;
+        // Note: self.mouse_tracking on its own is for clicks, not drags!
+        if reportable && (self.button_event_mouse || self.any_event_mouse) {
+            let button = 32 + self.mouse_report_button_number(&event);
+
             if self.sgr_mouse {
-                write!(writer, "\x1b[<3;{};{}m", event.x + 1, event.y + 1)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn mouse_move(
-        &mut self,
-        event: MouseEvent,
-        writer: &mut dyn std::io::Write,
-    ) -> anyhow::Result<()> {
-        if let Some(button) = match (self.current_mouse_button, self.button_event_mouse) {
-            (MouseButton::Left, true) => Some(32),
-            (MouseButton::Middle, true) => Some(33),
-            (MouseButton::Right, true) => Some(34),
-            (..) => None,
-        } {
-            if self.sgr_mouse {
-                write!(writer, "\x1b[<{};{};{}M", button, event.x + 1, event.y + 1)?;
+                write!(self.writer, "\x1b[<{};{};{}M", button, event.x + 1, event.y + 1)?;
+            } else {
+                write!(
+                    self.writer,
+                    "\x1b[M{}{}{}",
+                    (32 + button) as u8 as char,
+                    Self::legacy_mouse_coord(event.x as i64),
+                    Self::legacy_mouse_coord(event.y),
+                )?;
             }
         }
         Ok(())
     }
 
-    pub fn mouse_event(
-        &mut self,
-        mut event: MouseEvent,
-        host: &mut dyn TerminalHost,
-    ) -> anyhow::Result<()> {
+    /// Informs the terminal of a mouse event.
+    /// If mouse reporting has been activated, the mouse event will be encoded
+    /// appropriately and written to the associated writer.
+    pub fn mouse_event(&mut self, mut event: MouseEvent) -> Result<()> {
+        // Clamp the mouse coordinates to the size of the model.
+        // This situation can trigger for example when the
+        // window is resized and leaves a partial row at the bottom of the
+        // terminal.  The mouse can move over that portion and the gui layer
+        // can thus send us out-of-bounds row or column numbers.  We want to
+        // make sure that we clamp this and handle it nicely at the model layer.
         event.y = event.y.min(self.screen().physical_rows as i64 - 1);
         event.x = event.x.min(self.screen().physical_cols - 1);
-
-        let new_position = CursorPosition { x: event.x, y: event.y as VisibleRowIndex };
-
-        if new_position != self.mouse_position {
-            self.mouse_position = new_position;
-            self.recompute_highlight();
-        }
-
-        let send_event = self.sgr_mouse && !event.modifiers.contains(KeyModifiers::SHIFT);
-
-        if event.kind == MouseEventKind::Press {
-            let click = match self.last_mouse_click.take() {
-                None => LastMouseClick::new(event.button),
-                Some(click) => click.add(event.button),
-            };
-            self.last_mouse_click = Some(click);
-        }
-
-        if !send_event {
-            match (event, self.current_mouse_button) {
-                (MouseEvent { kind: MouseEventKind::Press, button: MouseButton::Left, .. }, _) => {
-                    return self.mouse_press_left(event, host);
-                }
-                (
-                    MouseEvent { kind: MouseEventKind::Release, button: MouseButton::Left, .. },
-                    _,
-                ) => {
-                    return self.mouse_release_left(event, host);
-                }
-                (MouseEvent { kind: MouseEventKind::Move, .. }, MouseButton::Left) => {
-                    return self.mouse_drag_left(event);
-                }
-                _ => {}
-            }
-        }
 
         match event {
             MouseEvent { kind: MouseEventKind::Press, button: MouseButton::WheelUp(_), .. }
             | MouseEvent {
                 kind: MouseEventKind::Press, button: MouseButton::WheelDown(_), ..
-            } => self.mouse_wheel(event, host.writer()),
-            MouseEvent { kind: MouseEventKind::Press, .. } => self.mouse_button_press(event, host),
-            MouseEvent { kind: MouseEventKind::Release, .. } => {
-                self.mouse_button_release(event, host.writer())
-            }
-            MouseEvent { kind: MouseEventKind::Move, .. } => self.mouse_move(event, host.writer()),
+            } => self.mouse_wheel(event),
+            MouseEvent { kind: MouseEventKind::Press, .. } => self.mouse_button_press(event),
+            MouseEvent { kind: MouseEventKind::Release, .. } => self.mouse_button_release(event),
+            MouseEvent { kind: MouseEventKind::Move, .. } => self.mouse_move(event),
         }
     }
 
-    pub fn send_paste(
-        &mut self,
-        text: &str,
-        writer: &mut dyn std::io::Write,
-    ) -> anyhow::Result<()> {
+    /// Discards the scrollback, leaving only the data that is present
+    /// in the viewport.
+    pub fn erase_scrollback(&mut self) {
+        self.screen_mut().erase_scrollback();
+    }
+
+    /// Returns true if the associated application has enabled any of the
+    /// supported mouse reporting modes.
+    /// This is useful for the hosting GUI application to decide how best
+    /// to dispatch mouse events to the terminal.
+    pub fn is_mouse_grabbed(&self) -> bool {
+        self.mouse_tracking || self.button_event_mouse || self.any_event_mouse
+    }
+
+    /// Returns true if the associated application has enabled
+    /// bracketed paste mode, which can be helpful to the hosting
+    /// GUI application to decide about fragmenting a large paste.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste
+    }
+
+    /// Send text to the terminal that is the result of pasting.
+    /// If bracketed paste mode is enabled, the paste is enclosed
+    /// in the bracketing, otherwise it is fed to the writer as-is.
+    pub fn send_paste(&mut self, text: &str) -> Result<()> {
         if self.bracketed_paste {
             let buf = format!("\x1b[200~{}\x1b[201~", text);
-            writer.write_all(buf.as_bytes())?;
+            self.writer.write_all(buf.as_bytes())?;
         } else {
-            writer.write_all(text.as_bytes())?;
+            self.writer.write_all(text.as_bytes())?;
         }
         Ok(())
     }
 
-    pub fn key_down(
-        &mut self,
-        key: KeyCode,
-        mods: KeyModifiers,
-        writer: &mut dyn std::io::Write,
-    ) -> anyhow::Result<()> {
-        const CTRL: KeyModifiers = KeyModifiers::CTRL;
-        const SHIFT: KeyModifiers = KeyModifiers::SHIFT;
-        const ALT: KeyModifiers = KeyModifiers::ALT;
-        const NO: KeyModifiers = KeyModifiers::NONE;
-        const APPCURSOR: bool = true;
+    fn csi_u_encode(&self, buf: &mut String, c: char, mods: KeyModifiers) -> Result<()> {
+        let c = if mods.contains(KeyModifiers::CTRL) { ((c as u8) & 0x1f) as char } else { c };
+        if mods.contains(KeyModifiers::ALT) {
+            buf.push(0x1b as char);
+        }
+        write!(buf, "{}", c)?;
+        Ok(())
+    }
+
+    /// Processes a key_down event generated by the gui/render layer
+    /// that is embedding the Terminal.  This method translates the
+    /// keycode into a sequence of bytes to send to the slave end
+    /// of the pty via the `Write`-able object provided by the caller.
+    #[allow(clippy::cognitive_complexity)]
+    pub fn key_down(&mut self, key: KeyCode, mods: KeyModifiers) -> Result<()> {
         use crate::core::input::KeyCode::*;
 
-        let ctrl = mods & CTRL;
-        let shift = mods & SHIFT;
-        let alt = mods & ALT;
+        let mods = match key {
+            Char(c)
+                if (c.is_ascii_punctuation() || c.is_ascii_uppercase())
+                    && mods.contains(KeyModifiers::SHIFT) =>
+            {
+                mods & !KeyModifiers::SHIFT
+            }
+            _ => mods,
+        };
+
+        // Normalize Backspace and Delete
+        let key = match key {
+            Char('\x7f') => Delete,
+            Char('\x08') => Backspace,
+            c => c,
+        };
 
         let mut buf = String::new();
 
-        let to_send = match (key, ctrl, alt, shift, self.application_cursor_keys) {
-            (Char(c), _, ALT, ..) if c.is_ascii_alphanumeric() || c.is_ascii_punctuation() => {
+        // TODO: also respect self.application_keypad
+
+        let to_send = match key {
+            Char(c) if is_ambiguous_ascii_ctrl(c) && mods.contains(KeyModifiers::CTRL) => {
+                self.csi_u_encode(&mut buf, c, mods)?;
+                buf.as_str()
+            }
+            Char(c) if c.is_ascii_uppercase() && mods.contains(KeyModifiers::CTRL) => {
+                self.csi_u_encode(&mut buf, c, mods)?;
+                buf.as_str()
+            }
+
+            Char(c)
+                if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c == ' ')
+                    && mods.contains(KeyModifiers::CTRL) =>
+            {
+                let c = ((c as u8) & 0x1f) as char;
+                if mods.contains(KeyModifiers::ALT) {
+                    buf.push(0x1b as char);
+                }
+                buf.push(c);
+                buf.as_str()
+            }
+
+            // When alt is pressed, send escape first to indicate to the peer that
+            // ALT is pressed.  We do this only for ascii alnum characters because
+            // eg: on macOS generates altgr style glyphs and keeps the ALT key
+            // in the modifier set.  This confuses eg: zsh which then just displays
+            // <fffffffff> as the input, so we want to avoid that.
+            Char(c)
+                if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
+                    && mods.contains(KeyModifiers::ALT) =>
+            {
                 buf.push(0x1b as char);
                 buf.push(c);
                 buf.as_str()
             }
-            (Backspace, _, ALT, ..) => "\x1b\x08",
-            (UpArrow, _, ALT, ..) => "\x1b\x1b[A",
-            (DownArrow, _, ALT, ..) => "\x1b\x1b[B",
-            (RightArrow, _, ALT, ..) => "\x1b\x1b[C",
-            (LeftArrow, _, ALT, ..) => "\x1b\x1b[D",
 
-            (Tab, ..) => "\t",
-            (Enter, ..) => "\r",
-            (Backspace, ..) => "\x08",
-            (Escape, ..) => "\x1b",
-
-            (Char('\x7f'), _, _, _, false) | (Delete, _, _, _, false) => "\x7f",
-            (Char('\x7f'), _, _, _, true) | (Delete, _, _, _, true) => "\x7f",
-
-            (Char(c), CTRL, _, SHIFT, _) if c <= 0xff as char && c > 0x40 as char => {
-                buf.push((c as u8 - 0x40) as char);
-                buf.as_str()
-            }
-            (Char(c), CTRL, ..) if c <= 0xff as char && c > 0x60 as char => {
-                buf.push((c as u8 - 0x60) as char);
-                buf.as_str()
-            }
-            (Char(c), ..) => {
-                buf.push(c);
+            Enter | Escape | Backspace => {
+                let c = match key {
+                    Enter => '\r',
+                    Escape => '\x1b',
+                    // Backspace sends the default VERASE which is confusingly
+                    // the DEL ascii codepoint
+                    Backspace => '\x7f',
+                    _ => unreachable!(),
+                };
+                if mods.contains(KeyModifiers::SHIFT) || mods.contains(KeyModifiers::CTRL) {
+                    self.csi_u_encode(&mut buf, c, mods)?;
+                } else {
+                    if mods.contains(KeyModifiers::ALT) && key != Escape {
+                        buf.push(0x1b as char);
+                    }
+                    buf.push(c);
+                }
                 buf.as_str()
             }
 
-            (UpArrow, _, _, _, APPCURSOR) => "\x1bOA",
-            (DownArrow, _, _, _, APPCURSOR) => "\x1bOB",
-            (RightArrow, _, _, _, APPCURSOR) => "\x1bOC",
-            (LeftArrow, _, _, _, APPCURSOR) => "\x1bOD",
-            (Home, _, _, _, APPCURSOR) => "\x1bOH",
-            (End, _, _, _, APPCURSOR) => "\x1bOF",
-            (ApplicationUpArrow, ..) => "\x1bOA",
-            (ApplicationDownArrow, ..) => "\x1bOB",
-            (ApplicationRightArrow, ..) => "\x1bOC",
-            (ApplicationLeftArrow, ..) => "\x1bOD",
-
-            (UpArrow, ..) => "\x1b[A",
-            (DownArrow, ..) => "\x1b[B",
-            (RightArrow, ..) => "\x1b[C",
-            (LeftArrow, ..) => "\x1b[D",
-            (PageUp, _, _, SHIFT, _) => {
-                let rows = self.screen().physical_rows as i64;
-                self.scroll_viewport(-rows);
-                ""
+            Tab => {
+                if mods.contains(KeyModifiers::ALT) {
+                    buf.push(0x1b as char);
+                }
+                let mods = mods & !KeyModifiers::ALT;
+                if mods == KeyModifiers::CTRL {
+                    buf.push_str("\x1b[9;5u");
+                } else if mods == KeyModifiers::CTRL | KeyModifiers::SHIFT {
+                    buf.push_str("\x1b[1;5Z");
+                } else if mods == KeyModifiers::SHIFT {
+                    buf.push_str("\x1b[Z");
+                } else {
+                    buf.push('\t');
+                }
+                buf.as_str()
             }
-            (PageDown, _, _, SHIFT, _) => {
-                let rows = self.screen().physical_rows as i64;
-                self.scroll_viewport(rows);
-                ""
-            }
-            (PageUp, ..) => "\x1b[5~",
-            (PageDown, ..) => "\x1b[6~",
-            (Home, ..) => "\x1b[H",
-            (End, ..) => "\x1b[F",
-            (Insert, ..) => "\x1b[2~",
 
-            (Function(n), ..) => {
-                let modifier = match (ctrl, alt, shift) {
-                    (NO, NO, NO) => "",
-                    (NO, NO, SHIFT) => ";2",
-                    (NO, ALT, NO) => ";3",
-                    (NO, ALT, SHIFT) => ";4",
-                    (CTRL, NO, NO) => ";5",
-                    (CTRL, NO, SHIFT) => ";6",
-                    (CTRL, ALT, NO) => ";7",
-                    (CTRL, ALT, SHIFT) => ";8",
-                    _ => unreachable!("invalid modifiers!?"),
+            Char(c) => {
+                if mods.is_empty() {
+                    buf.push(c);
+                } else {
+                    self.csi_u_encode(&mut buf, c, mods)?;
+                }
+                buf.as_str()
+            }
+
+            Home
+            | End
+            | UpArrow
+            | DownArrow
+            | RightArrow
+            | LeftArrow
+            | ApplicationUpArrow
+            | ApplicationDownArrow
+            | ApplicationRightArrow
+            | ApplicationLeftArrow => {
+                let (force_app, c) = match key {
+                    UpArrow => (false, 'A'),
+                    DownArrow => (false, 'B'),
+                    RightArrow => (false, 'C'),
+                    LeftArrow => (false, 'D'),
+                    Home => (false, 'H'),
+                    End => (false, 'F'),
+                    ApplicationUpArrow => (true, 'A'),
+                    ApplicationDownArrow => (true, 'B'),
+                    ApplicationRightArrow => (true, 'C'),
+                    ApplicationLeftArrow => (true, 'D'),
+                    _ => unreachable!(),
+                };
+                buf.as_str()
+            }
+
+            PageUp | PageDown | Insert | Delete => {
+                let c = match key {
+                    Insert => 2,
+                    Delete => 3,
+                    PageUp => 5,
+                    PageDown => 6,
+                    _ => unreachable!(),
                 };
 
-                if modifier.is_empty() && n < 5 {
+                if mods.contains(KeyModifiers::SHIFT) || mods.contains(KeyModifiers::CTRL) {
+                    write!(buf, "\x1b[{};{}~", c, 1 + encode_modifiers(mods))?;
+                } else {
+                    if mods.contains(KeyModifiers::ALT) {
+                        buf.push(0x1b as char);
+                    }
+                    write!(buf, "\x1b[{}~", c)?;
+                }
+                buf.as_str()
+            }
+
+            Function(n) => {
+                if mods.is_empty() && n < 5 {
+                    // F1-F4 are encoded using SS3 if there are no modifiers
                     match n {
                         1 => "\x1bOP",
                         2 => "\x1bOQ",
@@ -764,6 +715,8 @@ impl TerminalState {
                         _ => unreachable!("wat?"),
                     }
                 } else {
+                    // Higher numbered F-keys plus modified F-keys are encoded
+                    // using CSI instead of SS3.
                     let intro = match n {
                         1 => "\x1b[11",
                         2 => "\x1b[12",
@@ -777,88 +730,37 @@ impl TerminalState {
                         10 => "\x1b[21",
                         11 => "\x1b[23",
                         12 => "\x1b[24",
-                        _ => bail!("unhandled fkey number {}", n),
+                        _ => panic!(""),
                     };
-                    write!(buf, "{}{}~", intro, modifier)?;
+                    write!(buf, "{};{}~", intro, 1 + encode_modifiers(mods))?;
                     buf.as_str()
                 }
             }
 
-            (Numpad0, ..)
-            | (Numpad1, ..)
-            | (Numpad2, ..)
-            | (Numpad3, ..)
-            | (Numpad4, ..)
-            | (Numpad5, ..)
-            | (Numpad6, ..)
-            | (Numpad7, ..)
-            | (Numpad8, ..)
-            | (Numpad9, ..)
-            | (Multiply, ..)
-            | (Add, ..)
-            | (Separator, ..)
-            | (Subtract, ..)
-            | (Decimal, ..)
-            | (Divide, ..) => "",
+            // TODO: emit numpad sequences
+            Numpad0 | Numpad1 | Numpad2 | Numpad3 | Numpad4 | Numpad5 | Numpad6 | Numpad7
+            | Numpad8 | Numpad9 | Multiply | Add | Separator | Subtract | Decimal | Divide => "",
 
-            (Control, ..)
-            | (LeftControl, ..)
-            | (RightControl, ..)
-            | (Alt, ..)
-            | (LeftAlt, ..)
-            | (RightAlt, ..)
-            | (Menu, ..)
-            | (LeftMenu, ..)
-            | (RightMenu, ..)
-            | (Super, ..)
-            | (Hyper, ..)
-            | (Shift, ..)
-            | (LeftShift, ..)
-            | (RightShift, ..)
-            | (Meta, ..)
-            | (LeftWindows, ..)
-            | (RightWindows, ..)
-            | (NumLock, ..)
-            | (ScrollLock, ..) => "",
+            // Modifier keys pressed on their own don't expand to anything
+            Control | LeftControl | RightControl | Alt | LeftAlt | RightAlt | Menu | LeftMenu
+            | RightMenu | Super | Hyper | Shift | LeftShift | RightShift | Meta | LeftWindows
+            | RightWindows | NumLock | ScrollLock => "",
 
-            (Cancel, ..)
-            | (Clear, ..)
-            | (Pause, ..)
-            | (CapsLock, ..)
-            | (Select, ..)
-            | (Print, ..)
-            | (PrintScreen, ..)
-            | (Execute, ..)
-            | (Help, ..)
-            | (Applications, ..)
-            | (Sleep, ..)
-            | (BrowserBack, ..)
-            | (BrowserForward, ..)
-            | (BrowserRefresh, ..)
-            | (BrowserStop, ..)
-            | (BrowserSearch, ..)
-            | (BrowserFavorites, ..)
-            | (BrowserHome, ..)
-            | (VolumeMute, ..)
-            | (VolumeDown, ..)
-            | (VolumeUp, ..)
-            | (MediaNextTrack, ..)
-            | (MediaPrevTrack, ..)
-            | (MediaStop, ..)
-            | (MediaPlayPause, ..)
-            | (InternalPasteStart, ..)
-            | (InternalPasteEnd, ..) => "",
+            Cancel | Clear | Pause | CapsLock | Select | Print | PrintScreen | Execute | Help
+            | Applications | Sleep | BrowserBack | BrowserForward | BrowserRefresh
+            | BrowserStop | BrowserSearch | BrowserFavorites | BrowserHome | VolumeMute
+            | VolumeDown | VolumeUp | MediaNextTrack | MediaPrevTrack | MediaStop
+            | MediaPlayPause | InternalPasteStart | InternalPasteEnd => "",
         };
 
-        writer.write_all(to_send.as_bytes())?;
-
-        if !to_send.is_empty() && self.viewport_offset != 0 {
-            self.set_scroll_viewport(0);
-        }
+        // debug!("sending {:?}, {:?}", to_send, key);
+        self.writer.write_all(to_send.as_bytes())?;
 
         Ok(())
     }
 
+    /// Informs the terminal that the viewport of the window has resized to the
+    /// specified dimensions.
     pub fn resize(
         &mut self,
         physical_rows: usize,
@@ -877,13 +779,21 @@ impl TerminalState {
         );
     }
 
+    /// Clear the dirty flag for all dirty lines
+    pub fn clean_dirty_lines(&mut self) {
+        let screen = self.screen_mut();
+        for line in &mut screen.lines {
+            line.clear_dirty();
+        }
+    }
+
+    /// When dealing with selection, mark a range of lines as dirty
     pub fn make_all_lines_dirty(&mut self) {
         let screen = self.screen_mut();
         for line in &mut screen.lines {
             line.set_dirty();
         }
     }
-
     pub fn get_cursor_position(&self) -> CursorPosition {
         let pos = self.cursor_pos();
 
@@ -939,14 +849,14 @@ impl TerminalState {
         (screen.physical_rows, screen.physical_cols)
     }
 
+    /// Returns the 0-based cursor position relative to the top left of
+    /// the visible screen
     pub fn cursor_pos(&self) -> CursorPosition {
-        CursorPosition { x: self.cursor.x, y: self.cursor.y + self.viewport_offset }
+        CursorPosition { x: self.cursor.x, y: self.cursor.y }
     }
 
-    pub fn current_highlight(&self) -> Option<Arc<Hyperlink>> {
-        self.current_highlight.as_ref().cloned()
-    }
-
+    /// Sets the cursor position. x and y are 0-based and relative to the
+    /// top left of the visible screen.
     fn set_cursor_pos(&mut self, x: &Position, y: &Position) {
         let x = match *x {
             Position::Relative(x) => (self.cursor.x as i64 + x).max(0),
@@ -960,50 +870,28 @@ impl TerminalState {
         let rows = self.screen().physical_rows;
         let cols = self.screen().physical_cols;
         let old_y = self.cursor.y;
-        let new_y = y.min(rows as i64 - 1);
 
         self.cursor.x = x.min(cols as i64 - 1) as usize;
-        self.cursor.y = new_y;
+
+        if self.dec_origin_mode {
+            self.cursor.y = (self.scroll_region.start + y).min(self.scroll_region.end - 1);
+        } else {
+            self.cursor.y = y.min(rows as i64 - 1);
+        }
         self.wrap_next = false;
 
+        let new_y = self.cursor.y;
         let screen = self.screen_mut();
         screen.dirty_line(old_y);
         screen.dirty_line(new_y);
     }
 
-    fn set_scroll_viewport(&mut self, position: VisibleRowIndex) {
-        self.clear_selection();
-        let position = position.max(0);
-
-        let rows = self.screen().physical_rows;
-        let avail_scrollback = self.screen().lines.len() - rows;
-
-        let position = position.min(avail_scrollback as i64);
-
-        self.viewport_offset = position;
-        let top = self.screen().lines.len() - (rows + position as usize);
-        {
-            let screen = self.screen_mut();
-            for y in top..top + rows {
-                screen.line_mut(y).set_dirty();
-            }
-        }
-        self.recompute_highlight();
-    }
-
-    pub fn scroll_viewport(&mut self, delta: VisibleRowIndex) {
-        let position = self.viewport_offset - delta;
-        self.set_scroll_viewport(position);
-    }
-
     fn scroll_up(&mut self, num_rows: usize) {
-        self.clear_selection();
         let scroll_region = self.scroll_region.clone();
         self.screen_mut().scroll_up(&scroll_region, num_rows)
     }
 
     fn scroll_down(&mut self, num_rows: usize) {
-        self.clear_selection();
         let scroll_region = self.scroll_region.clone();
         self.screen_mut().scroll_down(&scroll_region, num_rows)
     }
@@ -1020,6 +908,8 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Absolute(y as i64));
     }
 
+    /// Moves the cursor down one line in the same column.
+    /// If the cursor is at the bottom margin, the page scrolls up.
     fn c1_index(&mut self) {
         let y = self.cursor.y;
         let y = if y == self.scroll_region.end - 1 {
@@ -1031,14 +921,20 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Relative(0), &Position::Absolute(y as i64));
     }
 
+    /// Moves the cursor to the first position on the next line.
+    /// If the cursor is at the bottom margin, the page scrolls up.
     fn c1_nel(&mut self) {
         self.new_line(true);
     }
 
+    /// Sets a horizontal tab stop at the column where the cursor is.
     fn c1_hts(&mut self) {
         self.tabs.set_tab_stop(self.cursor.x);
     }
 
+    /// Moves the cursor to the next tab stop. If there are no more tab stops,
+    /// the cursor moves to the right margin. HT does not cause text to auto
+    /// wrap.
     fn c0_horizontal_tab(&mut self) {
         let x = match self.tabs.find_next_tab_stop(self.cursor.x) {
             Some(x) => x,
@@ -1047,6 +943,8 @@ impl TerminalState {
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Relative(0));
     }
 
+    /// Move the cursor up 1 line.  If the position is at the top scroll margin,
+    /// scroll the region down.
     fn c1_reverse_index(&mut self) {
         let y = self.cursor.y;
         let y = if y == self.scroll_region.start {
@@ -1065,20 +963,37 @@ impl TerminalState {
         }
     }
 
-    fn perform_device(&mut self, dev: Device, host: &mut dyn TerminalHost) {
+    fn perform_device(&mut self, dev: Device) {
         match dev {
-            Device::DeviceAttributes(_) => {}
+            Device::DeviceAttributes(a) => {}
             Device::SoftReset => {
+                // TODO: see https://vt100.net/docs/vt510-rm/DECSTR.html
                 self.pen = CellAttributes::default();
+                self.insert = false;
+                self.dec_auto_wrap = false;
+                self.application_cursor_keys = false;
+                self.application_keypad = false;
+                self.scroll_region = 0..self.screen().physical_rows as i64;
+                self.screen.activate_alt_screen();
+                self.screen.saved_cursor().take();
+                self.screen.activate_primary_screen();
+                self.screen.saved_cursor().take();
+
+                self.reverse_wraparound_mode = false;
             }
             Device::RequestPrimaryDeviceAttributes => {
-                host.writer().write(DEVICE_IDENT).ok();
+                let mut ident = "\x1b[?63".to_string(); // Vt320
+                ident.push_str(";4"); // Sixel graphics
+                ident.push_str(";6"); // Selective erase
+                ident.push('c');
+
+                self.writer.write(ident.as_bytes()).ok();
             }
             Device::RequestSecondaryDeviceAttributes => {
-                host.writer().write(b"\x1b[>0;0;0c").ok();
+                self.writer.write(b"\x1b[>0;0;0c").ok();
             }
             Device::StatusReport => {
-                host.writer().write(b"\x1b[0n").ok();
+                self.writer.write(b"\x1b[0n").ok();
             }
         }
     }
@@ -1111,7 +1026,7 @@ impl TerminalState {
             )) => {
                 if !self.screen.is_alt_screen_active() {
                     self.screen.activate_alt_screen();
-                    self.set_scroll_viewport(0);
+                    self.pen = CellAttributes::default();
                 }
             }
             Mode::ResetDecPrivateMode(DecPrivateMode::Code(
@@ -1119,7 +1034,7 @@ impl TerminalState {
             )) => {
                 if self.screen.is_alt_screen_active() {
                     self.screen.activate_primary_screen();
-                    self.set_scroll_viewport(0);
+                    self.pen = CellAttributes::default();
                 }
             }
 
@@ -1141,8 +1056,11 @@ impl TerminalState {
                 self.cursor_visible = false;
             }
 
-            Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::MouseTracking))
-            | Mode::ResetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::MouseTracking)) => {
+            Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::MouseTracking)) => {
+                self.mouse_tracking = true;
+            }
+            Mode::ResetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::MouseTracking)) => {
+                self.mouse_tracking = false;
             }
 
             Mode::SetDecPrivateMode(DecPrivateMode::Code(
@@ -1161,8 +1079,11 @@ impl TerminalState {
                 self.button_event_mouse = false;
             }
 
-            Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::AnyEventMouse))
-            | Mode::ResetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::AnyEventMouse)) => {
+            Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::AnyEventMouse)) => {
+                self.any_event_mouse = true;
+            }
+            Mode::ResetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::AnyEventMouse)) => {
+                self.any_event_mouse = false;
             }
 
             Mode::SetDecPrivateMode(DecPrivateMode::Code(DecPrivateModeCode::SGRMouse)) => {
@@ -1176,11 +1097,11 @@ impl TerminalState {
                 DecPrivateModeCode::ClearAndEnableAlternateScreen,
             )) => {
                 if !self.screen.is_alt_screen_active() {
-                    self.save_cursor();
+                    self.dec_save_cursor();
                     self.screen.activate_alt_screen();
                     self.set_cursor_pos(&Position::Absolute(0), &Position::Absolute(0));
+                    self.pen = CellAttributes::default();
                     self.erase_in_display(EraseInDisplay::EraseDisplay);
-                    self.set_scroll_viewport(0);
                 }
             }
             Mode::ResetDecPrivateMode(DecPrivateMode::Code(
@@ -1188,22 +1109,21 @@ impl TerminalState {
             )) => {
                 if self.screen.is_alt_screen_active() {
                     self.screen.activate_primary_screen();
-                    self.restore_cursor();
-                    self.set_scroll_viewport(0);
+                    self.dec_restore_cursor();
                 }
             }
             Mode::SaveDecPrivateMode(DecPrivateMode::Code(_))
             | Mode::RestoreDecPrivateMode(DecPrivateMode::Code(_)) => {}
 
-            Mode::SetDecPrivateMode(DecPrivateMode::Unspecified(_))
-            | Mode::ResetDecPrivateMode(DecPrivateMode::Unspecified(_))
-            | Mode::SaveDecPrivateMode(DecPrivateMode::Unspecified(_))
-            | Mode::RestoreDecPrivateMode(DecPrivateMode::Unspecified(_)) => {}
+            Mode::SetDecPrivateMode(DecPrivateMode::Unspecified(n))
+            | Mode::ResetDecPrivateMode(DecPrivateMode::Unspecified(n))
+            | Mode::SaveDecPrivateMode(DecPrivateMode::Unspecified(n))
+            | Mode::RestoreDecPrivateMode(DecPrivateMode::Unspecified(n)) => {}
 
-            Mode::SetMode(TerminalMode::Unspecified(_))
-            | Mode::ResetMode(TerminalMode::Unspecified(_)) => {}
+            Mode::SetMode(TerminalMode::Unspecified(n))
+            | Mode::ResetMode(TerminalMode::Unspecified(n)) => {}
 
-            Mode::SetMode(_) | Mode::ResetMode(_) => {}
+            Mode::SetMode(m) | Mode::ResetMode(m) => {}
         }
     }
 
@@ -1219,13 +1139,14 @@ impl TerminalState {
                 }
 
                 let ch = cell.str().chars().nth(0).unwrap() as u32;
+
                 checksum += u16::from(ch as u8);
             }
         }
         checksum
     }
 
-    fn perform_csi_window(&mut self, window: Window, host: &mut dyn TerminalHost) {
+    fn perform_csi_window(&mut self, window: Window) {
         match window {
             Window::ReportTextAreaSizeCells => {
                 let screen = self.screen();
@@ -1233,8 +1154,17 @@ impl TerminalState {
                 let width = Some(screen.physical_cols as i64);
 
                 let response = Window::ResizeWindowCells { width, height };
-                write!(host.writer(), "{}", CSI::Window(response)).ok();
+                write!(self.writer, "{}", CSI::Window(response)).ok();
             }
+
+            Window::ReportTextAreaSizePixels => {
+                let response = Window::ResizeWindowPixels {
+                    width: Some(self.pixel_width as i64),
+                    height: Some(self.pixel_height as i64),
+                };
+                write!(self.writer, "{}", CSI::Window(response)).ok();
+            }
+
             Window::ChecksumRectangularArea { request_id, top, left, bottom, right, .. } => {
                 let checksum = self.checksum_rectangle(
                     left.as_zero_based(),
@@ -1242,7 +1172,11 @@ impl TerminalState {
                     right.as_zero_based(),
                     bottom.as_zero_based(),
                 );
-                write!(host.writer(), "\x1bP{}!~{:04x}\x1b\\", request_id, checksum).ok();
+                write!(self.writer, "\x1bP{}!~{:04x}\x1b\\", request_id, checksum).ok();
+            }
+            Window::ResizeWindowCells { .. } => {
+                // We don't allow the application to change the window size; that's
+                // up to the user!
             }
             Window::Iconify | Window::DeIconify => {}
             Window::PopIconAndWindowTitle
@@ -1251,6 +1185,7 @@ impl TerminalState {
             | Window::PushIconAndWindowTitle
             | Window::PushIconTitle
             | Window::PushWindowTitle => {}
+
             _ => {}
         }
     }
@@ -1271,6 +1206,7 @@ impl TerminalState {
             }
             EraseInDisplay::EraseDisplay => 0..rows,
             EraseInDisplay::EraseScrollback => {
+                self.screen_mut().erase_scrollback();
                 return;
             }
         };
@@ -1279,14 +1215,6 @@ impl TerminalState {
             let screen = self.screen_mut();
             for y in row_range.clone() {
                 screen.clear_line(y, col_range.clone(), &pen);
-            }
-        }
-
-        for y in row_range {
-            if self
-                .clear_selection_if_intersects(col_range.clone(), y as ScrollbackOrVisibleRowIndex)
-            {
-                break;
             }
         }
     }
@@ -1303,16 +1231,11 @@ impl TerminalState {
                         screen.erase_cell(x, y);
                     }
                 }
-                self.clear_selection_if_intersects(x..limit, y as ScrollbackOrVisibleRowIndex);
             }
             Edit::DeleteLine(n) => {
                 if self.scroll_region.contains(&self.cursor.y) {
                     let scroll_region = self.cursor.y..self.scroll_region.end;
                     self.screen_mut().scroll_up(&scroll_region, n as usize);
-
-                    let scrollback_region = self.cursor.y as ScrollbackOrVisibleRowIndex
-                        ..self.scroll_region.end as ScrollbackOrVisibleRowIndex;
-                    self.clear_selection_if_intersects_rows(scrollback_region);
                 }
             }
             Edit::EraseCharacter(n) => {
@@ -1326,7 +1249,6 @@ impl TerminalState {
                         screen.set_cell(x, y, &blank);
                     }
                 }
-                self.clear_selection_if_intersects(x..limit, y as ScrollbackOrVisibleRowIndex);
             }
 
             Edit::EraseInLine(erase) => {
@@ -1336,17 +1258,17 @@ impl TerminalState {
                 let cols = self.screen().physical_cols;
                 let range = match erase {
                     EraseInLine::EraseToEndOfLine => cx..cols,
-                    EraseInLine::EraseToStartOfLine => 0..cx,
+                    EraseInLine::EraseToStartOfLine => 0..cx + 1,
                     EraseInLine::EraseLine => 0..cols,
                 };
 
                 self.screen_mut().clear_line(cy, range.clone(), &pen);
-                self.clear_selection_if_intersects(range, cy as ScrollbackOrVisibleRowIndex);
             }
             Edit::InsertCharacter(n) => {
                 let y = self.cursor.y;
                 let x = self.cursor.x;
-
+                // TODO: this limiting behavior may not be correct.  There's also a
+                // SEM sequence that impacts the scope of ICH and ECH to consider.
                 let limit = (x + n as usize).min(self.screen().physical_cols);
                 {
                     let screen = self.screen_mut();
@@ -1354,16 +1276,11 @@ impl TerminalState {
                         screen.insert_cell(x, y);
                     }
                 }
-                self.clear_selection_if_intersects(x..limit, y as ScrollbackOrVisibleRowIndex);
             }
             Edit::InsertLine(n) => {
                 if self.scroll_region.contains(&self.cursor.y) {
                     let scroll_region = self.cursor.y..self.scroll_region.end;
                     self.screen_mut().scroll_down(&scroll_region, n as usize);
-
-                    let scrollback_region = self.cursor.y as ScrollbackOrVisibleRowIndex
-                        ..self.scroll_region.end as ScrollbackOrVisibleRowIndex;
-                    self.clear_selection_if_intersects_rows(scrollback_region);
                 }
             }
             Edit::ScrollDown(n) => self.scroll_down(n as usize),
@@ -1384,7 +1301,7 @@ impl TerminalState {
         }
     }
 
-    fn perform_csi_cursor(&mut self, cursor: Cursor, host: &mut dyn TerminalHost) {
+    fn perform_csi_cursor(&mut self, cursor: Cursor) {
         match cursor {
             Cursor::SetTopAndBottomMargins { top, bottom } => {
                 let rows = self.screen().physical_rows;
@@ -1451,35 +1368,47 @@ impl TerminalState {
             Cursor::PrecedingLine(n) => {
                 self.set_cursor_pos(&Position::Absolute(0), &Position::Relative(-(i64::from(n))))
             }
-            Cursor::ActivePositionReport { .. } => {}
+            Cursor::ActivePositionReport { .. } => {
+                // This is really a response from the terminal, and
+                // we don't need to process it as a terminal command
+            }
             Cursor::RequestActivePositionReport => {
                 let line = OneBased::from_zero_based(self.cursor.y as u32);
                 let col = OneBased::from_zero_based(self.cursor.x as u32);
                 let report = CSI::Cursor(Cursor::ActivePositionReport { line, col });
-                write!(host.writer(), "{}", report).ok();
+                write!(self.writer, "{}", report).ok();
             }
-            Cursor::SaveCursor => self.save_cursor(),
-            Cursor::RestoreCursor => self.restore_cursor(),
-            Cursor::CursorStyle(_) => {}
+            Cursor::SaveCursor => self.dec_save_cursor(),
+            Cursor::RestoreCursor => self.dec_restore_cursor(),
+            Cursor::CursorStyle(style) => {}
         }
     }
 
-    fn save_cursor(&mut self) {
-        let saved =
-            SavedCursor { position: self.cursor, insert: self.insert, wrap_next: self.wrap_next };
+    /// https://vt100.net/docs/vt510-rm/DECSC.html
+    fn dec_save_cursor(&mut self) {
+        let saved = SavedCursor {
+            position: self.cursor,
+            wrap_next: self.wrap_next,
+            pen: self.pen.clone(),
+            dec_origin_mode: self.dec_origin_mode,
+        };
         *self.screen.saved_cursor() = Some(saved);
     }
-    fn restore_cursor(&mut self) {
-        let saved = self.screen.saved_cursor().unwrap_or_else(|| SavedCursor {
+
+    /// https://vt100.net/docs/vt510-rm/DECRC.html
+    fn dec_restore_cursor(&mut self) {
+        let saved = self.screen.saved_cursor().clone().unwrap_or_else(|| SavedCursor {
             position: CursorPosition::default(),
-            insert: false,
             wrap_next: false,
+            pen: Default::default(),
+            dec_origin_mode: false,
         });
         let x = saved.position.x;
         let y = saved.position.y;
         self.set_cursor_pos(&Position::Absolute(x as i64), &Position::Absolute(y));
         self.wrap_next = saved.wrap_next;
-        self.insert = saved.insert;
+        self.pen = saved.pen;
+        self.dec_origin_mode = saved.dec_origin_mode;
     }
 
     fn perform_csi_sgr(&mut self, sgr: Sgr) {
@@ -1521,9 +1450,10 @@ impl TerminalState {
     }
 }
 
+/// A helper struct for implementing `vtparse::VTActor` while compartmentalizing
+/// the terminal state and the embedding/host terminal interface
 pub(crate) struct Performer<'a> {
     pub state: &'a mut TerminalState,
-    pub host: &'a mut dyn TerminalHost,
     print: Option<String>,
 }
 
@@ -1548,8 +1478,8 @@ impl<'a> Drop for Performer<'a> {
 }
 
 impl<'a> Performer<'a> {
-    pub fn new(state: &'a mut TerminalState, host: &'a mut dyn TerminalHost) -> Self {
-        Self { state, host, print: None }
+    pub fn new(state: &'a mut TerminalState) -> Self {
+        Self { state, print: None }
     }
 
     fn flush_print(&mut self) {
@@ -1589,7 +1519,11 @@ impl<'a> Performer<'a> {
             let width = self.screen().physical_cols;
 
             let mut pen = self.pen.clone();
-
+            // the max(1) here is to ensure that we advance to the next cell
+            // position for zero-width graphemes.  We want to make sure that
+            // they occupy a cell so that we can re-emit them when we output them.
+            // If we didn't do this, then we'd effectively filter them out from
+            // the model, which seems like a lossy design choice.
             let print_width = unicode_column_width(g).max(1);
 
             if !self.insert && x + print_width >= width {
@@ -1605,12 +1539,8 @@ impl<'a> Performer<'a> {
                 }
             }
 
+            // Assign the cell
             self.screen_mut().set_cell(x + x_offset, y, &cell);
-
-            self.clear_selection_if_intersects(
-                x..x + print_width,
-                y as ScrollbackOrVisibleRowIndex,
-            );
 
             if self.insert {
                 x_offset += print_width;
@@ -1618,7 +1548,7 @@ impl<'a> Performer<'a> {
                 self.cursor.x += print_width;
                 self.wrap_next = false;
             } else {
-                self.wrap_next = true;
+                self.wrap_next = self.dec_auto_wrap;
             }
         }
     }
@@ -1627,14 +1557,16 @@ impl<'a> Performer<'a> {
         match action {
             Action::Print(c) => self.print(c),
             Action::Control(code) => self.control(code),
-            Action::DeviceControl(_) => {}
+            Action::DeviceControl(ctrl) => {}
             Action::OperatingSystemCommand(osc) => self.osc_dispatch(*osc),
             Action::Esc(esc) => self.esc_dispatch(esc),
             Action::CSI(csi) => self.csi_dispatch(csi),
         }
     }
 
+    /// Draw a character to the screen
     fn print(&mut self, c: char) {
+        // We buffer up the chars to increase the chances of correctly grouping graphemes into cells
         self.print.get_or_insert_with(String::new).push(c);
     }
 
@@ -1648,7 +1580,23 @@ impl<'a> Performer<'a> {
                 self.set_cursor_pos(&Position::Absolute(0), &Position::Relative(0));
             }
             ControlCode::Backspace => {
-                self.set_cursor_pos(&Position::Relative(-1), &Position::Relative(0));
+                if self.reverse_wraparound_mode
+                    && self.dec_auto_wrap
+                    && self.cursor.x == 0
+                    && self.cursor.y == self.scroll_region.start
+                {
+                    // Backspace off the top-left wraps around to the bottom right
+                    let x_pos = Position::Absolute(self.screen().physical_cols as i64 - 1);
+                    let y_pos = Position::Absolute(self.scroll_region.end - 1);
+                    self.set_cursor_pos(&x_pos, &y_pos);
+                } else if self.reverse_wraparound_mode && self.dec_auto_wrap && self.cursor.x == 0 {
+                    // Backspace off the left wraps around to the prior line on the right
+                    let x_pos = Position::Absolute(self.screen().physical_cols as i64 - 1);
+                    let y_pos = Position::Relative(-1);
+                    self.set_cursor_pos(&x_pos, &y_pos);
+                } else {
+                    self.set_cursor_pos(&Position::Relative(-1), &Position::Relative(0));
+                }
             }
             ControlCode::HorizontalTab => self.c0_horizontal_tab(),
             ControlCode::Bell => {}
@@ -1660,20 +1608,23 @@ impl<'a> Performer<'a> {
         self.flush_print();
         match csi {
             CSI::Sgr(sgr) => self.state.perform_csi_sgr(sgr),
-            CSI::Cursor(cursor) => self.state.perform_csi_cursor(cursor, self.host),
+            CSI::Cursor(cursor) => self.state.perform_csi_cursor(cursor),
             CSI::Edit(edit) => self.state.perform_csi_edit(edit),
             CSI::Mode(mode) => self.state.perform_csi_mode(mode),
-            CSI::Device(dev) => self.state.perform_device(*dev, self.host),
-            CSI::Mouse(_) => {}
-            CSI::Window(window) => self.state.perform_csi_window(window, self.host),
-            CSI::Unspecified(_) => {}
+            CSI::Device(dev) => self.state.perform_device(*dev),
+            CSI::Mouse(mouse) => {}
+            CSI::Window(window) => self.state.perform_csi_window(window),
+            CSI::Unspecified(unspec) => {}
         };
     }
 
     fn esc_dispatch(&mut self, esc: Esc) {
         self.flush_print();
         match esc {
-            Esc::Code(EscCode::StringTerminator) => {}
+            Esc::Code(EscCode::StringTerminator) => {
+                // String Terminator (ST); explicitly has nothing to do here, as its purpose is
+                // handled implicitly through a state transition in the vtparse state tables.
+            }
             Esc::Code(EscCode::DecApplicationKeyPad) => {
                 self.application_keypad = true;
             }
@@ -1690,8 +1641,37 @@ impl<'a> Performer<'a> {
             Esc::Code(EscCode::AsciiCharacterSet) => {
                 self.dec_line_drawing_mode = false;
             }
-            Esc::Code(EscCode::DecSaveCursorPosition) => self.save_cursor(),
-            Esc::Code(EscCode::DecRestoreCursorPosition) => self.restore_cursor(),
+            Esc::Code(EscCode::DecSaveCursorPosition) => self.dec_save_cursor(),
+            Esc::Code(EscCode::DecRestoreCursorPosition) => self.dec_restore_cursor(),
+
+            // RIS resets a device to its initial state, i.e. the state it has after it is switched
+            // on. This may imply, if applicable: remove tabulation stops, remove qualified areas,
+            // reset graphic rendition, erase all positions, move active position to first
+            // character position of first line.
+            Esc::Code(EscCode::FullReset) => {
+                self.pen = Default::default();
+                self.cursor = Default::default();
+                self.wrap_next = false;
+                self.insert = false;
+                self.dec_auto_wrap = true;
+                self.reverse_wraparound_mode = false;
+                self.dec_origin_mode = false;
+                self.use_private_color_registers_for_each_graphic = false;
+                self.application_cursor_keys = false;
+                self.sixel_scrolling = true;
+                self.dec_ansi_mode = false;
+                self.application_keypad = false;
+                self.bracketed_paste = false;
+                self.sgr_mouse = false;
+                self.any_event_mouse = false;
+                self.button_event_mouse = false;
+                self.current_mouse_button = MouseButton::None;
+                self.cursor_visible = true;
+                self.dec_line_drawing_mode = false;
+                self.tabs = TabStop::new(self.screen().physical_cols, 8);
+                self.scroll_region = 0..self.screen().physical_rows as VisibleRowIndex;
+            }
+
             _ => {}
         }
     }
@@ -1702,7 +1682,6 @@ impl<'a> Performer<'a> {
             OperatingSystemCommand::SetIconNameAndWindowTitle(title)
             | OperatingSystemCommand::SetWindowTitle(title) => {
                 self.title = title.clone();
-                self.host.set_title(&title);
             }
             OperatingSystemCommand::SetIconName(_) => {}
             OperatingSystemCommand::SetHyperlink(link) => {
@@ -1717,20 +1696,16 @@ impl<'a> Performer<'a> {
             }
 
             OperatingSystemCommand::ClearSelection(_) => {
-                if let Ok(clip) = self.host.get_clipboard() {
-                    clip.set_contents(None).ok();
-                }
+                self.set_clipboard_contents(None).ok();
             }
             OperatingSystemCommand::QuerySelection(_) => {}
             OperatingSystemCommand::SetSelection(_, selection_data) => {
-                if let Ok(clip) = self.host.get_clipboard() {
-                    match clip.set_contents(Some(selection_data)) {
-                        Ok(_) => (),
-                        Err(_) => {}
-                    }
+                match self.set_clipboard_contents(Some(selection_data)) {
+                    Ok(_) => (),
+                    Err(err) => panic!("failed to set clipboard in response to OSC 52: {:?}", err),
                 }
             }
-            OperatingSystemCommand::SystemNotification(_) => {}
+            OperatingSystemCommand::SystemNotification(message) => {}
             OperatingSystemCommand::ChangeColorNumber(specs) => {
                 for pair in specs {
                     match pair.color {
@@ -1739,10 +1714,10 @@ impl<'a> Performer<'a> {
                                 OperatingSystemCommand::ChangeColorNumber(vec![ChangeColorPair {
                                     palette_index: pair.palette_index,
                                     color: ColorOrQuery::Color(
-                                        self.palette.colors.0[pair.palette_index as usize],
+                                        self.palette().colors.0[pair.palette_index as usize],
                                     ),
                                 }]);
-                            write!(self.host.writer(), "{}", response).ok();
+                            write!(self.writer, "{}", response).ok();
                         }
                         ColorOrQuery::Color(c) => {
                             self.palette.colors.0[pair.palette_index as usize] = c;
@@ -1751,6 +1726,7 @@ impl<'a> Performer<'a> {
                 }
                 self.make_all_lines_dirty();
             }
+
             OperatingSystemCommand::ChangeDynamicColors(first_color, colors) => {
                 use crate::core::escape::osc::DynamicColorNumber;
                 let mut idx: u8 = first_color as u8;
@@ -1763,9 +1739,9 @@ impl<'a> Performer<'a> {
                                     ColorOrQuery::Query => {
                                         let response = OperatingSystemCommand::ChangeDynamicColors(
                                             which_color,
-                                            vec![ColorOrQuery::Color(self.palette.$name)],
+                                            vec![ColorOrQuery::Color(self.palette().$name)],
                                         );
-                                        write!(self.host.writer(), "{}", response).ok();
+                                        write!(self.writer, "{}", response).ok();
                                     }
                                     ColorOrQuery::Color(c) => self.palette.$name = c,
                                 }

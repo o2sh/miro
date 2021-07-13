@@ -36,13 +36,6 @@ pub type VisibleRowIndex = i64;
 
 pub type ScrollbackOrVisibleRowIndex = i32;
 
-pub fn intersects_range2<T: Ord + Copy>(r1: Range<T>, r2: Range<T>) -> bool {
-    let start = max(r1.start, r2.start);
-    let end = min(r1.end, r2.end);
-
-    end > start
-}
-
 #[derive(Debug)]
 pub enum Position {
     Absolute(VisibleRowIndex),
