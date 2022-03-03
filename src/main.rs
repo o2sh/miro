@@ -1,4 +1,4 @@
-use clap::{crate_description, crate_name, crate_version, App, AppSettings, Arg};
+use clap::{crate_description, crate_name, crate_version, AppSettings, Arg, Command};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -32,16 +32,13 @@ fn run(theme: Theme) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let matches = App::new(crate_name!())
+    let matches = Command::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())
-        .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::DeriveDisplayOrder)
-        .setting(AppSettings::UnifiedHelpMessage)
-        .setting(AppSettings::HidePossibleValuesInHelp)
         .arg(
-            Arg::with_name("theme")
-                .short("t")
+            Arg::new("theme")
+                .short('t')
                 .long("theme")
                 .help("Which theme to use (pika, kirby, *mario*).")
                 .possible_values(&["mario", "pika", "kirby"])

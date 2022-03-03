@@ -168,8 +168,7 @@ impl Header {
     fn compute_header_text(&self, number_of_vertices: usize) -> String {
         let now: DateTime<Local> = Local::now();
         let current_time = now.format("%H:%M:%S").to_string();
-        let cpu_load =
-            format!("CPU:{}%", self.sys.get_global_processor_info().get_cpu_usage().round());
+        let cpu_load = format!("CPU:{}%", self.sys.global_processor_info().cpu_usage().round());
         let indent = std::cmp::max(
             0,
             (number_of_vertices / VERTICES_PER_CELL) as i32
