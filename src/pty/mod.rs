@@ -42,7 +42,6 @@ pub trait SlavePty {
     fn spawn_command(&self, cmd: Command) -> anyhow::Result<Box<dyn Child>>;
 }
 
-#[derive(Debug)]
 pub struct ExitStatus {
     successful: bool,
 }
